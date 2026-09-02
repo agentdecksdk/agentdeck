@@ -481,21 +481,22 @@ continues on its next line.
 
 ## Serving through bindings
 
-`deck.serve(binding, *bindings)` validates a set of bindings and serves them, owning their lifecycle. A
-binding is one external protocol, channel or surface over one transport. The first one is the
-terminal:
+`deck.serve(binding, *bindings)` validates a set of bindings and serves them, owning their
+lifecycle. It is synchronous and blocking: it owns the event loop until the server exits, so it
+runs from plain application code with no `asyncio.run(...)` of your own. A binding is one external
+protocol, channel or surface over one transport. The first one is the terminal:
 
 ```python
-import asyncio
-
 from agentdeck import Deck
 from agentdeck.bindings import Terminal
 
 deck = Deck.from_project("./.agentdeck")
-asyncio.run(deck.serve(Terminal.stdio()))   # what `agentdeck chat` runs
+deck.serve(Terminal.stdio())   # what `agentdeck chat` runs
 ```
 
-Embedding uses `deck.asgi(binding, *bindings)` instead of `serve()`.
+Already inside asyncio  -  embedding AgentDeck serving in an application that owns its own event
+loop  -  use `await deck.serve_async(binding, *bindings)` instead: same behaviour, without owning
+the loop. Embedding as an ASGI app uses `deck.asgi(binding, *bindings)` instead of either.
 
 ## Serving over HTTP
 
@@ -503,13 +504,11 @@ A Deck does not serve itself: a binding does, and `Native.http()` is AgentDeck's
 protocol.
 
 ```python
-import asyncio
-
 from agentdeck import Deck
 from agentdeck.bindings import Native
 
 deck = Deck.from_project("./.agentdeck")
-asyncio.run(deck.serve(Native.http(), port=8000))
+deck.serve(Native.http(), port=8000)
 ```
 
 `deck.asgi(binding, *bindings)` returns the ASGI application instead, for mounting inside a service you
@@ -980,6 +979,401 @@ Configuration for Redis-backed agent conversation memory.
 | `AGENTDECK_SESSION` | `str` or `None` | `None` | Redis URL for `RedisSession`-backed agent conversation memory (`agentdeck.adapters.executors.openai_agents.sessions.SessionFactory`), needing the `[redis]` extra. `None` falls back to one in-process `SQLiteSession` per session key  -  no persistence across a restart, no sharing across workers. |
 | `AGENTDECK_SESSION_REDIS_KEY_PREFIX` | `str` | `'agents:session'` | Key prefix under which `RedisSession` stores conversations in Redis. |
 | `AGENTDECK_SESSION_REDIS_TTL` | `int` or `None` | `None` | Per-session TTL in seconds for Redis-backed conversations. `None` means sessions persist indefinitely. |
+
+---
+
+# Bindings
+
+*Serve one Deck over multiple protocols and surfaces at once.*
+Source: https://agentdecksdk.com/bindings
+
+# Bindings
+
+A binding serves a `Deck` over one protocol or surface. Add one line, and the same runs,
+events, and controls are reachable through it.
+
+## Protocols, channels, and surfaces
+
+| kind | what it is | ships in 6.0 as |
+|---|---|---|
+| protocol | machine-facing interoperability contract | `Native`, `AG-UI` |
+| channel | existing messaging network with its own identity | none yet |
+| surface | user-facing interface AgentDeck hosts in-process | `Terminal` (`agentdeck chat`) |
+
+Every kind builds against the same `Binding` contract and the same gateway; only the label
+differs. See the
+[protocol design folder](https://github.com/agentdecksdk/agentdeck/blob/main/docs/design/protocols/bindings.md)
+for the full picture. An external surface such as Assistant UI or CopilotKit is a client of a
+protocol binding, consuming its wire through its own library; it is not a binding of its own.
+
+## What ships in 6.0
+
+- `Native.http()`: AgentDeck's own HTTP/SSE protocol.
+- `Terminal.stdio()`: the terminal surface, what `agentdeck chat` runs.
+- `AGUI.http()`: the AG-UI protocol over HTTP/SSE.
+
+## The front door
+
+Serve a Deck over several bindings from one call:
+
+```python
+from agentdeck import Deck
+from agentdeck.bindings import AGUI, Native, Terminal
+
+deck = Deck.from_project()
+deck.serve(Native.http("/api"), AGUI.http("/agui"), Terminal.stdio(), port=8000)
+```
+
+`deck.serve(...)` validates the set of bindings and owns their lifecycle: one process, three
+bindings reaching the same runs.
+
+Embedding inside an app you already run swaps `serve` for `deck.asgi(...)`, which returns the
+ASGI application instead of blocking; `deck.expose(...)` is the lower-level call that returns the
+`Exposure` object underneath both. See the [Deck reference](/reference/deck) for the full API.
+
+---
+
+# AG-UI
+
+*Project a whole Deck, or one pinned target, into the AG-UI protocol.*
+Source: https://agentdecksdk.com/bindings/agui
+
+# AG-UI
+
+`AGUI.http()` projects a whole Deck, or one pinned target, into the AG-UI protocol. `threadId` is
+the session; `runId` is a binding-owned interaction id, never `Run.id`, since one AgentDeck Run
+can outlive several AG-UI interactions across suspension and resume.
+
+## Install
+
+```bash
+pip install "agentdeck-sdk[agui]"
+```
+
+`agui` pulls in the official `ag-ui-protocol` models and encoder, plus `starlette`.
+
+## Serve
+
+```python
+from agentdeck import Deck
+from agentdeck.bindings import AGUI
+
+deck = Deck.from_project()
+deck.serve(AGUI.http("/agui"), port=8000)
+```
+
+`target=None` routes per request, off `forwardedProps.agentdeck.target`. `AGUI.http("/support",
+target="Support")` pins the endpoint instead: plain AG-UI to any client, and a request naming a
+different target is rejected rather than silently overridden. A pinned name that does not exist
+in the deck is validated when you call `deck.serve()` or `deck.asgi()`, not on the first request.
+
+## What works now
+
+- Text and reasoning stream live, from any agent or workflow target.
+- Backend tools and sessions work like any other Deck run.
+- HITL: `ctx.ask()` becomes `RunFinishedInterruptOutcome`; the client resumes with a `ResumeEntry`
+  naming that `interruptId`.
+- Multimodal input: image and audio inline or by URL; document and video by URL only.
+- `control.cancel`: a client disconnect or abort cancels the run.
+
+## Gaps
+
+Each row is a stable AG-UI feature waiting on a generic AgentDeck primitive, never faked inside
+the binding. Full reasoning: the
+[AG-UI design doc](https://github.com/agentdecksdk/agentdeck/blob/main/docs/design/protocols/agui.md).
+
+| AG-UI feature | missing primitive |
+|---|---|
+| `parentRunId`, transcript edit, regeneration | session or run branching |
+| non-empty `context` | a generic run-scoped semantic context |
+| frontend tools | run-scoped tools supplied at start |
+| shared state (`STATE_SNAPSHOT`/`STATE_DELTA`) | a real shared application-state contract |
+| steering | mid-run input |
+| more than one outstanding interrupt | `run.answer(interrupt_id, value)` |
+| tool-output streaming | richer tool progress and result events |
+| inline document/video bytes | a content block for bytes held inline, not by reference |
+| `BinaryInputContent` | a generic binary content block |
+
+## External clients
+
+Assistant UI, CopilotKit, or the official `HttpAgent` point at a pinned endpoint with zero
+AgentDeck-specific code. Reaching the whole catalog instead costs one extension field,
+`forwardedProps.agentdeck.target`; either way AgentDeck never learns which client is asking.
+
+## Limits
+
+- No built-in authentication, the same posture as `Native.http()`: front it yourself.
+- `namespace=` is tenancy routing, not authentication.
+- `threadId` is session identity, never authorization.
+
+---
+
+# Native
+
+*AgentDeck's own HTTP/SSE protocol, one route per Run operation.*
+Source: https://agentdecksdk.com/bindings/native
+
+# Native
+
+`Native.http()` is AgentDeck's own HTTP/SSE protocol: one route per `Run` operation, nothing
+translated from another wire.
+
+## Install
+
+```bash
+pip install "agentdeck-sdk[serve]"
+```
+
+`serve` pulls in `starlette` and `uvicorn`; `Native.http()` needs nothing else.
+
+## Serve
+
+```python
+from agentdeck import Deck
+from agentdeck.bindings import Native
+
+deck = Deck.from_project()
+deck.serve(Native.http("/api"), port=8000)
+```
+
+## Routes
+
+| method | path | request | response | errors |
+|---|---|---|---|---|
+| GET | `/targets` | none | `[{name, kind, description, input_schema}]` | 500 |
+| POST | `/runs` | `{target, input, session_id?, key?}` | run summary | 422, 409, 500 |
+| GET | `/runs` | `status?`, `limit?` | `[run summary]` | 422, 500 |
+| GET | `/runs/{run_id}` | none | run summary | 404, 500 |
+| GET | `/runs/{run_id}/events` | `Last-Event-ID` or `?from_seq=` | SSE | 404, 500 |
+| POST | `/runs/{run_id}/cancel` | `{reason?}` | `{}` | 404, 409, 501, 500 |
+| POST | `/runs/{run_id}/pause` | `{reason?}` | `{}` | 404, 409, 501, 500 |
+| POST | `/runs/{run_id}/resume` | none | `{}` | 404, 409, 501, 500 |
+| GET | `/runs/{run_id}/pending` | none | an `InterruptResult` or `null` | 404, 500 |
+| POST | `/runs/{run_id}/answer` | `{value}` | `{}` | 404, 409, 422, 500 |
+
+A run summary is `{run_id, namespace, session_id, status, can}`; every non-2xx body is
+`{"detail": "<message>"}`. Full wire detail: the
+[native wire spec](https://github.com/agentdecksdk/agentdeck/blob/main/docs/design/protocols/native-wire.md).
+
+## Capabilities
+
+- `streaming`: `text.delta` events over SSE.
+- `text`: plain text and structured content blocks, in and out.
+- `hitl`: the `run.interrupted` question and `/answer` round trip.
+- `control.cancel`, `control.pause`, `control.resume`: the matching routes work rather than 501.
+
+## Limits
+
+- No built-in authentication: front it with your own middleware or gateway.
+- `namespace=` on `Native.http(namespace=...)` is tenancy routing, not authentication: it scopes
+  which runs a caller reaches, and carries no identity of its own.
+- A context type declared on the Deck never reaches a served run: see
+  [where a context does not reach](/reference/deck#where-a-context-does-not-reach).
+
+---
+
+# Serve
+
+*Validate a set of bindings, then serve them standalone or embed them in an app you already run.*
+Source: https://agentdecksdk.com/bindings/serve
+
+# Serve
+
+`deck.serve(binding, *bindings, host=, port=)` is synchronous: it owns the event loop, validates
+the bindings, opens the Deck, starts every binding, and blocks until interrupted. Ctrl-C stops the
+server and returns. At least one binding is required: `binding` is positional, so `deck.serve()`
+alone is a `TypeError` before any binding code runs.
+
+## Standalone
+
+```python
+from agentdeck import Deck
+from agentdeck.bindings import Native
+
+deck = Deck.from_project()
+deck.serve(Native.http("/api"), host="0.0.0.0", port=8000)
+```
+
+A stdio-only exposure ignores `host=`/`port=`: `deck.serve(Terminal.stdio())` runs the terminal
+loop directly, and no listener opens.
+
+## Inside an existing event loop
+
+Already inside asyncio, embedding AgentDeck serving in an application that owns its own event
+loop: `deck.serve(...)` refuses to run there, since it cannot own a loop that is already running.
+Use `await deck.serve_async(...)` instead, same behavior, without owning the loop:
+
+```python
+await deck.serve_async(Native.http("/api"), port=8000)
+```
+
+## Embedding
+
+`deck.asgi(binding, *bindings)` returns the ASGI application instead of blocking, for mounting
+inside a service you already run:
+
+```python
+from agentdeck import Deck
+from agentdeck.bindings import Native
+
+deck = Deck.from_project()
+app = deck.asgi(Native.http("/api"))
+```
+
+```bash
+uvicorn myapp:app --host 0.0.0.0 --port 8000
+```
+
+`deck.expose(*bindings)` is the lower-level call underneath both: it returns the
+`Exposure` object itself, for callers who need that object.
+
+## Validation before anything opens
+
+Every check below runs before any binding opens a socket or a process:
+
+| failure | the error you see |
+|---|---|
+| two bindings share a `name` | ``ConfigError: binding names must be unique in one exposure, but ['native'] appear more than once. `requires` resolves by name, so give each binding its own `BindingInfo.name`.`` |
+| a binding declares an unsupported `spi_version` | `ConfigError: binding 'native' declares spi_version=2, but this AgentDeck supports spi_version=1.` |
+| a binding's `requires` names something absent from the exposure | `ConfigError: binding 'agui' requires ['native'], not in this exposure. Available: ['agui'].` |
+| two HTTP bindings claim one path | `ConfigError: HTTP path '/api' is claimed by both 'native' and 'agui'.` |
+| more than one stdio binding | `ConfigError: only one stdio binding is allowed per exposure; got ['terminal', 'terminal-2'].` |
+
+If a later `start()` fails anyway, every binding already started stops in reverse order.
+
+## namespace= and name=
+
+`namespace=` on `Native.http()` or `AGUI.http()` fixes every run started through that binding to
+one tenant. `Terminal.stdio()` takes no `namespace=`: one stdio process is already one session.
+`name=` distinguishes a second instance of the same binding in one exposure, such as two
+`Native.http()` endpoints at different paths, and is what the name-uniqueness check above enforces.
+
+---
+
+# Terminal
+
+*The surface over stdin/stdout, one session per process.*
+Source: https://agentdecksdk.com/bindings/terminal
+
+# Terminal
+
+`Terminal.stdio()` is the surface over stdin/stdout: one session per process, no auth, no store,
+no background task.
+
+## Serve
+
+```python
+from agentdeck import Deck
+from agentdeck.bindings import Terminal
+
+deck = Deck.from_project()
+deck.serve(Terminal.stdio())
+```
+
+`agentdeck chat [target]` runs the same thing: `Deck.from_project().serve(Terminal.stdio(target=target))`.
+
+## target= and session_id=
+
+`target=` is validated when you call `deck.serve()` or `deck.asgi()`, against the deck's own
+targets; omit it only when the deck holds exactly one, since there is nothing to default to
+otherwise. `session_id=` fixes the one session this process holds; without it, each process gets
+a fresh random id.
+
+## One session, no namespace=
+
+One process is already one session, so there is nothing to route: `Terminal.stdio()` takes no
+`namespace=`, unlike `Native.http()` or `AGUI.http()`.
+
+## Capabilities
+
+- `streaming`: printed live as `text.delta` events arrive.
+- `text`: plain text in and out.
+- `hitl`: a numbered prompt for `run.interrupted`, in the interrupt's own option order.
+- `control.cancel`: Ctrl-C cancels the run in flight.
+
+## Limits
+
+- No auth, no store: the session lives in process memory and dies with it.
+- Ctrl-D, or a scripted stdin running out, cancels any run in flight rather than hanging.
+
+---
+
+# Write Your Own
+
+*The SPI a binding is held to, in or out of tree.*
+Source: https://agentdecksdk.com/bindings/write-your-own
+
+# Write your own
+
+A binding is any object satisfying the `Binding` protocol. Nothing under `agentdeck.adapters` or
+`agentdeck.runtime` is needed to write one; `Native`, `Terminal` and `AGUI` are held to the same
+SPI as a plugin outside this repository.
+
+## The shape
+
+- `info: BindingInfo`: what this binding is, validated before anything opens.
+- `build(gateway: DeckGateway) -> Endpoint`: resolve and validate; no I/O, nothing opens here.
+- `async def start()`: start binding-owned resources; the `Exposure` owns any task spawned here.
+- `async def stop()`: stop binding-owned resources; idempotent, may run without a preceding `start()`.
+
+## BindingInfo
+
+- `name`: unique within one exposure; `requires` resolves by it.
+- `kind`: `"protocol" | "channel" | "surface"`, data, not behavior.
+- `transport`: `"http"`, `"stdio"`, or a transport this binding defines.
+- `spi_version`: see below.
+- `advertises`: capability names (`streaming`, `hitl`, `control.cancel`, ...) a contract test holds this binding to.
+- `requires`: other bindings, by `name`, this one needs in the same exposure.
+
+## DeckGateway
+
+The one surface a binding talks to a Deck through:
+
+- `targets()`: every agent and workflow in the catalog.
+- `capabilities`: what varies by deployment (`control`, `durable`), never by run.
+- `start(target, input, ...)`, `get_run(run_id, ...)`, `list_runs(...)`: `Runs.start/get/list`, every failure mapped.
+- `GatewayError(code, message)`: the one exception a binding catches; `GatewayFailureCode` maps onto a wire status.
+
+## Endpoints
+
+- `HttpEndpoint(path, app)`: an isolated ASGI app or router, mounted on the shared listener.
+- `StdioEndpoint(run)`: a coroutine over stdin/stdout, run as a task, no port opened.
+
+## The import boundary
+
+A plugin package is held to this by `tests/bindings/fixture_plugin/.importlinter`'s own forbidden-modules contract, run against the fixture plugin the same way it would run against any out-of-tree package:
+
+| may use | may not use |
+|---|---|
+| `agentdeck.bindings` (gateway, `Binding`, endpoint, failure types) | `agentdeck.runtime.*` |
+| `agentdeck.Run`, `agentdeck.Event` | `agentdeck.adapters.*` |
+| content blocks from `agentdeck` (`TextBlock`, `ImageBlock`, ...) | `agentdeck.core.*` |
+| the error taxonomy from `agentdeck.errors` | `agentdeck.deck` |
+
+```python no-test reason="agentdeck_myprotocol is a placeholder package name, not a real import"
+from agentdeck import Deck
+from agentdeck_myprotocol import MyProtocol
+
+app = Deck.from_project().asgi(MyProtocol.http())
+```
+
+## spi_version
+
+`PROTOCOL_SPI_VERSION = 1`, frozen in 6.0. A binding declaring an unsupported one is refused when
+you call `deck.serve()` or `deck.asgi()`, before anything opens, naming both versions.
+
+## Prove it
+
+A checklist generalized from the SPI contract suite, run against a channel-shaped fixture plugin
+since a channel is the harder pattern:
+
+- A message reaches the Deck only through `gateway.start`, and what it starts is an ordinary run.
+- A disconnected reader never cancels the run; the run completes on its own.
+- Resume re-tails from `last_seq + 1`; nothing polls.
+- Two bindings on one exposure share one gateway and see the same runs.
+- An unknown event kind is skipped, never raised.
+- Every rejection maps to a real error, never a raw exception reaching the wire.
+- `stop()` cancels every in-flight task, and still surfaces whichever failure happened first.
 
 ---
 
@@ -2204,6 +2598,13 @@ The current release is **v5.2.1**. Earlier releases are listed at the bottom.
 
 ### Changed
 
+- **`Deck.serve()` is synchronous and blocking** (#623), breaking versus the unreleased #606
+  shape: it owns the event loop (`asyncio.run` internally) instead of returning a coroutine, so
+  it runs from plain application code with no `asyncio.run(deck.serve(...))` of your own. The
+  previous coroutine is now `Deck.serve_async()`, for a caller already running inside asyncio.
+  Ctrl-C stops the server and returns quietly, matching `uvicorn.run`; `serve_async()` leaves its
+  own `KeyboardInterrupt` handling to the caller. `agentdeck chat` calls `deck.serve(...)`
+  directly. `Deck.asgi()` is unchanged.
 - **`DeckGateway.start` drops `context`** (#599): no binding ever passed one, and a served run
   has no live Python execution context to hand it. `DeckGateway` no longer stores or directly
   exposes the `Deck` it was built from.
@@ -2216,6 +2617,18 @@ The current release is **v5.2.1**. Earlier releases are listed at the bottom.
 
   The root keeps the everyday vocabulary, a feature namespace keeps its own, and no public name
   lives at two paths (`docs/engineering/architecture.md` 3).
+
+### Fixed
+
+- **A workflow's own `InputError` after `run.started` reaches every wire as itself** (#621):
+  `RunFailed.error_code` gains `"invalid_input"`, and its `message` carries the exception's own
+  caller-safe text instead of being stripped to `"InputError in engine ..."`. Every other
+  exception's shape is unchanged.
+- **`Deck.__aenter__` rolls back a late failure** (#572): a failure after observers started  -  building the runtime, connecting MCP servers  -  used to leave every started observer open and the process claim held, blocking a second `Deck(...)` in the same process. It now closes what it started and releases the claim before re-raising, same as an observer-start failure already did.
+- **A workflow's input mapping that doesn't match its declared parameters raises `InputError`,
+  not `ConfigError`** (#583). It is caller-supplied content the target can't take, not a
+  configuration fault. A same-process caller now catches `InputError` instead of `ConfigError`;
+  `_map_failure` already maps `InputError` to `INVALID_INPUT`.
 
 ## v5.2.1
 
