@@ -34,6 +34,7 @@ forbidden_modules =
     agentdeck.runtime
     agentdeck.deck
     agentdeck.testing
+    agentdeck.adapters
 
 # The Runtime is the use-case layer: it orchestrates through ports and must never reach for
 # an engine, a store or a surface directly: those arrive from the composition root.
@@ -192,18 +193,28 @@ ignore_imports =
     agentdeck.bindings.native -> agentdeck.adapters.bindings.native.binding
     agentdeck.bindings.terminal -> agentdeck.adapters.bindings.terminal.binding
 
-# Native (#548): the first in-tree binding, held to the same allow-list ruling 19 gives an
+# Every in-tree binding (#548, #599), held to the same allow-list ruling 19 gives an
 # out-of-tree plugin (proven separately by `tests/bindings/fixture_plugin/.importlinter`).
-# `agentdeck.adapters` itself is not forbidden here: this module lives under it, and Python
-# imports every ancestor package on `import agentdeck.adapters.bindings.native`.
-[importlinter:contract:native-binding-is-spi-facing-only]
-name = the Native binding reaches a Deck through the public SPI only, never runtime, Deck or another adapter
+# `source_modules` names the parent package once: a new `adapters/bindings/<name>/` is covered
+# automatically, with no per-binding contract to remember. `agentdeck.core` joins the forbidden
+# list here (the fixture plugin already forbids it); `agentdeck.adapters` itself is not
+# forbidden: every binding lives under it, and Python imports every ancestor package on
+# `import agentdeck.adapters.bindings.<name>`. Bindings sharing no implementation helpers is
+# a separate contract below (#599, #603), since `forbidden`/parent-package containment cannot
+# express "these siblings must not import each other".
+[importlinter:contract:binding-implementations-are-spi-facing-only]
+name = a binding implementation reaches a Deck through the public SPI only, never runtime, core, Deck or another adapter
 type = forbidden
 source_modules =
-    agentdeck.adapters.bindings.native
+    agentdeck.adapters.bindings
 forbidden_modules =
-    agentdeck.runtime
     agentdeck.deck
+    agentdeck.runtime
+    agentdeck.core
+    agentdeck.authoring
+    agentdeck.skills
+    agentdeck.mcp
+    agentdeck.serve
     agentdeck.adapters.control
     agentdeck.adapters.executors
     agentdeck.adapters.leases
@@ -212,20 +223,16 @@ forbidden_modules =
     agentdeck.adapters.tools
 allow_indirect_imports = True
 
-# Terminal (#549): the second in-tree binding, held to the same allow-list as Native.
-[importlinter:contract:terminal-binding-is-spi-facing-only]
-name = the Terminal binding reaches a Deck through the public SPI only, never runtime, Deck or another adapter
-type = forbidden
-source_modules =
+# The contract above cannot stop `native` importing `terminal`'s implementation directly
+# (both pass its `source_modules` check). AG-UI and every later binding join this list.
+[importlinter:contract:bindings-are-independent]
+name = in-tree bindings share no implementation: each reaches the Deck through the public SPI only
+type = independence
+modules =
+    agentdeck.adapters.bindings.native
     agentdeck.adapters.bindings.terminal
-forbidden_modules =
-    agentdeck.core
-    agentdeck.runtime
-    agentdeck.deck
-    agentdeck.adapters.control
-    agentdeck.adapters.executors
-    agentdeck.adapters.leases
-    agentdeck.adapters.stores
-    agentdeck.adapters.telemetry
-    agentdeck.adapters.tools
-allow_indirect_imports = True
+# #606's TYPE_CHECKING re-exports (agentdeck/bindings/__init__.py) are never executed, so
+# they are not the shared-implementation route this contract exists to catch.
+ignore_imports =
+    agentdeck.bindings -> agentdeck.bindings.native
+    agentdeck.bindings -> agentdeck.bindings.terminal

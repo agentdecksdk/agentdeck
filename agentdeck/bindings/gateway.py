@@ -24,8 +24,9 @@ from agentdeck.errors import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Awaitable, Callable, Mapping, Sequence
 
+    from agentdeck.authoring import Agent
     from agentdeck.authoring.native import NativeDefinition
     from agentdeck.core.status import RunStatus
     from agentdeck.deck import Deck, Run
@@ -115,7 +116,18 @@ class DeckGateway:
     ``capabilities`` and failure classification."""
 
     def __init__(self, deck: Deck) -> None:
-        self._deck = deck
+        # Bound callables and read-only collections, never `deck` itself: a plugin holding a
+        # gateway must not be one attribute away from the composition root.
+        self._agents: Mapping[str, Agent] = deck.agents
+        self._workflows: Mapping[str, NativeDefinition] = deck.workflows
+        self._start: Callable[..., Awaitable[Run]] = deck.runs.start
+        self._get: Callable[..., Awaitable[Run]] = deck.runs.get
+        self._list: Callable[..., Awaitable[Sequence[Run]]] = deck.runs.list
+        settings = deck.settings
+        self._capabilities = Capabilities(
+            control=_is_configured(settings.control.url),
+            durable=_is_configured(settings.events.url),
+        )
 
     def targets(self) -> Sequence[TargetInfo]:
         """Every agent and workflow in the deck's catalog.
@@ -125,7 +137,7 @@ class DeckGateway:
         """
         agents = [
             TargetInfo(name=agent.name, kind="agent", description=agent.handoff_description, input_schema=None)
-            for agent in self._deck.agents.values()
+            for agent in self._agents.values()
         ]
         workflows = [
             TargetInfo(
@@ -134,18 +146,14 @@ class DeckGateway:
                 description=workflow.description or None,
                 input_schema=_workflow_schema(workflow),
             )
-            for workflow in self._deck.workflows.values()
+            for workflow in self._workflows.values()
         ]
         return [*agents, *workflows]
 
     @property
     def capabilities(self) -> Capabilities:
         """See :class:`Capabilities`: ``memory://`` reports ``False``, anything else ``True``."""
-        settings = self._deck.settings
-        return Capabilities(
-            control=_is_configured(settings.control.url),
-            durable=_is_configured(settings.events.url),
-        )
+        return self._capabilities
 
     async def start(
         self,
@@ -155,20 +163,17 @@ class DeckGateway:
         session_id: str | None = None,
         namespace: str | None = None,
         key: str | None = None,
-        context: object = None,
     ) -> Run:
         """:meth:`Runs.start`, with every failure mapped to a :class:`GatewayError`."""
         try:
-            return await self._deck.runs.start(
-                target, input, session_id=session_id, namespace=namespace, key=key, context=context
-            )
+            return await self._start(target, input, session_id=session_id, namespace=namespace, key=key)
         except Exception as exc:
             raise _map_failure(exc) from exc
 
     async def get_run(self, run_id: str, *, namespace: str | None = None) -> Run:
         """:meth:`Runs.get`, with every failure mapped to a :class:`GatewayError`."""
         try:
-            return await self._deck.runs.get(run_id, namespace=namespace)
+            return await self._get(run_id, namespace=namespace)
         except Exception as exc:
             raise _map_failure(exc) from exc
 
@@ -177,7 +182,7 @@ class DeckGateway:
     ) -> Sequence[Run]:
         """:meth:`Runs.list`, with every failure mapped to a :class:`GatewayError`."""
         try:
-            return await self._deck.runs.list(namespace=namespace, status=status, limit=limit)
+            return await self._list(namespace=namespace, status=status, limit=limit)
         except Exception as exc:
             raise _map_failure(exc) from exc
 
