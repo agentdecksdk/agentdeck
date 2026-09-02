@@ -27,6 +27,7 @@ from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext  # noqa: TC001  -  the node below resolves it at runtime
 from agentdeck.core.control import Signal
 from agentdeck.core.events import RunStarted
+from agentdeck.core.ports import Observer
 from agentdeck.core.status import RunStatus
 from agentdeck.deck import _CLOSE_ATTEMPTS, _CLOSE_GRACE, Deck, TurnResult, _new_context, _turn_result
 from agentdeck.errors import (
@@ -322,6 +323,162 @@ async def test_a_sequential_deck_reads_its_own_bundles_not_the_previous_projects
     second = Deck.from_project(beta)
 
     assert set(second.agents) == {"Beta"}
+    await second.aclose()
+
+
+# --- __aenter__ rolls back everything it started when a later step fails (#572) --------------
+
+
+class _Recorder(Observer):
+    """A caller's own observer: only the start/close counts the rollback assertions need."""
+
+    def __init__(self, order: list[str] | None = None) -> None:
+        self.starts = 0
+        self.closes = 0
+        self._order = order
+
+    async def start(self) -> None:
+        self.starts += 1
+
+    async def emit(self, event: Any) -> None:
+        pass
+
+    async def close(self) -> None:
+        self.closes += 1
+        if self._order is not None:
+            self._order.append("recorder")
+
+
+class _BrokenClose(Observer):
+    """An observer whose own close() also fails  -  rollback must survive it and keep closing
+    the rest, and it must never replace the exception the open was already dying of."""
+
+    def __init__(self, order: list[str] | None = None) -> None:
+        self.closes = 0
+        self._order = order
+
+    async def emit(self, event: Any) -> None:
+        pass
+
+    async def close(self) -> None:
+        self.closes += 1
+        if self._order is not None:
+            self._order.append("broken")
+        raise RuntimeError("close is broken too")
+
+
+@pytest.mark.asyncio
+async def test_aenter_failing_in_mcp_startup_closes_observers_and_releases_the_claim(no_project, monkeypatch):
+    """Only the observer-start step used to roll back; a failure past it left every already-
+    started observer open, the runtime's own store connected and unclosed, and the process claim
+    held  -  blocking a second ``Deck()`` in the same process, since there is no ``__aexit__``
+    for a raised ``__aenter__``."""
+    from agentdeck.adapters.stores.memory import MemoryEventStore
+
+    class _SpyStore(MemoryEventStore):
+        def __init__(self) -> None:
+            super().__init__()
+            self.aclose_calls = 0
+
+        async def aclose(self) -> None:
+            self.aclose_calls += 1
+
+    recorder = _Recorder()
+    store = _SpyStore()
+
+    async def _raise(*_a: Any, **_k: Any) -> None:
+        raise RuntimeError("MCP host unreachable")
+
+    monkeypatch.setattr(MCPLifecycle, "startup", _raise)
+    monkeypatch.setattr("agentdeck.deck.resolve_event_store", lambda: store)
+    deck = Deck(agents=[_greeter()], observers=[recorder])
+
+    with pytest.raises(RuntimeError, match="MCP host unreachable"):
+        async with deck:
+            pass
+
+    assert recorder.starts == 1
+    assert recorder.closes == 1
+    assert store.aclose_calls == 1
+    assert deck.is_open is False
+
+    second = Deck(agents=[_greeter()])  # the claim was released; this must not raise ConfigError
+    await second.aclose()
+
+
+@pytest.mark.asyncio
+async def test_a_failed_aenter_is_terminal_like_a_closed_deck(no_project, monkeypatch):
+    """A Deck whose open failed is single-use, the same as one that was closed: retrying
+    ``__aenter__()`` on it must not silently succeed after the claim was already released to
+    whoever asked for it next."""
+
+    async def _raise(*_a: Any, **_k: Any) -> None:
+        raise RuntimeError("MCP host unreachable")
+
+    monkeypatch.setattr(MCPLifecycle, "startup", _raise)
+    deck = Deck(agents=[_greeter()])
+
+    with pytest.raises(RuntimeError, match="MCP host unreachable"):
+        async with deck:
+            pass
+
+    with pytest.raises(ConfigError, match="already closed"):
+        await deck.__aenter__()
+
+    second = Deck(agents=[_greeter()])
+    await second.aclose()
+
+
+@pytest.mark.asyncio
+async def test_aenter_failing_in_build_runtime_closes_observers_and_releases_the_claim(no_project, monkeypatch):
+    recorder = _Recorder()
+
+    def _raise(**_kwargs: Any) -> Any:
+        raise RuntimeError("runtime assembly failed")
+
+    monkeypatch.setattr("agentdeck.deck.build_runtime", _raise)
+    deck = Deck(agents=[_greeter()], observers=[recorder])
+
+    with pytest.raises(RuntimeError, match="runtime assembly failed"):
+        async with deck:
+            pass
+
+    assert recorder.starts == 1
+    assert recorder.closes == 1
+    assert deck.is_open is False
+
+    second = Deck(agents=[_greeter()])
+    await second.aclose()
+
+
+class _RefusesToStart(Observer):
+    """The third observer in the rollback test below: its own start() never succeeds, so the
+    runtime is never built and the rollback falls back to closing what did start, by hand."""
+
+    async def start(self) -> None:
+        raise RuntimeError("no thanks")
+
+    async def emit(self, event: Any) -> None:
+        pass
+
+
+@pytest.mark.asyncio
+async def test_aenter_rollback_survives_an_observer_whose_close_also_raises(no_project):
+    """Mirrors ``Exposure._lifecycle``'s reverse-order stop: one observer's close() failing
+    during rollback must not stop the rest from closing, and must not mask the original error."""
+    order: list[str] = []
+    broken = _BrokenClose(order)
+    recorder = _Recorder(order)
+    deck = Deck(agents=[_greeter()], observers=[broken, recorder, _RefusesToStart()])
+
+    with pytest.raises(RuntimeError, match="no thanks"):
+        async with deck:
+            pass
+
+    assert order == ["recorder", "broken"]  # closed in reverse of start order
+    assert deck.is_open is False
+
+    second = Deck(agents=[_greeter()])
     await second.aclose()
 
 
