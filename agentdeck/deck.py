@@ -808,13 +808,27 @@ class Deck:
                 agents = list(self._agents.values())
                 refresh_mcp_status({name: invocables[name].native for name in self._agents}, agents)
         except BaseException:
-            for started in self._started_observers:
+            if self._runtime is not None:
+                # The observers are already this runtime's sinks, so draining closes them the
+                # way ``aclose()`` would; the store may hold a live connection of its own
+                # (``SqliteEventStore`` opens one at construction) and needs the same close.
                 try:
-                    await started.close()
+                    await self._runtime.drain()
                 except BaseException:
-                    # Best-effort, mirrors ``Exposure._lifecycle``: keep closing the rest, never
-                    # let one observer's close mask the exception this open is already dying of.
-                    logger.exception("__aenter__ rollback: %r failed to close", started)
+                    logger.exception("__aenter__ rollback: draining the runtime failed")
+                if self._owns_store:
+                    try:
+                        await _aclose_store(self._runtime.store)
+                    except BaseException:
+                        logger.exception("__aenter__ rollback: closing the store failed")
+            else:
+                for started in self._started_observers:
+                    try:
+                        await started.close()
+                    except BaseException:
+                        # Best-effort, mirrors ``Exposure._lifecycle``: keep closing the rest,
+                        # never let one observer's close mask the exception this open is dying of.
+                        logger.exception("__aenter__ rollback: %r failed to close", started)
             self._started_observers = ()
             self._runtime = None
             # Single-use, like a closed Deck: a retry that silently succeeded here would

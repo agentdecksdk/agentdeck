@@ -364,15 +364,27 @@ class _BrokenClose(Observer):
 @pytest.mark.asyncio
 async def test_aenter_failing_in_mcp_startup_closes_observers_and_releases_the_claim(no_project, monkeypatch):
     """Only the observer-start step used to roll back; a failure past it left every already-
-    started observer open, the runtime referenced, and the process claim held  -  blocking a
-    second ``Deck()`` in the same process, since there is no ``__aexit__`` for a raised
-    ``__aenter__``."""
+    started observer open, the runtime's own store connected and unclosed, and the process claim
+    held  -  blocking a second ``Deck()`` in the same process, since there is no ``__aexit__``
+    for a raised ``__aenter__``."""
+    from agentdeck.adapters.stores.memory import MemoryEventStore
+
+    class _SpyStore(MemoryEventStore):
+        def __init__(self) -> None:
+            super().__init__()
+            self.aclose_calls = 0
+
+        async def aclose(self) -> None:
+            self.aclose_calls += 1
+
     recorder = _Recorder()
+    store = _SpyStore()
 
     async def _raise(*_a: Any, **_k: Any) -> None:
         raise RuntimeError("MCP host unreachable")
 
     monkeypatch.setattr(MCPLifecycle, "startup", _raise)
+    monkeypatch.setattr("agentdeck.deck.resolve_event_store", lambda: store)
     deck = Deck(agents=[_greeter()], observers=[recorder])
 
     with pytest.raises(RuntimeError, match="MCP host unreachable"):
@@ -381,6 +393,7 @@ async def test_aenter_failing_in_mcp_startup_closes_observers_and_releases_the_c
 
     assert recorder.starts == 1
     assert recorder.closes == 1
+    assert store.aclose_calls == 1
     assert deck.is_open is False
 
     second = Deck(agents=[_greeter()])  # the claim was released; this must not raise ConfigError
