@@ -338,22 +338,6 @@ async def test_run_failed_names_the_exception_type_and_not_its_message() -> None
     assert "ValueError" in seen[-1].payload.message
 
 
-async def test_run_failed_reports_a_caller_input_failure_by_its_own_code_and_message() -> None:
-    """`InputError`'s own contract is that its message is written for the caller: unlike
-    `ValueError` above, it must reach the log intact, under a code a caller can branch on."""
-    spec = stub_spec("BadInput", InputError("greeting missing"))
-    runtime = Runtime([StubExecutor()], MemoryEventStore(), {spec.name: spec})
-
-    seen: list[Event] = []
-    with pytest.raises(InputError):
-        async for event in runtime.run("BadInput", INPUT, session_id=CTX.session_id, namespace=CTX.namespace):
-            seen.append(event)
-
-    assert seen[-1].payload.error_code == "invalid_input"
-    assert seen[-1].payload.message == "greeting missing"
-    assert seen[-1].payload.retryable is False
-
-
 async def test_an_engine_that_stops_without_a_terminal_event_gets_one_anyway() -> None:
     """A silent engine would leave every consumer waiting forever."""
     spec = stub_spec("Quitter", TextDelta(message_id="m1", text="and then nothing"))

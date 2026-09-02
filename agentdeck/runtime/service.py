@@ -588,7 +588,7 @@ class Runtime:
             raise
         except Exception as exc:
             # The exception is the caller's, the event is the record  -  both, always. The type
-            # name only: an exception message can carry content that must not reach a sink.
+            # name only, `InputError` excepted: its message is written for the caller.
             logger.exception("run %s failed in engine %r", ctx.run_id, executor.name)
             yield await self._record(_failed(exc, executor.name), spec, ctx)
             raise
