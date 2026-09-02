@@ -25,6 +25,7 @@ afterwards, approvals that outlive the process that requested them.
 - [run](https://agentdecksdk.com/reference/run)
 - [Settings](https://agentdecksdk.com/reference/settings): Every AGENTDECK_*, OPENAI_*, ANTHROPIC_*, GEMINI_*, OLLAMA_*, OPENROUTER_*, and TAVILY_* environment variable, generated from agentdeck/runtime/settings.py.
 - [Bindings](https://agentdecksdk.com/bindings): Serve one Deck over multiple protocols and surfaces at once.
+- [Native](https://agentdecksdk.com/bindings/native): AgentDeck's own HTTP/SSE protocol, one route per Run operation.
 - [Serve](https://agentdecksdk.com/bindings/serve): Validate a set of bindings, then serve them standalone or embed them in an app you already run.
 - [Agents](https://agentdecksdk.com/build-your-deck/agents): Declarative agents with tools, instructions, and model configurations.
 - [Context](https://agentdecksdk.com/build-your-deck/context): Typed, request-scoped access to your own application state, for tools and workflows.
