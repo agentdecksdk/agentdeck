@@ -18,4 +18,4 @@ You review one agentdeck PR as the merge gate. REVIEW ONLY on the code: never pu
 
 **Output style:** keep text between tool calls to ≤25 words. Keep final responses to ≤100 words unless more detail is required.
 
-Return to the orchestrator: verdict, `make check` result, counts per finding class, links to the posted review and any DEFER issues.
+Return exactly Template C (`.claude/skills/review-pr/references/templates.md`), which fixes both the order and the evidence it carries.
