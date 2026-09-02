@@ -343,6 +343,20 @@ def test_a_workflow_has_to_be_async() -> None:
             return "no"
 
 
+def test_workflows_takes_no_bare_tool_with_nothing_to_invoke_it() -> None:
+    """#488's code-first counterpart: a `@tool` is not a top-level target anywhere, so
+    `workflows=[...]` naming one, with no `@workflow` in the same list that could reach it
+    through `ctx.invoke`, is refused at construction  -  the same "exports no workflow" rule
+    `PluginRegistry._scan` already enforces per bundle."""
+
+    @tool
+    def blocking() -> str:  # pragma: no cover  -  never run
+        return "no"
+
+    with pytest.raises(ConfigError, match="'blocking' is a tool, not a workflow"):
+        Deck(workflows=[blocking])
+
+
 def test_a_tool_does_not_have_to_be_async() -> None:
     """A tool has nothing to await, and both paths that play one thread a sync body."""
 

@@ -552,6 +552,14 @@ class Deck:
     ) -> None:
         self._agents: Mapping[str, Agent] = _named_mapping(agents, "agents", Agent)
         self._workflows: Mapping[str, NativeDefinition] = _named_mapping(workflows, "workflows")
+        # PluginRegistry._scan's own "at least one @workflow" rule (#488), applied once to the
+        # whole list rather than per bundle  -  a bundle-discovered tool always clears it already.
+        _tools = [d.name for d in self._workflows.values() if d.kind is not InvocableKind.WORKFLOW]
+        if _tools and not any(d.kind is InvocableKind.WORKFLOW for d in self._workflows.values()):
+            raise ConfigError(
+                f"{_tools[0]!r} is a tool, not a workflow; workflows= takes @workflow definitions. "
+                "Call it from a workflow with ctx.invoke(...)."
+            )
         self._skills_obj = _coerce_skills(skills)
         self._mcp_obj = _coerce_mcp(mcp)
         self._context_type = declared_context_type(context)
