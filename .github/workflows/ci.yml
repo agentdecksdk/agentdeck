@@ -90,7 +90,7 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: ${{ matrix.python-version }}
-          # v6 made this opt-in; without it `uv pip install` below finds no venv, and the
+          # v6 made this opt-in; without it `uv sync` below has no venv to target, and the
           # Makefile's `.venv/bin/*` calls have nothing to run.
           activate-environment: true
           enable-cache: true
@@ -102,7 +102,9 @@ jobs:
       # #141's keyless-AsyncOpenAI regression shipped green. Install every extra the
       # suite guards on: a narrower gate is a gate that lies.
       - name: Install
-        run: uv pip install -e ".[dev,serve,postgres,observability]"
+        # --locked: fails loudly if `uv.lock` is stale instead of resolving fresh and
+        # leaving the lockfile to drift (#605).
+        run: uv sync --locked --all-extras
       # Two seconds here beats a full suite that skips the half it was meant to prove: if an
       # extra silently failed to install, every test guarding on it turns into a skip and the
       # gate goes green having measured nothing (#33, #142).
