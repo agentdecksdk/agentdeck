@@ -6,11 +6,14 @@ The composition object that validates bindings, owns their lifecycle, and hosts 
 
 ```python
 app = deck.asgi(Native.http(path="/"), A2A.http(path="/a2a"))          # embed in FastAPI/Starlette
-await deck.serve(Native.http(path="/"), A2A.http(path="/a2a"), port=8000)   # standalone
+deck.serve(Native.http(path="/"), A2A.http(path="/a2a"), port=8000)    # standalone, blocking
+await deck.serve_async(Native.http(path="/"), A2A.http(path="/a2a"), port=8000)  # inside asyncio
 ```
 
-`deck.serve(*bindings)` and `deck.asgi(*bindings)` are the primary API, one-line delegations to
-`expose(*bindings).serve()`/`.asgi()` (`rulings.md` 23, amended by #606). `expose()` is the
+`deck.serve(*bindings)` and `deck.asgi(*bindings)` are the primary API. `serve()` is synchronous
+and blocking, owning the event loop (`asyncio.run` over `serve_async()`); `serve_async()` is the
+same behaviour for a caller already running inside asyncio. All three are one-line delegations to
+`expose(*bindings).serve()`/`.asgi()` (`rulings.md` 23, amended by #606, #623). `expose()` is the
 lower-level call: it returns the `Exposure` object itself, for callers who need that object:
 
 ```python
