@@ -12,7 +12,7 @@ A reviewer finds what matters, says it, and stays silent elsewhere. Prove nothin
 1. Read `CLAUDE.md`, `docs/engineering/` (`principles.md`, `coding-standards.md`, `coding-agents.md`, relevant specialized standards), and the `docs/patterns/` files for the concerns this PR touches.
 2. Read the linked issue (`gh issue view <n>`) and the full diff (`gh pr diff <n>`).
 3. Check out the branch (`gh pr checkout <n>`), seed the worktree (copy `.env` if present, then `uv venv --python 3.12 && make install`), run `make check`. It ends by naming the docs-site pages this diff affects: open every page the PR left unchanged and confirm it is still true. No CI job does this; it is where stale prose is caught (#409 shipped five stale references past a ticked box).
-4. Run `uv run scripts/quality_delta.py` and `PR_BODY="$(gh pr view <n> --json body -q .body)" uv run scripts/concept_budget.py`. Hold the PR to its own `## Expected delta` and `## Concept budget` declarations; unexplained overrun beyond roughly 2x is a finding. These numbers go in the return to the orchestrator, never in the PR.
+4. Run `uv run scripts/quality_delta.py` and `PR_BODY="$(gh pr view <n> --json body -q .body)" uv run scripts/concept_budget.py`. Hold the PR to its own `## Expected delta` and `## Concept budget`, which `ship-pr` Stage 1 wrote into the draft body before the first source edit and the design gate already passed. Unexplained overrun beyond roughly 2x runs the overrun pass (`references/overrun.md`); the number itself is never the finding. A body carrying no estimate is a contribution that never ran Stage 1: report the measurement and skip the trigger.
 5. **Sibling comparison:** for each changed or new module, pick 2-3 canonical siblings from `uv run scripts/repomap.py` (same package, same responsibility class), read them, and verify the PR's own `## Analog` claim against the code.
 
 ## Phases
@@ -34,7 +34,7 @@ Review progress:
 | 1. Claims | Two lines: what this PR asserts, what must be true for it to hold. | nothing |
 | 2. Attack | Go after those claims: lifecycle, event ordering, concurrency, failure paths, states the code cannot express. Edge cases belong here, not later; mutation-test anything the PR calls covered. Depth: `references/attack.md`. | inline (Template A) |
 | 3. Craft | Does it read like its neighbors: `docs/patterns/`, naming, error text, comment slop, test names that state contracts, the PR body's own verbosity. Depth: `references/craft.md`. | inline (Template A) |
-| 4. Scope | Should this be two PRs? Is anything here not asked for? | one line, only if there is something |
+| 4. Scope | Should this be two PRs? Is anything here not asked for? Read the final diff as if no review history existed: rounds that left compensating helpers, defensive branches or duplicated tests are a consolidation, not another round. An unexplained overrun runs the overrun pass: `references/overrun.md`. | one line, or the cause the overrun pass named |
 | 5. Verdict | Draft the rubric row per phase (Claims/Attack/Craft/Scope) and findings by class, format fixed in `references/templates.md` (Template B). Before posting, re-read each finding and ask whether it names a concrete consequence; downgrade it to NIT if it does not. Only then post. | 300 words max, hard cap |
 | 6. Harvest | Optional, non-blocking, gated: see below. The default is to write nothing. | an issue carrying the entry text, never a commit and never on the PR |
 
@@ -62,6 +62,7 @@ BLOCK / DISCUSS / DEFER / NIT replace ERROR / WARNING / NOTE. Each is defined by
 - A DISCUSS must state what would settle it. A shrug is not a DISCUSS.
 - Anything touching public API shape is a DISCUSS, never a unilateral BLOCK.
 - A NIT needs no reply. Collect NITs in one list at the bottom of the verdict, never inline.
+- A cause the overrun pass names carries no class of its own and classifies by the rules above like any other finding, the public-API rule included. Whatever the class, the fix is the design: splitting a PR whose size came from a missing concept moves the bloat rather than removing it.
 - Cost is folded into the class, not a separate axis. Real, expensive, and not a regression is a DEFER; introduced by this PR is a BLOCK regardless of cost.
 - DEFER is not a rejection and does not require present actionability: a finding that only informs a later bug fix or feature is still worth filing. NIT means small and optional now; DEFER means real and later.
 - DEFER is where the promotion loop lives: file `finding: <gap>` with the `finding` label for a real out-of-scope defect, citing evidence. Never file a DEFER proposing a new mechanical guard; guards caught 0 of 8 v5 findings.
@@ -76,6 +77,7 @@ Every comment and the verdict body follow fixed templates: `references/templates
 - Inline, line-anchored comments (BLOCK, DISCUSS, DEFER; NITs never inline) in Template A form:
   `gh api repos/{owner}/{repo}/pulls/<n>/comments -f body=... -f commit_id=$(gh pr view <n> --json headRefOid -q .headRefOid) -f path=<file> -F line=<line> -f side=RIGHT`
 - Post the verdict as a real review in Template B form: `gh pr review <n> --comment --body-file <file>`. Pass requires zero BLOCK and every DISCUSS answered.
+- Post measured against declared with the verdict, one line, so the author sees the delta against the estimate Stage 1 wrote. The raw script output stays in the return to the orchestrator.
 - The review is only delivered once it is on the PR. A local pass with nothing posted is incomplete.
 - A push that changes the code needs a new review: nothing enforces that mechanically, so it is on whoever merges.
 - File DEFER and harness-note issues per the finding-class table above.
