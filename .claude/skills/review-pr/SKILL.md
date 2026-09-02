@@ -62,7 +62,7 @@ BLOCK / DISCUSS / DEFER / NIT replace ERROR / WARNING / NOTE. Each is defined by
 - A DISCUSS must state what would settle it. A shrug is not a DISCUSS.
 - Anything touching public API shape is a DISCUSS, never a unilateral BLOCK.
 - A NIT needs no reply. Collect NITs in one list at the bottom of the verdict, never inline.
-- A cause the overrun pass names classifies under the rules above and gets no precedence of its own: one touching public API shape is a DISCUSS carrying the smaller design, and one that does not is a BLOCK whose consequence is the code the wrong shape produced. Either way the fix is the design, since splitting a PR whose size came from a missing concept moves the bloat rather than removing it.
+- A cause the overrun pass names carries no class of its own and classifies by the rules above like any other finding, the public-API rule included. Whatever the class, the fix is the design: splitting a PR whose size came from a missing concept moves the bloat rather than removing it.
 - Cost is folded into the class, not a separate axis. Real, expensive, and not a regression is a DEFER; introduced by this PR is a BLOCK regardless of cost.
 - DEFER is not a rejection and does not require present actionability: a finding that only informs a later bug fix or feature is still worth filing. NIT means small and optional now; DEFER means real and later.
 - DEFER is where the promotion loop lives: file `finding: <gap>` with the `finding` label for a real out-of-scope defect, citing evidence. Never file a DEFER proposing a new mechanical guard; guards caught 0 of 8 v5 findings.

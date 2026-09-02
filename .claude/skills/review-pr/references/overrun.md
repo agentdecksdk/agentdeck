@@ -39,8 +39,8 @@ against the estimate; the estimate was wrong, not the code.
 ## Classifying what it finds
 
 The cause carries no class of its own; it classifies under the finding-class table like anything
-else. A cause touching public API shape is a DISCUSS carrying the smaller design, one that does not
-is a BLOCK whose consequence is the code the wrong shape produced, and either way the fix is the
-design rather than the split. A cause that is real but out of this PR's reach is a DEFER carrying
-the design question, never a NIT: a NIT is small and optional, and a design costing 2x its estimate
-is neither.
+else, the public-API rule included. A defect this PR introduced is a BLOCK whose consequence is the
+code the wrong shape produced. A genuine choice between valid shapes, or a call above a reviewer's
+authority, is a DISCUSS carrying the smaller design. Real but out of this PR's reach is a DEFER
+carrying the design question. Never a NIT: a NIT is small and optional, and a design costing 2x its
+estimate is neither. Whatever the class, the fix is the design rather than the split.
