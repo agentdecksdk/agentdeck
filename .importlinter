@@ -231,3 +231,8 @@ type = independence
 modules =
     agentdeck.adapters.bindings.native
     agentdeck.adapters.bindings.terminal
+# #606's TYPE_CHECKING re-exports (agentdeck/bindings/__init__.py) are never executed, so
+# they are not the shared-implementation route this contract exists to catch.
+ignore_imports =
+    agentdeck.bindings -> agentdeck.bindings.native
+    agentdeck.bindings -> agentdeck.bindings.terminal
