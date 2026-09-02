@@ -20,7 +20,7 @@ from agentdeck.core.events import RunCompleted, Usage
 from agentdeck.core.invocable import NativeExecution, NativeInvocable
 from agentdeck.core.ports import Executor
 from agentdeck.core.status import SUSPENDED_KINDS, Play, continuation_of
-from agentdeck.errors import ConfigError
+from agentdeck.errors import ConfigError, InputError
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Sequence
@@ -253,19 +253,19 @@ def _arguments(
         return arguments | {visible[0]: value}
     if isinstance(value, dict):
         if definition.context_parameter is not None and definition.context_parameter in value:
-            raise ConfigError(
+            raise InputError(
                 f"{definition.kind.value} {definition.name!r} declares {definition.context_parameter!r} "
                 f"as its context parameter, which AgentDeck injects; the input mapping cannot also name "
                 f"it. Rename the {definition.context_parameter!r} key in the input, or the parameter."
             )
         if set(value) != set(visible):
-            raise ConfigError(
+            raise InputError(
                 f"{definition.kind.value} {definition.name!r} takes {len(visible)} arguments "
                 f"({', '.join(visible)}), so its input mapping must name exactly those; got "
                 f"({', '.join(sorted(value))})."
             )
         return arguments | {name: value[name] for name in visible}
-    raise ConfigError(
+    raise InputError(
         f"{definition.kind.value} {definition.name!r} takes {len(visible)} arguments "
         f"({', '.join(visible)}), so its input has to be a mapping naming them; got "
         f"{type(value).__name__}."
