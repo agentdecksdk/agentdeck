@@ -30,7 +30,7 @@ from agentdeck.bindings import (
     GatewayFailureCode,
     HttpEndpoint,
 )
-from agentdeck.errors import InputError, RunStateError, UnsupportedControlError
+from agentdeck.errors import ConfigError, InputError, RunStateError, UnsupportedControlError
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -80,7 +80,16 @@ class _AGUIBinding:
         self._gateway: DeckGateway | None = None
 
     def build(self, gateway: DeckGateway) -> HttpEndpoint:
+        """A pinned ``target=`` is deployment configuration, so a typo fails here, at
+        ``expose()``, rather than on a client's first request (the same pattern Terminal's own
+        ``target=`` uses). The unpinned mode has no target to validate yet: it is resolved per
+        request, off whichever one the client names.
+        """
         self._gateway = gateway
+        if self._target is not None:
+            names = sorted(t.name for t in gateway.targets())
+            if self._target not in names:
+                raise ConfigError(f"no target named {self._target!r} in this deck. Available: {names}.")
         app = Starlette(
             routes=[Route("/", self._handle, methods=["POST"])],
             # Pre-stream failures only; once the stream opens, `_handle` maps errors to RUN_ERROR itself.

@@ -25,6 +25,7 @@ from agentdeck.bindings import DeckGateway
 from agentdeck.bindings.agui import AGUI
 from agentdeck.core.events import Event, KnownPayload, MessageCompleted, TextDelta, ThoughtDelta, UnknownEvent
 from agentdeck.core.status import RunStatus
+from agentdeck.errors import ConfigError
 from agentdeck.testing import ScriptedModel, patch_model
 
 _WIRE_EVENT = TypeAdapter(AGUIWireEvent)
@@ -147,6 +148,13 @@ def test_a_pinned_binding_rejects_a_request_naming_a_different_target(no_project
 
     assert response.status_code == 422
     assert "pinned" in response.json()["detail"]
+
+
+def test_a_pinned_unknown_target_fails_at_expose_not_on_request(no_project):
+    """A pinned ``target=`` is deployment configuration (Terminal's own pattern): a typo is
+    caught at ``deck.expose()``, never on a client's first request."""
+    with pytest.raises(ConfigError, match="Typoooo"):
+        _deck().expose(AGUI.http("/agui", target="Typoooo"))
 
 
 def test_two_agui_bindings_coexist_in_one_exposure_using_name(no_project):
