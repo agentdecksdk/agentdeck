@@ -45,6 +45,7 @@ in the deck is validated when you call `deck.serve()` or `deck.asgi()`, not on t
 - HITL: `ctx.ask()` becomes `RunFinishedInterruptOutcome`; the client resumes with a `ResumeEntry`
   naming that `interruptId`.
 - Multimodal input: image and audio inline or by URL; document and video by URL only.
+- `control.cancel`: a client disconnect or abort cancels the run.
 
 ## Gaps
 
@@ -60,6 +61,7 @@ the binding. Full reasoning: the
 | shared state (`STATE_SNAPSHOT`/`STATE_DELTA`) | a real shared application-state contract |
 | steering | mid-run input |
 | more than one outstanding interrupt | `run.answer(interrupt_id, value)` |
+| tool-output streaming | richer tool progress and result events |
 | inline document/video bytes | a content block for bytes held inline, not by reference |
 | `BinaryInputContent` | a generic binary content block |
 
