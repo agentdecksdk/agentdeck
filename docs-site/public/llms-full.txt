@@ -1018,13 +1018,11 @@ protocol binding, consuming its wire through its own library; it is not a bindin
 Serve a Deck over several bindings from one call:
 
 ```python
-import asyncio
-
 from agentdeck import Deck
 from agentdeck.bindings import AGUI, Native, Terminal
 
 deck = Deck.from_project()
-asyncio.run(deck.serve(Native.http("/api"), AGUI.http("/agui"), Terminal.stdio(), port=8000))
+deck.serve(Native.http("/api"), AGUI.http("/agui"), Terminal.stdio(), port=8000)
 ```
 
 `deck.serve(...)` validates the set of bindings and owns their lifecycle: one process, three
@@ -1058,13 +1056,11 @@ pip install "agentdeck-sdk[agui]"
 ## Serve
 
 ```python
-import asyncio
-
 from agentdeck import Deck
 from agentdeck.bindings import AGUI
 
 deck = Deck.from_project()
-asyncio.run(deck.serve(AGUI.http("/agui"), port=8000))
+deck.serve(AGUI.http("/agui"), port=8000)
 ```
 
 `target=None` routes per request, off `forwardedProps.agentdeck.target`. `AGUI.http("/support",
@@ -1132,13 +1128,11 @@ pip install "agentdeck-sdk[serve]"
 ## Serve
 
 ```python
-import asyncio
-
 from agentdeck import Deck
 from agentdeck.bindings import Native
 
 deck = Deck.from_project()
-asyncio.run(deck.serve(Native.http("/api"), port=8000))
+deck.serve(Native.http("/api"), port=8000)
 ```
 
 ## Routes
@@ -1184,24 +1178,32 @@ Source: https://agentdecksdk.com/bindings/serve
 
 # Serve
 
-`deck.serve(binding, *bindings, host=, port=)` validates the bindings, opens the Deck, starts
-every binding, and blocks until interrupted. At least one binding is required: `binding` is
-positional, so `deck.serve()` alone is a `TypeError` before any binding code runs.
+`deck.serve(binding, *bindings, host=, port=)` is synchronous: it owns the event loop, validates
+the bindings, opens the Deck, starts every binding, and blocks until interrupted. At least one
+binding is required: `binding` is positional, so `deck.serve()` alone is a `TypeError` before any
+binding code runs.
 
 ## Standalone
 
 ```python
-import asyncio
-
 from agentdeck import Deck
 from agentdeck.bindings import Native
 
 deck = Deck.from_project()
-asyncio.run(deck.serve(Native.http("/api"), host="0.0.0.0", port=8000))
+deck.serve(Native.http("/api"), host="0.0.0.0", port=8000)
 ```
 
 A stdio-only exposure ignores `host=`/`port=`: `deck.serve(Terminal.stdio())` runs the terminal
 loop directly, and no listener opens.
+
+## Inside an existing event loop
+
+If your app already runs asyncio, `deck.serve(...)` can't be called directly: it owns the loop.
+Use `await deck.serve_async(...)` instead, with the same arguments:
+
+```python
+await deck.serve_async(Native.http("/api"), port=8000)
+```
 
 ## Embedding
 
@@ -1259,13 +1261,11 @@ no background task.
 ## Serve
 
 ```python
-import asyncio
-
 from agentdeck import Deck
 from agentdeck.bindings import Terminal
 
 deck = Deck.from_project()
-asyncio.run(deck.serve(Terminal.stdio()))
+deck.serve(Terminal.stdio())
 ```
 
 `agentdeck chat [target]` runs the same thing: `Deck.from_project().serve(Terminal.stdio(target=target))`.

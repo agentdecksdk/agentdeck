@@ -25,13 +25,11 @@ pip install "agentdeck-sdk[serve]"
 ## Serve
 
 ```python
-import asyncio
-
 from agentdeck import Deck
 from agentdeck.bindings import Native
 
 deck = Deck.from_project()
-asyncio.run(deck.serve(Native.http("/api"), port=8000))
+deck.serve(Native.http("/api"), port=8000)
 ```
 
 ## Routes

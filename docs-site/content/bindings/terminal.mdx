@@ -16,13 +16,11 @@ no background task.
 ## Serve
 
 ```python
-import asyncio
-
 from agentdeck import Deck
 from agentdeck.bindings import Terminal
 
 deck = Deck.from_project()
-asyncio.run(deck.serve(Terminal.stdio()))
+deck.serve(Terminal.stdio())
 ```
 
 `agentdeck chat [target]` runs the same thing: `Deck.from_project().serve(Terminal.stdio(target=target))`.

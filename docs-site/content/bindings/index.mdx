@@ -42,13 +42,11 @@ protocol binding, consuming its wire through its own library; it is not a bindin
 Serve a Deck over several bindings from one call:
 
 ```python
-import asyncio
-
 from agentdeck import Deck
 from agentdeck.bindings import AGUI, Native, Terminal
 
 deck = Deck.from_project()
-asyncio.run(deck.serve(Native.http("/api"), AGUI.http("/agui"), Terminal.stdio(), port=8000))
+deck.serve(Native.http("/api"), AGUI.http("/agui"), Terminal.stdio(), port=8000)
 ```
 
 `deck.serve(...)` validates the set of bindings and owns their lifecycle: one process, three
