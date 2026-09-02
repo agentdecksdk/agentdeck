@@ -95,7 +95,7 @@ requires-dist = [
     { name = "redis", marker = "extra == 'dev'", specifier = ">=5.0" },
     { name = "redis", marker = "extra == 'redis'", specifier = ">=5.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
-    { name = "starlette", marker = "extra == 'agui'", specifier = ">=0.37" },
+    { name = "starlette", marker = "extra == 'agui'", specifier = ">=0.40" },
     { name = "starlette", marker = "extra == 'serve'", specifier = ">=0.40" },
     { name = "ty", marker = "extra == 'dev'", specifier = ">=0.0.1a21" },
     { name = "uvicorn", marker = "extra == 'serve'", specifier = ">=0.30" },

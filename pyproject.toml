@@ -56,8 +56,10 @@ redis = [
 agui = [
     # the official wire models and SSE encoder (rulings.md 16); starlette is listed directly
     # here too, since a standalone `[agui]` install has no `[serve]` to pull it in transitively.
+    # Floor matches `serve`'s own: two independent installs of the same dependency must not
+    # silently diverge on what version actually works.
     "ag-ui-protocol>=0.1.22,<0.2",
-    "starlette>=0.37",
+    "starlette>=0.40",
 ]
 dev = [
     "pytest>=8.0",
