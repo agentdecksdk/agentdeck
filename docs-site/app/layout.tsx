@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import { Inter, Poppins } from 'next/font/google'
 import { Footer, Layout, Navbar } from 'nextra-theme-docs'
-import { Head } from 'nextra/components'
+import { Banner, Head } from 'nextra/components'
 import { Mark } from './mark'
 import { getPageMap } from 'nextra/page-map'
 import type { ReactNode } from 'react'
@@ -62,6 +62,15 @@ const footer = (
   </Footer>
 )
 
+const banner = (
+  <Banner storageKey="agentdeck-v6" dismissible>
+    <a href="/meet-agentdeck/whats-new-6">
+      6.0: a Deck is served through bindings. deck.serve(Native.http(), AGUI.http(),
+      Terminal.stdio()) reaches every agent and workflow. Read what changed →
+    </a>
+  </Banner>
+)
+
 export default async function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" dir="ltr" className={`${body.variable} ${display.variable}`} suppressHydrationWarning>
@@ -106,6 +115,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           docsRepositoryBase="https://github.com/agentdecksdk/agentdeck/tree/dev/docs-site"
           footer={footer}
           sidebar={{ autoCollapse: true }}
+          banner={banner}
         >
           {children}
         </Layout>

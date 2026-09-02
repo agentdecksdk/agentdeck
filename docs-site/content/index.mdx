@@ -26,6 +26,7 @@ jack = Agent(
 )
 
 deck = Deck(agents=[jack], context=DocsCorpus)
+deck.serve(Native.http("/api"), AGUI.http("/agui"), Terminal.stdio())
 ```
 </Snippet>
 </Model>

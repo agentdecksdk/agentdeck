@@ -357,9 +357,15 @@ def _site_pages() -> list[tuple[str, Path]]:
         "changelog",
     ]
 
+    # The 6.0 announcement (#618) sorts right after the overview it is the sequel to, not
+    # wherever "whats-new-6" happens to alphabetize among its siblings.
+    announcement_slug = "meet-agentdeck/whats-new-6"
+
     def rank(slug: str) -> tuple[int, str]:
         head = slug.split("/")[0]
-        return (order.index(head) if head in order else len(order), slug)
+        base = order.index(head) if head in order else len(order)
+        sort_key = "meet-agentdeck/overview\uffff" if slug == announcement_slug else slug
+        return (base, sort_key)
 
     pages = []
     for path in sorted(root.rglob("*.mdx")):

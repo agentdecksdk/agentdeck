@@ -36,6 +36,7 @@ jack = Agent(
 )
 
 deck = Deck(agents=[jack], context=DocsCorpus)
+deck.serve(Native.http("/api"), AGUI.http("/agui"), Terminal.stdio())
 ```
 </Snippet>
 </Model>
@@ -2621,18 +2622,6 @@ The current release is **v5.2.1**. Earlier releases are listed at the bottom.
   is built in one place with `reason="human"` hardcoded, and refusal always came from
   `payload["options"]`, never from `reason`. `PendingRun.reason`'s docstring now states that rule
   instead of an approval check that didn't exist.
-
-### Fixed
-
-- **A workflow's own `InputError` after `run.started` reaches every wire as itself** (#621):
-  `RunFailed.error_code` gains `"invalid_input"`, and its `message` carries the exception's own
-  caller-safe text instead of being stripped to `"InputError in engine ..."`. Every other
-  exception's shape is unchanged.
-- **`Deck.__aenter__` rolls back a late failure** (#572): a failure after observers started  -  building the runtime, connecting MCP servers  -  used to leave every started observer open and the process claim held, blocking a second `Deck(...)` in the same process. It now closes what it started and releases the claim before re-raising, same as an observer-start failure already did.
-- **A workflow's input mapping that doesn't match its declared parameters raises `InputError`,
-  not `ConfigError`** (#583). It is caller-supplied content the target can't take, not a
-  configuration fault. A same-process caller now catches `InputError` instead of `ConfigError`;
-  `_map_failure` already maps `InputError` to `INVALID_INPUT`.
 
 ### Fixed
 
