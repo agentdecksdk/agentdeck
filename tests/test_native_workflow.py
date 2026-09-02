@@ -100,6 +100,22 @@ async def test_a_body_that_raises_fails_the_run_and_the_caller_sees_why() -> Non
         assert "ZeroDivisionError" in failure.payload.message
 
 
+async def test_a_mismatched_input_records_invalid_input_with_its_own_message() -> None:
+    """#621: binding raises after ``run.started`` (`test_a_mismatched_input_says_what_the_body_
+    wanted`), and `InputError`'s own contract is that its message is written for the caller, so
+    the record must carry it  -  unlike the type-only record above."""
+    async with Deck(workflows=[joined]) as deck:
+        run = await deck.runs.start("joined", "just a string")
+        with pytest.raises(InputError, match="left, right"):
+            await run
+        assert await run.status() is RunStatus.FAILED
+        failure = [event async for event in run.events()][-1]
+        assert failure.kind == "run.failed"
+        assert failure.payload.error_code == "invalid_input"
+        assert "left, right" in failure.payload.message
+        assert failure.payload.retryable is False
+
+
 # --- suspension keeps the body alive ------------------------------------------------------
 
 
