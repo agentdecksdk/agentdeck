@@ -167,8 +167,8 @@ class InvocableRegistry:
         # exposing the same invocable name) already raised inside the scan that fed this.
         if name in specs:
             raise ConfigError(
-                f"an agent and a workflow are both named {name!r} (kinds: {specs[name].kind.value} and "
-                f"{kind.value}); one name is one invocable  -  rename one of them."
+                f"{name!r} is registered under two kinds: {specs[name].kind.value} and {kind.value}; "
+                "one name is one invocable  -  rename one of them."
             )
         executor = executor or EXECUTOR_FOR_KIND[kind]
         if executor not in self._executors:

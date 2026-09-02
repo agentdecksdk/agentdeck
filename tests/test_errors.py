@@ -315,6 +315,25 @@ async def test_a_bundled_tool_is_refused_as_a_run_target_by_name(tmp_path, monke
     assert "ctx.invoke" in message
 
 
+async def test_an_unknown_run_target_is_not_pointed_at_a_bundled_tool(tmp_path, monkeypatch):
+    """The not-found hint on the public path must name only what it actually accepts: a bundled
+    tool sits in the runtime catalog for `ctx.invoke`, but pointing an unknown-name caller at it
+    would just trade one error for a second one."""
+    root = tmp_path / ".agentdeck"
+    (root / "workflows" / "discovery").mkdir(parents=True)
+    (root / "workflows" / "discovery" / "workflow.py").write_text(textwrap.dedent(TOOL_AND_WORKFLOW_BUNDLE_PY))
+    monkeypatch.chdir(tmp_path)
+    _drop_project_mount(monkeypatch)
+    from agentdeck.deck import Deck
+
+    async with Deck.from_project() as deck:
+        with pytest.raises(NotFoundError) as excinfo:
+            await deck.run("totally_unknown", "hi")
+    message = str(excinfo.value)
+    assert "discovery" in message
+    assert "places_lookup" not in message
+
+
 def test_a_workflow_bundle_exporting_only_a_tool_raises_naming_what_it_found(tmp_path, monkeypatch):
     """#488: unlike the fully-empty ghost case above, this bundle does define a
     ``NativeDefinition``  -  just the wrong kind. The error must say what it found and what it

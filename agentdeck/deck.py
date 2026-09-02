@@ -995,8 +995,15 @@ class Deck:
         """What ``run``/``stream``/``Runs.start`` resolve a caller-supplied name against: every
         :meth:`_root` target minus a bundled tool, which compiles into the runtime catalog for
         ``ctx.invoke`` (:func:`_invoked_name`) but is never addressable by name from outside one.
+        Both refusals below list only what this path actually accepts  -  :meth:`_root`'s own
+        "Available" includes a tool, which would just raise the second error in turn.
         """
-        root = self._root(name)
+        try:
+            root = self._root(name)
+        except NotFoundError:
+            raise NotFoundError(
+                f"No agent or workflow named {name!r}. Available: {sorted({*self._agents, *self.workflows})}."
+            ) from None
         if isinstance(root, NativeDefinition) and root.kind is not InvocableKind.WORKFLOW:
             raise InputError(
                 f"{name!r} is a tool, not a runnable target. Available targets: "

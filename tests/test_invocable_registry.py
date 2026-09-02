@@ -225,7 +225,7 @@ def test_one_name_for_two_bundles_fails_at_load(
     """v1 keeps agents and workflows in separate namespaces; one flat mapping cannot."""
     _project(tmp_path, monkeypatch, agent="Twin", workflow="Twin")
 
-    with pytest.raises(ConfigError, match="an agent and a workflow are both named 'Twin'"):
+    with pytest.raises(ConfigError, match="'Twin' is registered under two kinds: agent and workflow"):
         InvocableRegistry(executors).load()
 
 
