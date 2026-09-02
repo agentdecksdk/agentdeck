@@ -56,6 +56,12 @@ def test_an_unknown_lazy_name_names_the_available_factories() -> None:
         bindings.Bogus  # noqa: B018
 
 
+def test_dir_lists_the_lazy_names_too() -> None:
+    import agentdeck.bindings as bindings
+
+    assert {"Native", "Terminal"} <= set(dir(bindings))
+
+
 def test_importing_bindings_pulls_in_no_binding_module_or_new_starlette_module() -> None:
     """``agentdeck`` itself already imports the openai-agents SDK's ``agents.mcp``, which loads
     ``starlette`` transitively (a base dependency, not a binding); the claim under test is that
