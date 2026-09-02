@@ -41,6 +41,7 @@ agui = [
 ]
 dev = [
     { name = "ag-ui-protocol" },
+    { name = "fastapi" },
     { name = "griffe" },
     { name = "import-linter" },
     { name = "pre-commit" },
@@ -64,7 +65,7 @@ redis = [
     { name = "redis" },
 ]
 serve = [
-    { name = "fastapi" },
+    { name = "starlette" },
     { name = "uvicorn" },
 ]
 
@@ -72,7 +73,7 @@ serve = [
 requires-dist = [
     { name = "ag-ui-protocol", marker = "extra == 'agui'", specifier = ">=0.1.22,<0.2" },
     { name = "ag-ui-protocol", marker = "extra == 'dev'", specifier = ">=0.1.22,<0.2" },
-    { name = "fastapi", marker = "extra == 'serve'", specifier = ">=0.115" },
+    { name = "fastapi", marker = "extra == 'dev'", specifier = ">=0.115" },
     { name = "griffe", marker = "extra == 'dev'", specifier = ">=1.6" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "import-linter", marker = "extra == 'dev'", specifier = "==2.13" },
@@ -95,6 +96,7 @@ requires-dist = [
     { name = "redis", marker = "extra == 'redis'", specifier = ">=5.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
     { name = "starlette", marker = "extra == 'agui'", specifier = ">=0.37" },
+    { name = "starlette", marker = "extra == 'serve'", specifier = ">=0.40" },
     { name = "ty", marker = "extra == 'dev'", specifier = ">=0.0.1a21" },
     { name = "uvicorn", marker = "extra == 'serve'", specifier = ">=0.30" },
 ]
