@@ -97,10 +97,10 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ### Fixed
 
-- **A workflow started with an input mapping that doesn't match its declared parameters gets
-  `INVALID_INPUT`, not `INTERNAL`** (#583). `NativeExecutor._arguments` raised `ConfigError` for
-  this, which `DeckGateway` has no mapping for, so a caller mistake surfaced as an internal error.
-  It now raises `InputError`, which `DeckGateway` already maps to `INVALID_INPUT`.
+- **A workflow's input mapping that doesn't match its declared parameters raises `InputError`,
+  not `ConfigError`** (#583). It is caller-supplied content the target can't take, not a
+  configuration fault. A same-process caller now catches `InputError` instead of `ConfigError`;
+  `_map_failure` already maps `InputError` to `INVALID_INPUT`.
 
 ## [5.2.1] - 2026-08-29
 
