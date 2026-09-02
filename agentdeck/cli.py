@@ -51,13 +51,13 @@ def _chat(target: str | None) -> int:
     Ctrl-C surfaces here as ``KeyboardInterrupt``; idle Ctrl-C raises nothing
     (``terminal/binding.py``). An unknown target fails at ``expose()``, before any prompt.
     """
-    from agentdeck.bindings.terminal import Terminal
+    from agentdeck.bindings import Terminal
     from agentdeck.deck import Deck
     from agentdeck.errors import ConfigError
 
     try:
         with contextlib.suppress(KeyboardInterrupt):
-            asyncio.run(Deck.from_project().expose(Terminal.stdio(target=target)).serve())
+            asyncio.run(Deck.from_project().serve(Terminal.stdio(target=target)))
     except ConfigError as error:
         # A mistyped target is a usage mistake, so it reads as one: the message already names
         # the alternatives, and a traceback above it says nothing a person can act on.

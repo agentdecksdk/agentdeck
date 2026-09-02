@@ -21,8 +21,8 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   `exposure.serve(host=, port=)` runs standalone, closing the Deck only if it opened it. A failed
   `start()` on binding N stops N..1 in reverse, N included, and raises. `Deck.is_open` is new too.
 
-- **`Native.http()`, the AgentDeck protocol** (#548): `from agentdeck.bindings.native import
-  Native`, then `deck.expose(Native.http())`. Ten routes over `DeckGateway` and public `Run`
+- **`Native.http()`, the AgentDeck protocol** (#548): `from agentdeck.bindings import
+  Native`, then `deck.serve(Native.http())`. Ten routes over `DeckGateway` and public `Run`
   methods (targets, start, get/list runs, an SSE tail with `Last-Event-ID`/`from_seq` reconnect,
   cancel/pause/resume, pending/answer), frames as `Event.model_dump_json()` verbatim, and a
   versioned wire spec at `docs/design/protocols/native-wire.md`. The implementation lives under
@@ -38,15 +38,20 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 - **A terminal chat example needing no API key** (`examples/chat-in-the-terminal/`): one
   `@workflow` asking the questions, driven by `agentdeck chat`. The first example that runs with
   no credentials at all.
-- **A run event stream example** (#396, `examples/run-events-stream/`): iterates
-  `deck.stream(...)` and prints every event kind and payload in order. Scripts the model with
-  `agentdeck.testing`, so it needs no API key and prints one fixed output.
-- **`Terminal.stdio()`, the first surface** (#549): `from agentdeck.bindings.terminal import
-  Terminal`, then `deck.expose(Terminal.stdio(target="Research"))`. One session per process over
+- **`Terminal.stdio()`, the first surface** (#549): `from agentdeck.bindings import
+  Terminal`, then `deck.serve(Terminal.stdio(target="Research"))`. One session per process over
   stdin and stdout: prompts, streams the run's text back, renders a numbered prompt for
   `ctx.ask` and re-asks on a refused answer, and cancels an in-flight run on Ctrl-C.
   `agentdeck chat [TARGET]` runs it, where `TARGET` is any agent or workflow in the deck and may
   be omitted when the deck holds exactly one.
+- **A run event stream example** (#396, `examples/run-events-stream/`): iterates
+  `deck.stream(...)` and prints every event kind and payload in order. Scripts the model with
+  `agentdeck.testing`, so it needs no API key and prints one fixed output.
+- **`Deck.serve(*bindings, host=, port=)` and `Deck.asgi(*bindings)`** (#606): the front door,
+  one-line delegations to `expose(*bindings).serve()`/`.asgi()`. `agentdeck.bindings` now
+  lazily exports `Native` and `Terminal` too, so `from agentdeck.bindings import Native, Terminal`
+  works without importing either module until named. `expose()` is the lower-level call, returning
+  the `Exposure` object itself.
 
 ### Removed
 
@@ -58,7 +63,7 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   # before
   app = Deck.from_project().asgi()          # agentdeck-serve
   # after
-  app = Deck.from_project().expose(Native.http()).asgi()
+  app = Deck.from_project().asgi(Native.http())
   ```
 
   The v1 routes (`/agents/{name}/chat`, `/v2/invocables/{name}/chat`, `/health`) are replaced by

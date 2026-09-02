@@ -1,4 +1,5 @@
-"""The public import path for the AgentDeck-native binding: ``deck.expose(Native.http())``.
+"""The public import path for the AgentDeck-native binding: ``from agentdeck.bindings import
+Native``, then ``deck.serve(Native.http())``.
 
 The implementation lives under ``agentdeck/adapters/bindings/native/`` with every other in-tree
 binding (``rulings.md`` 36); this module is what user code names, so ``adapters`` never appears in

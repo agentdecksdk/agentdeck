@@ -61,7 +61,7 @@ Status: proposed, 2026-08-29. Supersedes the single-file `design.md`, kept in gi
 
 Direction is downward: external systems adapt to AgentDeck, never the reverse.
 
-v6.0 ships `Native` plus one binding of each kind: `A2A.http()`, `WhatsApp.http()`, `Terminal.stdio()`. The rest are 6.x. Execution semantics and the runtime stay unchanged; Deck gains the exposure entry point, `deck.expose(...)`.
+v6.0 ships `Native` plus one binding of each kind: `A2A.http()`, `WhatsApp.http()`, `Terminal.stdio()`. The rest are 6.x. Execution semantics and the runtime stay unchanged; Deck gains the exposure entry point, `deck.serve(...)`/`deck.asgi(...)` (`expose()` for the `Exposure` object itself).
 
 Success test: a React client, an IDE and another agent independently project the same Deck through their native protocols, every execution is still an ordinary AgentDeck Run, and the runtime contains zero protocol-specific behavior.
 
@@ -73,7 +73,7 @@ Success test: a React client, an IDE and another agent independently project the
 | [`gateway.md`](gateway.md) | `DeckGateway`: targets, capabilities, start/get/list, failure taxonomy |
 | [`projection.md`](projection.md) | how a protocol maps sessions, identities, events and input onto AgentDeck's |
 | [`bindings.md`](bindings.md) | `Binding` (protocol or channel) and endpoint types: one external system over one transport it supports |
-| [`exposure.md`](exposure.md) | `deck.expose(...)`: validation, lifecycle, ownership, HTTP composition |
+| [`exposure.md`](exposure.md) | `deck.serve`/`deck.asgi`, and `expose(...)`: validation, lifecycle, ownership, HTTP composition |
 | [`spi.md`](spi.md) | SPI versioning and out-of-tree plugin packaging |
 | [`rulings.md`](rulings.md) | every decision taken while attacking the design: chosen, rejected, why |
 | [`roadmap.md`](roadmap.md) | implementation sequence, target protocols, delivery, contract tests |
