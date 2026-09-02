@@ -14,12 +14,13 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   `capabilities`, `start`/`get_run`/`list_runs`), `GatewayError`/`GatewayFailureCode`, `Binding`,
   `BindingInfo`, `HttpEndpoint`/`StdioEndpoint`. No concrete binding ships yet; this is the
   contract the first one (#548) builds against.
-- **`Deck.expose(*bindings) -> Exposure`** (#546): validates duplicate HTTP paths, more than one
-  stdio binding, a repeated binding name, an unsupported `spi_version`, and a missing prerequisite
-  binding, all before anything opens. `exposure.asgi()` mounts every
-  `HttpEndpoint` on one Starlette app with the lifecycle bound to its lifespan;
-  `exposure.serve(host=, port=)` runs standalone, closing the Deck only if it opened it. A failed
-  `start()` on binding N stops N..1 in reverse, N included, and raises. `Deck.is_open` is new too.
+- **`deck.asgi(*bindings)` and `deck.serve(*bindings, host=, port=)`** (#546): validates
+  duplicate HTTP paths, more than one stdio binding, a repeated binding name, an unsupported
+  `spi_version`, and a missing prerequisite binding, all before anything opens. `deck.asgi(...)`
+  mounts every `HttpEndpoint` on one Starlette app with the lifecycle bound to its lifespan;
+  `deck.serve(...)` runs standalone, closing the Deck only if it opened it. A failed `start()` on
+  binding N stops N..1 in reverse, N included, and raises. `Deck.is_open` is new too. `expose(...)`
+  returns the underlying `Exposure` object for lifecycle control beyond one call.
 
 - **`Native.http()`, the AgentDeck protocol** (#548): `from agentdeck.bindings import
   Native`, then `deck.serve(Native.http())`. Ten routes over `DeckGateway` and public `Run`
@@ -63,7 +64,7 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   # before
   app = Deck.from_project().asgi()          # agentdeck-serve
   # after
-  app = Deck.from_project().expose(Native.http()).asgi()
+  app = Deck.from_project().asgi(Native.http())
   ```
 
   The v1 routes (`/agents/{name}/chat`, `/v2/invocables/{name}/chat`, `/health`) are replaced by
