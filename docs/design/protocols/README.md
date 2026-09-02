@@ -2,7 +2,7 @@
 
 One executable Deck, exposed through many external protocols, none of which becomes part of the execution model.
 
-Status: proposed, 2026-08-29. Supersedes the single-file `design.md`, kept in git history one commit back.
+Status: accepted, frozen at SPI v1 with v6.0.0 (2026-09-02). Supersedes the single-file `design.md`, kept in git history one commit back.
 
 ## Mental model
 
@@ -61,7 +61,7 @@ Status: proposed, 2026-08-29. Supersedes the single-file `design.md`, kept in gi
 
 Direction is downward: external systems adapt to AgentDeck, never the reverse.
 
-v6.0 ships `Native` plus one binding of each kind: `A2A.http()`, `WhatsApp.http()`, `Terminal.stdio()`. The rest are 6.x. Execution semantics and the runtime stay unchanged; Deck gains the exposure entry point, `deck.serve(...)`/`deck.asgi(...)` (`expose()` for the `Exposure` object itself).
+v6.0.0 ships `Native`, `Terminal.stdio()` and `AGUI.http()`, the SPI freeze evidence (`rulings.md` 22, 37, amended: #554); `A2A.http()` and `WhatsApp.http()` follow as v6.x reference bindings. Execution semantics and the runtime stay unchanged; Deck gains the exposure entry point, `deck.serve(...)`/`deck.asgi(...)` (`expose()` for the `Exposure` object itself).
 
 Success test: a React client, an IDE and another agent independently project the same Deck through their native protocols, every execution is still an ordinary AgentDeck Run, and the runtime contains zero protocol-specific behavior.
 
