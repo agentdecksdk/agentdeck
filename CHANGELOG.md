@@ -8,6 +8,15 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`ctx.invoke`'s return shape was undocumented.** `await ctx.invoke(<agent>)` resolves to a
+  `TurnResult` (value at `.output`), `await ctx.invoke(<tool|workflow>)` resolves to the body's
+  return value directly, and `ctx.parallel(...)` resolves to a list of each handle's own result,
+  never to handles. `build-your-deck/workflows` now states all three, and
+  `WorkflowCtx.invoke`'s docstring no longer claims the body's return value unconditionally
+  (#489).
+
 ## [6.0.0] - 2026-09-03
 
 ### Added
