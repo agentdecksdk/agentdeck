@@ -357,7 +357,7 @@ class WorkflowCtx[T](ToolCtx[T]):
         ``*args``/``**kwargs`` binding to its own signature exactly as calling it would. Awaiting the handle
         gives a ``TurnResult`` for an agent target, the body's own return value for a
         ``@tool``/``@workflow`` one; a child stuck on its own question raises ``RunSuspendedError``. See
-        ``build-your-deck/workflows`` for the return shapes and :meth:`parallel`.
+        ``build-your-deck/workflows`` for the child's lifecycle and :meth:`parallel`.
 
             result = await ctx.invoke(load_customer, ticket.customer_id)   # the short path
 
