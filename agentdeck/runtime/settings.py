@@ -379,22 +379,11 @@ class EventsSettings(LayeredSettings):
 
 
 class ControlSettings(LayeredSettings):
-    """Where a run's pending control signals live  -  what pause and cancel are written to.
+    """Where pending control signals and liveness leases live.
 
-    One scheme-shaped URL. ``memory://`` (the default) keeps them in the process, which is all a
-    single worker needs and all it can use: a signal written in one process is invisible to
-    another, so with the default backend the ``agentdeck runs signal`` CLI and a second web
-    worker cannot reach a run at all. ``sqlite://<path>`` crosses process boundaries  -  the same
-    file the CLI's ``--control-db`` names. SQLite's cross-process story rests on shared memory,
-    so one file behind more than one *machine* is unsupported; that one waits for a Redis
-    control port.
-
-    The same URL also resolves the **lease** port, which is where a run asserts that it is still
-    being played. Both are per-run scratch state a second worker has to be able to read, so they
-    share one setting rather than making an operator configure the same backend twice.
-
-    This is a tiny table of pending intent, not a log: nothing here is a record of what
-    happened to a run  -  that is the event store's job, and the control events in it.
+    ``memory://`` is process-local; ``sqlite://<path>`` crosses processes on one machine;
+    ``postgresql://<dsn>`` shares this state across workers and needs the ``[postgres]`` extra.
+    The same URL selects both ports. This is scratch state, not event history.
     """
 
     _bare_env_names: ClassVar[Mapping[str, str]] = {"url": "AGENTDECK_CONTROL"}
@@ -403,9 +392,9 @@ class ControlSettings(LayeredSettings):
     url: str = Field(
         default="memory://",
         description="Where a run's pending control signals and its liveness lease live: `memory://` (default, "
-        "reachable only from this process) or `sqlite://<path>` (crosses process boundaries, and is required for "
-        "the `agentdeck runs signal` CLI to reach a run, and for a killed worker's session to be freed by its lapsed "
-        "lease rather than by `stale_run_after_seconds`). The scheme names the backend.",
+        "reachable only from this process), `sqlite://<path>` (crosses process boundaries on one machine), or "
+        "`postgresql://<dsn>` (needs the `[postgres]` extra and is shared by workers through Postgres). "
+        "The scheme names the backend for both control signals and leases.",
     )
 
 

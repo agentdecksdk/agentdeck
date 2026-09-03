@@ -8,6 +8,14 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Added
+
+- **Postgres control state** (#334): `AGENTDECK_CONTROL=postgresql://...` now selects
+  a Postgres control port for pause/cancel signals shared across workers, and the matching Postgres
+  lease backend so control and liveness stay on the same backend. Signal consumption is atomic
+  across workers; install the `[postgres]` extra. Broader Postgres lease work remains tracked in
+  #335.
+
 ### Fixed
 
 - **`ctx.invoke`'s return shape was undocumented.** `await ctx.invoke(<agent>)` resolves to a
