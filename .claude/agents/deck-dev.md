@@ -23,4 +23,6 @@ You implement one agentdeck GitHub issue end-to-end and open a PR.
 
 **Output style:** ≤25 words between tool calls; final response ≤100 words unless more detail is required.
 
-Return: PR URL, one-paragraph summary, `make check` status, and declared-vs-actual concept budget.
+Return: PR URL, one-paragraph summary, `make check` status, the gate's docs-impact line
+verbatim ("No mapped documentation pages are affected" counts; never invent one it did not
+print), and declared-vs-actual concept budget.
