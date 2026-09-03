@@ -73,6 +73,37 @@ A parked body lives in the process that started the run. If that process restart
 still `waiting_answer` in the log but the body is gone, and answering it says so rather than
 silently re-running the workflow.
 
+## Invoking other executions
+
+`ctx.invoke(target, ...)` starts `target` as a child run and hands back its handle without
+waiting: an agent, a `@tool`/`@workflow`, or an `AgentInstance` all bind `*args`/`**kwargs` to
+their own signature. The handle is a run in its own right, with its own id, log, and
+`can.*`/lifecycle methods (`child.can.pause`, `await child.pause()`, and so on); it runs in its
+own deck-owned task from that call, whether or not the handle is ever awaited.
+
+| `await ctx.invoke(...)` on | resolves to |
+|---|---|
+| an agent | a `TurnResult` (value at `.output`) |
+| a `@tool` or `@workflow` | the body's return value directly |
+
+`ctx.parallel(...)` takes the handles `ctx.invoke` returns and resolves to a list of what
+awaiting each one gives, in the order given, not to the handles themselves. A call mixing an
+agent and a tool resolves to `[TurnResult, <value>]`, never one uniform shape.
+
+```python
+scout = await ctx.invoke("scout", said)          # agent -> TurnResult
+topic = str(scout.output)
+
+card, web = await ctx.parallel(
+    ctx.invoke(places_lookup, topic=topic),      # tool -> plain value
+    ctx.invoke(web_search, topic=topic),
+)
+```
+
+A child waiting on its own `ctx.ask` is not cancelled: it stays `waiting_answer` and answerable
+through `deck.runs.get(child.id)` from outside, and `ctx.parallel` leaves it alone when it gives
+the rest up.
+
 ## Input binds like a call
 
 | the run's input | the body |
