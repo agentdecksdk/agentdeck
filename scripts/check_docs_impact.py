@@ -180,6 +180,9 @@ def main(argv: list[str] | None = None) -> int:
     missing = tuple(
         mapping for mapping in check_docs_impact(mappings, changes) if page_key(mapping.path) not in acknowledged
     )
+    if missing and "PR_BODY" not in os.environ:
+        print("PR_BODY unset: pages below may already be acknowledged in the PR body.", file=sys.stderr)
+
     if args.report:
         return _report(impacted, missing)
 

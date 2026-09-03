@@ -12,7 +12,9 @@ CONSTRAINT, answer in writing before the gate:
 > write the test.
 
 This is the question the other ten do not ask. All four `deck-dev` PRs of the v5.0.0 milestone
-tested what they built and not what they changed, and `make check` was green on every one:
+tested what they built and not what they changed, and `make check` was green on every one: the
+same blind spot covers its `docs impact:` line, which only reflects reality when Stage 4's
+`PR_BODY` export ran.
 
 | PR | built and tested | created and not tested |
 |---|---|---|
