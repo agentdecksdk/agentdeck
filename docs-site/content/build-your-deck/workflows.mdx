@@ -77,8 +77,9 @@ silently re-running the workflow.
 
 `ctx.invoke(target, ...)` starts `target` as a child run and hands back its handle without
 waiting: an agent, a `@tool`/`@workflow`, or an `AgentInstance` all bind `*args`/`**kwargs` to
-their own signature. The child runs in its own deck-owned task from that call, whether or not
-the handle is ever awaited.
+their own signature. The handle is a run in its own right, with its own id, log, and
+`can.*`/lifecycle methods (`child.can.pause`, `await child.pause()`, and so on); it runs in its
+own deck-owned task from that call, whether or not the handle is ever awaited.
 
 | `await ctx.invoke(...)` on | resolves to |
 |---|---|
