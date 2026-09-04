@@ -11,5 +11,5 @@ from __future__ import annotations
 from slopcheck import _self_test
 
 
-def test_slopcheck_self_test_passes() -> None:
+def test_every_slop_rule_still_flags_what_it_is_for() -> None:
     _self_test()
