@@ -8,6 +8,15 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A workflow sharing a conversation's `session_id` no longer duplicates its input into the
+  agent's next prompt** (#490). Only an agent turn is a conversational turn: a workflow, tool or
+  skill run passed the same `session_id` joins that conversation's event stream, so an operator
+  surface keyed by the session sees it, but its input is an orchestration argument and never
+  reaches the model as something the user said. "Enrich, then answer" on one session is now the
+  one obvious path, with no derived `<session>|step` id to invent.
+
 ## [6.0.1] - 2026-09-04
 
 ### Changed

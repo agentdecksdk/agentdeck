@@ -118,6 +118,11 @@ def _log_transcript(history: Sequence[Event]) -> list[Message]:
     the SDK persists a turn's input and its output together, so both are in the session and
     dropping the input would misalign the two transcripts on every later turn. A *failed* run
     also keeps its input, because a session write that died is what a failure looks like here.
+
+    Nor does a run this engine never played (#490). A workflow, tool or skill sharing a
+    conversation's ``session_id`` is on that conversation's *event stream*, which is what an
+    operator surface keyed by the session reads; its input is an orchestration argument and
+    nobody said it, so counting it here would hand the model a turn twice.
     """
     cancelled = {event.run_id for event in history if isinstance(event.payload, RunCancelled)}
     answered = {event.run_id for event in history if isinstance(event.payload, MessageCompleted)}
@@ -125,7 +130,7 @@ def _log_transcript(history: Sequence[Event]) -> list[Message]:
     transcript: list[Message] = []
     for event in history:
         payload = event.payload
-        if isinstance(payload, RunStarted) and event.run_id in abandoned:
+        if isinstance(payload, RunStarted) and (event.run_id in abandoned or payload.kind_of_invocable != "agent"):
             continue
         if isinstance(payload, RunStarted | InputAppended):
             transcript.append(("user", _text_of(payload.input)))
