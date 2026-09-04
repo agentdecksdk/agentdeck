@@ -8,6 +8,8 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+## [6.0.2] - 2026-09-04
+
 ### Fixed
 
 - **A `ctx.invoke` child run's events reach an `Observer` under its parent's session** (#491). A
@@ -2757,7 +2759,8 @@ documentation platform and its CI.
   `runtime/tools.py`, `PluginRegistry.pick`, `skill_runtime` LLM/batch
   helpers; deps typer, rich, prompt-toolkit.
 
-[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.1...HEAD
+[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.2...HEAD
+[6.0.2]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.1...v6.0.2
 [6.0.1]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.0...v6.0.1
 [6.0.0]: https://github.com/agentdecksdk/agentdeck/compare/v5.2.1...v6.0.0
 [5.2.1]: https://github.com/agentdecksdk/agentdeck/compare/v5.2.0...v5.2.1

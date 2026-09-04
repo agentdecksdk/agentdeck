@@ -14,9 +14,11 @@ description: What changed in each release of AgentDeck, and what to do about it 
 Rendered from the repository's own `CHANGELOG.md`, so this page cannot drift from it. Entries
 are written for someone using the package: what changed, and what to do about it.
 
-The current release is **v6.0.1**. Earlier releases are listed at the bottom.
+The current release is **v6.0.2**. Earlier releases are listed at the bottom.
 
-## Unreleased
+## v6.0.2
+
+*Released 2026-09-04.*
 
 ### Fixed
 
@@ -43,37 +45,11 @@ The current release is **v6.0.1**. Earlier releases are listed at the bottom.
   conversation's engine-side memory (the event log is untouched), or move the conversation to a
   new `session_id`. A session that never shared a workflow run is unaffected.
 
-## v6.0.1
-
-*Released 2026-09-04.*
-
-### Changed
-
-- **A completed run reports the artifacts it produced** (#636). `run.completed`'s
-  `output: list[ContentBlock]` now leads with the media the run made  -  a hosted
-  `ImageGenerationTool` image, a rich tool's image or file  -  and closes with the final text or
-  structured block, so a channel can send the image and caption it from one result instead of
-  reassembling it from executor events. Nothing else from the transcript is promoted, and a
-  text-only run is byte for byte what it was. The inline cap on `ImageBlock`/`AudioBlock` moves
-  from 1 MB to 8 MB decoded, because a generated PNG does not fit under 1 MB.
-
-### Fixed
-
-- **A `@workflow` returning content blocks crashed its own run** (#636). Anything other than a
-  `TextBlock` or `DataBlock` was wrapped in a `DataBlock` that could not hold it; a body may now
-  return any list of blocks and `run` hands back exactly those blocks.
-
-- **`ctx.invoke`'s return shape was undocumented.** `await ctx.invoke(<agent>)` resolves to a
-  `TurnResult` (value at `.output`), `await ctx.invoke(<tool|workflow>)` resolves to the body's
-  return value directly, and `ctx.parallel(...)` resolves to a list of each handle's own result,
-  never to handles. `build-your-deck/workflows` now states all three, and
-  `WorkflowCtx.invoke`'s docstring no longer claims the body's return value unconditionally
-  (#489).
-
 ## Earlier releases
 
 | Version | Date | Notes |
 |---|---|---|
+| [v6.0.1](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.1) | 2026-09-04 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.1) |
 | [v6.0.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.0) | 2026-09-03 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.0) |
 | [v5.2.1](https://github.com/agentdecksdk/agentdeck/releases/tag/v5.2.1) | 2026-08-29 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v5.2.1) |
 | [v5.2.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v5.2.0) | 2026-08-29 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v5.2.0) |
