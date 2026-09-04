@@ -8,8 +8,10 @@ __pycache__/
 .pytest_cache/
 .env
 
-# Claude Code agent worktrees
+# Claude Code agent worktrees, and the local state its tooling writes beside them
 .claude/worktrees/
+.claude/*.lock
+.serena/
 
 # Local development container
 .devcontainer/
