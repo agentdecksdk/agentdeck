@@ -8,6 +8,15 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A `ctx.invoke` child run is attributed to its parent's conversation** (#491). Its events now
+  carry the parent's `session_id`, so an `Observer` or a session read shows the child's
+  `run.started` / `usage.reported` / `run.completed` under the conversation instead of losing them
+  to a process-wide session-less bucket. Attribution only: the child still claims no session, is
+  still played with its own history, and still contributes nothing to the conversation's
+  transcript.
+
 ## [6.0.1] - 2026-09-04
 
 ### Changed
