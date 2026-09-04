@@ -248,6 +248,10 @@ class Runtime:
         )
         try:
             claimed = await self._claim_session(opening, spec, ctx, history)
+        except SessionBusyError:
+            # A refused claim is not a stranded one: this raise happens only where ``claim_start``
+            # returned no event, so there is no run of this id to owe anything to.
+            raise
         except (Exception, asyncio.CancelledError) as exc:
             # Awaited in the caller's own coroutine  -  the one an ASGI server cancels when a
             # client disconnects before the response starts.
@@ -502,7 +506,9 @@ class Runtime:
                 return False
             await self._terminate(spec, run_ctx, reason)
         except (Exception, asyncio.CancelledError) as exc:
-            await self._abandon_claim(spec, run_ctx, exc, "after the resume claim")
+            # ``reason`` through: this is the one abandonment an operator asked for, and the
+            # ``control.requested`` that would have carried their text is the write that failed.
+            await self._abandon_claim(spec, run_ctx, exc, "after the resume claim", reason)
             raise
         return True
 
@@ -522,25 +528,39 @@ class Runtime:
             await self._record(RunCancelled(reason=reason), spec, ctx),
         ]
 
-    async def _abandon_claim(self, spec: InvocableSpec, ctx: RunContext, exc: BaseException, span: str) -> None:
-        """Close a run whose claim committed and whose play never started, ``span`` naming which.
+    async def _abandon_claim(
+        self, spec: InvocableSpec, ctx: RunContext, exc: BaseException, span: str, asked: str | None = None
+    ) -> None:
+        """Close a run whose claim committed and whose play never started.
 
         Every exit from the claim to :meth:`_play` strands it as a run the log says is live with nobody playing
         it, its session held for a whole staleness window. Not only a cancellation: a ``ControlPort`` can fail
         while the event store this writes to is healthy (#470). Recorded rather than shielded, because status is
         folded from the log: a log saying a run is live while nothing plays it lies. Guarded on ``RUNNING``
         because the same span also serves a pending cancel, whose terminal event is already written (#391).
+
+        Args:
+            span: which claim was stranded, for the reason this writes.
+            asked: an operator's own reason, when the stranded span was serving their cancel.
         """
         # The type name only, the story ``_failed`` tells for a run that died in its engine:
         # ``run.cancelled`` reads as a cancellation, so anything else has to say what it was.
-        cancelled = isinstance(exc, asyncio.CancelledError)
-        reason = f"cancelled {span}" if cancelled else f"abandoned {span}: {type(exc).__name__}"
+        if isinstance(exc, asyncio.CancelledError):
+            stranded = f"cancelled {span}"
+        else:
+            stranded = f"abandoned {span}: {type(exc).__name__}"
+        reason = stranded if asked is None else f"{stranded}, cancel requested: {asked}"
         try:
-            if await self._store.run_status(ctx) is RunStatus.RUNNING:
+            status = await self._store.run_status(ctx)
+            if status is RunStatus.RUNNING:
                 await self._close_cancelled(spec, ctx, reason)
-        except StoreError:
-            # The caller's own failure is the one worth raising, and this read or write hits the
-            # store that just failed for it; the next turn finds the run stale and closes it.
+            elif status is None:
+                logger.debug("run %s has no events: its claim never committed, so nothing was written", ctx.run_id)
+            else:
+                logger.debug("run %s is %s, not RUNNING; its terminal event is already written", ctx.run_id, status)
+        except (StoreError, RunStateError):
+            # The caller's own failure is the one worth raising, and this read or write goes to the
+            # store that just failed for it, or to a log another writer sealed under it (#680).
             logger.exception("could not close run %s whose claim never reached its play", ctx.run_id)
 
     async def _play(

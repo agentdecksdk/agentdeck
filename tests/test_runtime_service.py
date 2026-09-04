@@ -40,7 +40,7 @@ from agentdeck.core.events import (
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.ports import Observer, SessionClaim
 from agentdeck.core.status import Play, RunStatus, continuation_of, status_of
-from agentdeck.errors import ConfigError, InputError, NotFoundError, SessionBusyError, StoreError
+from agentdeck.errors import ConfigError, InputError, NotFoundError, RunStateError, SessionBusyError, StoreError
 from agentdeck.runtime.service import Runtime
 from agentdeck.runtime.settings import RuntimeSettings, reset_settings_cache
 
@@ -1148,6 +1148,32 @@ async def test_a_store_that_fails_the_abandonment_too_still_raises_the_callers_o
     assert [event.kind for event in await store.read_session(CTX)] == ["run.started"]
 
 
+async def test_a_log_sealed_under_the_abandonment_still_raises_the_callers_own_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The sibling refusal, and the one another process can hand this write: the stores' shared
+    guard raises ``RunStateError`` when somebody sealed the run between the status read and this
+    append (#680 seals more of them). Same rule as above, so the arm has to catch both.
+    """
+
+    class _SealedUnderTheWrite(_ClaimThenFail):
+        async def append(self, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
+            raise RunStateError(f"run {ctx.run_id!r} was cancelled; nothing can be appended to it any more")
+
+    spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
+    store = _SealedUnderTheWrite()
+    runtime = Runtime([StubExecutor()], store, {spec.name: spec})
+
+    with (
+        caplog.at_level(logging.ERROR, logger="agentdeck.runtime.service"),
+        pytest.raises(StoreError, match="the connection dropped after the append committed"),
+    ):
+        await _collect(runtime)
+
+    assert "whose claim never reached its play" in caplog.text
+    assert [event.kind for event in await store.read_session(CTX)] == ["run.started"]
+
+
 class _ClaimThenFailTheRead(MemoryEventStore):
     """Commits a resume claim and then fails the history read that follows it: the window
     ``_ClaimThenStall`` cancels in, left by an exception instead. One failure only, so the
@@ -1308,7 +1334,11 @@ async def test_a_cancellation_while_a_suspended_run_is_being_cancelled_still_clo
         # No ``control.requested``: the append that would have written it is the one that stalled.
         assert [event.kind for event in logged] == ["run.started", "run.interrupted", "run.resumed", "run.cancelled"]
         assert check_terminal(logged) is None
-        assert logged[-1].payload.reason == "cancelled after the resume claim"
+        # The operator asked for this cancel and gave a reason; the append that would have
+        # carried it as ``control.requested`` is the one that stalled, so the closer carries it.
+        assert (
+            logged[-1].payload.reason == "cancelled after the resume claim, cancel requested: the user closed the tab"
+        )
 
         next_turn = [
             event async for event in runtime.run("Approver", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
@@ -1357,7 +1387,9 @@ async def test_a_store_failure_while_a_suspended_run_is_being_cancelled_still_cl
         logged = await store.read_run(replace(CTX, run_id=run_id))
         assert [event.kind for event in logged] == ["run.started", "run.paused", "run.resumed", "run.cancelled"]
         assert check_terminal(logged) is None
-        assert logged[-1].payload.reason == "abandoned after the resume claim: StoreError"
+        assert logged[-1].payload.reason == (
+            "abandoned after the resume claim: StoreError, cancel requested: the user closed the tab"
+        )
 
         next_turn = [
             event async for event in runtime.run("Chatty", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
