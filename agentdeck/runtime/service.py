@@ -811,8 +811,14 @@ class Runtime:
             retryable=False,
         )
         abandoned = replace(ctx, run_id=tail.run_id, session_id=tail.session_id)
-        event = (await self._store.append([payload], abandoned, tail.origin))[0]
-        await self._fan_out(event)
+        try:
+            event = (await self._store.append([payload], abandoned, tail.origin))[0]
+        except RunStateError:
+            # It was alive after all and sealed its own log while this was written, so the
+            # takeover was wrong about it (#471). Not raised on: the lease prune below still applies.
+            logger.debug("run %s ended itself as this takeover closed it; nothing was written", tail.run_id)
+        else:
+            await self._fan_out(event)
         if self._lease is not None:
             # The dead worker's expired row has done its job and nothing else prunes it. Not
             # required for correctness  -  the run is terminal now, so no claim ever consults it
@@ -859,7 +865,13 @@ class Runtime:
             return
         session_id, opened = started
         closing = replace(ctx, session_id=session_id)
-        event = (await self._store.append([RunCancelled(reason=reason)], closing, opened.invocable))[0]
+        try:
+            event = (await self._store.append([RunCancelled(reason=reason)], closing, opened.invocable))[0]
+        except RunStateError:
+            # The same benign half one turn later: the run's own terminal event was suspended
+            # inside the store when the read above saw RUNNING, and committed first (#471).
+            logger.debug("run %s closed itself while this cancel was in flight; nothing was written", run_id)
+            return
         await self._fan_out(event, self._attributed(run_id))
 
     async def _claim_resume(
