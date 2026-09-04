@@ -398,3 +398,28 @@ async def test_two_reports_keep_their_order_when_the_first_append_suspends_insid
         "run.completed",
     ]
     assert _reports(played) == [("info", "first", {}), ("info", "second", {})]
+
+
+def test_a_report_made_after_the_loop_that_played_the_run_closed_is_dropped(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A context can outlive the loop it was bound on. The writer then has nowhere to schedule
+    the append, and an emitter still must not be handed an exception for reporting."""
+    reporters: list[Reporter] = []
+
+    @tool
+    async def _outlives_its_loop(ctx: ToolCtx) -> str:
+        """Keep the run's reporter reachable after the loop that played the run is gone."""
+        reporters.append(ctx.reporter)
+        return "done"
+
+    async def play() -> None:
+        runtime = _reporting_runtime(_ReportGate(), _outlives_its_loop, "_outlives_its_loop")
+        await _played(runtime, "_outlives_its_loop", "r-gone")
+
+    asyncio.run(play())
+
+    with caplog.at_level(logging.WARNING):
+        reporters[0].info("the loop is gone")
+
+    assert "reported after its loop closed" in caplog.text
