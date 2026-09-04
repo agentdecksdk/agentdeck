@@ -10,6 +10,13 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ### Fixed
 
+- **A claim that never reaches the run's play is closed at every site that takes one, however the
+  span is left** (#470). A resume or answer whose claim committed and then met a failing
+  `ControlPort`, a failing store read, or a cancellation used to leave a run the log says is
+  `RUNNING` with nobody playing it, holding its session until the staleness window passed.
+  `Runtime.signal(CANCEL)` against a suspended run had no cover at all, so a caller whose own
+  task was cancelled mid-`Run.cancel()` wedged the very run it asked to stop. All four claim
+  sites now record `run.cancelled` and free the session.
 - **A run that completed no longer reads back as cancelled** (#471). A cancel could land behind
   that run's own `run.completed` and leave `run.status()` reporting `CANCELLED` for a run that
   finished its work: written by `Deck.aclose` giving up on it, by a session takeover, or by the
