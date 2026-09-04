@@ -44,13 +44,18 @@ let pagefind: Promise<Pagefind> | undefined
 
 function loadPagefind(): Promise<Pagefind> {
   // Built by `postbuild`, so it exists only in the export and must not be resolved at build time.
-  pagefind ??= (import(/* webpackIgnore: true */ addBasePath('/_pagefind/pagefind.js')) as Promise<Pagefind>).then(
+  pagefind ??= (import(/* webpackIgnore: true */ addBasePath('/_pagefind/pagefind.js')) as Promise<Pagefind>)
     // `baseUrl: '/'` keeps results as site-relative paths; `next/link` adds the base path itself.
-    async module => {
+    .then(async module => {
       await module.options({ baseUrl: '/' })
       return module
-    }
-  )
+    })
+    // Forget a failure, or one lost fetch of `pagefind.js` would keep the rejection cached and
+    // leave search dead for the rest of the session instead of retrying on the next keystroke.
+    .catch(failure => {
+      pagefind = undefined
+      throw failure
+    })
   return pagefind
 }
 
@@ -94,6 +99,7 @@ export default function PagefindSearchDialog(props: SharedProps) {
     setLoading(true)
     results(query)
       .then(found => live && setItems(found))
+      .catch(() => live && setItems([]))
       .finally(() => live && setLoading(false))
     return () => {
       live = false

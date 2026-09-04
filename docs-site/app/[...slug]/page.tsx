@@ -15,7 +15,9 @@ export async function generateMetadata(props: { params: Promise<{ slug: string[]
   const { slug } = await props.params
   const page = source.getPage(slug)
   if (!page) notFound()
-  return { title: page.data.title, description: page.data.description }
+  // Spread, never `description: undefined`: Next reads a present key as an override, and the
+  // site description in `app/layout.tsx` would stop cascading to the 14 pages that carry none.
+  return { title: page.data.title, ...(page.data.description && { description: page.data.description }) }
 }
 
 export default async function Page(props: { params: Promise<{ slug: string[] }> }) {

@@ -113,7 +113,7 @@ page is complete enough to say which owns it.
 | # | Finding | Evidence |
 |---|---|---|
 | S1 | Six category roots serve a raw directory listing | `/meet-agentdeck/`, `/build-your-deck/`, `/runs-and-control/`, `/integrations/`, `/reference/`, `/resources/` return 200 with `<title>Files within out/...</title>`; `/examples/` and `/jack/` render because they have a page |
-| S2 | Only two groups have an index page | `index.mdx` exists in `content/`, `content/bindings/`, `content/examples/` and `content/jack/` |
+| S2 | Four groups have an index page, with no rule for which do | `index.mdx` exists in `content/`, `content/bindings/`, `content/examples/` and `content/jack/` |
 | S3 | Reference is half generated, half hand-written, with no marker | `deck`/`cli`/`settings`/`changelog` generated; `python-api`/`run`/`events` hand-written and already wrong |
 | S4 | Conceptual material sits in Reference | `/reference/run` explains what a Run is; `/run/runs` should |
 | S5 | Reference material sits in concept pages | `/runs-and-control/lifecycle-and-control` is a state table |

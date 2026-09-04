@@ -14,7 +14,7 @@ function landing() {
 export function generateMetadata(): Metadata {
   const { data } = landing()
   // Next.js skips a `title.template` on the segment that declares it, and `/` is that segment.
-  return { title: `${data.title} | AgentDeck SDK`, description: data.description }
+  return { title: `${data.title} | AgentDeck SDK`, ...(data.description && { description: data.description }) }
 }
 
 export default function Home() {

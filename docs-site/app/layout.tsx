@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { Inter, Poppins } from 'next/font/google'
 import { RootProvider } from 'fumadocs-ui/provider/next'
 import { Agentation } from 'agentation'
@@ -16,6 +16,15 @@ import './jack.css'
 // Self-hosted at build time  -  the static export makes no external font request.
 const body = Inter({ subsets: ['latin'], variable: '--font-body', display: 'swap' })
 const display = Poppins({ subsets: ['latin'], weight: ['500', '600'], variable: '--font-display', display: 'swap' })
+
+// The browser chrome's colour on mobile, matched to the page background in each theme.
+// `nextra-theme-docs`'s <Head backgroundColor> emitted these two; nothing else does.
+export const viewport: Viewport = {
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: 'rgb(250,251,254)' },
+    { media: '(prefers-color-scheme: dark)', color: 'rgb(11,18,32)' }
+  ]
+}
 
 export const metadata: Metadata = {
   // Every relative URL in metadata  -  canonical tags, OG images  -  resolves against this, so the
