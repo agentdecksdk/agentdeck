@@ -1386,6 +1386,24 @@ async def test_run_and_stream_share_one_session(no_project):
     assert "first" in str(model.inputs[-1])
 
 
+@pytest.mark.asyncio
+async def test_a_workflow_joins_a_session_without_joining_its_transcript(no_project):
+    """ "Enrich, then answer" on one conversation (#490): a workflow's input is an orchestration
+    argument, so sharing the agent's ``session_id`` puts the workflow's run on that
+    conversation's event stream without putting its argument in front of the model."""
+    said = "Hi, I run a studio in Ornit"
+    model = ScriptedModel(deltas=("hi",))
+    deck = Deck(agents=[_greeter()], workflows=[_shout_workflow()])
+
+    with patch_model(model):
+        async with deck:
+            enriched = [event async for event in deck.stream("Shout", said, session_id="s1")]
+            await deck.run("Greeter", said, session_id="s1")
+
+    assert [event.session_id for event in enriched] == ["s1"] * len(enriched)
+    assert str(model.inputs[0]).count(said) == 1
+
+
 def test_sessions_keyed_by_id(no_project):
     deck = Deck(agents=[_greeter()])
 
