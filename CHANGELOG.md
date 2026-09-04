@@ -10,6 +10,17 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ### Fixed
 
+- **`ctx.reporter` writes each report to the log when it fires** (#487). A report used to wait in
+  a 64-deep buffer the runtime drained at the engine's next payload, so one made inside a long
+  tool call surfaced only when that call ended, one made after the engine's last payload was
+  never written at all, and a call reporting more than 64 times lost the reports nearest its end.
+  Every report is now appended as it is made, and `MAX_PENDING_REPORTS` is gone with the buffer:
+  a report made after the run completed or was cancelled is refused by the store (#471) rather
+  than discarded on a guess, and a store that refuses one still costs the report, never the run.
+  A report made after the run wrote its own `run.failed` can still land behind it, because a
+  takeover's `run.failed` deliberately seals nothing (ADR-D11 §5); #685 owns that. A consumer
+  streaming `runtime.run(...)` directly still sees reports at the engine's next payload, not
+  during the call.
 - **A claim that never reaches the run's play is closed at every site that takes one, however the
   span is left** (#470). A resume or answer whose claim committed and then met a failing
   `ControlPort`, a failing store read, or a cancellation used to leave a run the log says is
