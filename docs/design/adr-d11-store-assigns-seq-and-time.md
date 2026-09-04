@@ -1,7 +1,7 @@
 # ADR-D11  -  The store assigns `seq` and `ts`
 
 **Status:** accepted
-**Date:** 2026-08-08 · **Amended:** 2026-08-08 (#149), 2026-08-22 (#421) · **Relates to:** ADR-D5, design doc §4.2 ·
+**Date:** 2026-08-08 · **Amended:** 2026-08-08 (#149), 2026-08-22 (#421), 2026-09-04 (#471) · **Relates to:** ADR-D5, design doc §4.2 ·
 §5, `core/ports/store.py`, `runtime/service.py`, coding-standards §6
 **Supersedes:**
 
@@ -136,6 +136,14 @@ one of that run's writes can already be suspended inside `append` when the termi
 condition is folded into each backend's own write step, beside the `seq` read it already makes there.
 The takeover's `run.failed` above deliberately seals nothing: it is written for a run only *believed*
 dead, and one that turns out to be alive goes on writing and may reclaim its own session.
+
+**Amended 2026-09-04 (#471): the refusal covers `COMPLETED` too.** A cancel written from outside a
+live run could otherwise land behind that run's own `run.completed`, and `run_status` would then
+report `CANCELLED` for a run that completed: wrong about the outcome, not just about the shape of
+the log. Whichever of the two commits first is the run's outcome. The two callers that write a
+terminal event for a run that is not their own, `close_cancelled` and `_close_abandoned`, take the
+refusal as the benign branch each already has for a run that closed itself first. `run.failed`
+still seals nothing, for the reason above.
 
 **The two claims stay, as named methods.** They are not extra operations  -  they are conditional
 appends, and they are the only place mutual exclusion can live without adding a second piece of
