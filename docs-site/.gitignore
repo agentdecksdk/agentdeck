@@ -2,3 +2,5 @@ node_modules/
 .next/
 out/
 *.log
+.source
+tsconfig.tsbuildinfo

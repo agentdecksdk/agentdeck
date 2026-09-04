@@ -1,6 +1,6 @@
 # AgentDeck docs site
 
-MDX-powered documentation built with Nextra 4 and the Next.js App Router.
+MDX-powered documentation built with Fumadocs and the Next.js App Router.
 
 ## Local development
 
@@ -24,26 +24,25 @@ The static export is generated in `docs-site/out/`.
 
 ## Dependencies
 
-`package-lock.json` is committed and CI installs with `npm ci`. `zod` is pinned to
-`4.3.5` via `overrides`: from zod 4.4.0 a required object key that receives
-`undefined` is a hard error, and `nextra-theme-docs@4.6.1`'s `<Layout>` strips
-`children` off its props before validating them against a schema that still
-requires `children`  -  every page fails to prerender. Drop the override once
-Nextra ships a fix.
+`package-lock.json` is committed and CI installs with `npm ci`. `postinstall` runs
+`fumadocs-mdx`, which writes the `.source/` entry files the routes import; it is
+generated, not committed.
 
 ## Search
 
-Nextra's search box loads `_pagefind/pagefind.js` at runtime, which `next build` does not
-produce  -  the `postbuild` script indexes `out/` with Pagefind and CI asserts the index
-exists. Without it the box renders and finds nothing.
+`app/search-dialog.tsx` loads `_pagefind/pagefind.js` at runtime, which `next build` does
+not produce  -  the `postbuild` script indexes `out/` with Pagefind and CI asserts the index
+exists. Without it the box renders and finds nothing. Fumadocs' own search would need Orama
+and ship the index to the browser, which `docs/delivery/docs-site-plan.md` DS-D8 rules out.
 
 ## Content
 
-Documentation pages live under `content/`. Navigation is controlled by colocated `_meta.ts` files.
+Documentation pages live under `content/`. Navigation is controlled by colocated `meta.json`
+files; a page's sidebar label is its frontmatter `title`, which Fumadocs requires.
 
 Python blocks are parsed and their `agentdeck` imports resolved by
 `tests/test_docs_site.py` (part of `make check`), which also checks that every **absolute
-markdown** link resolves to a page and that `_meta.ts` keys match the top-level pages.
+markdown** link resolves to a page and that `meta.json` pages match the files beside it.
 Relative hrefs, reference-style links, MDX `<Cards>`, anchors, and non-Python blocks are
 not covered  -  see the plan's §6 for the full list of ceilings. A block that cannot be
 checked opts out with a reason:

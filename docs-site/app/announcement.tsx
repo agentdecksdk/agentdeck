@@ -1,4 +1,4 @@
-import { Banner } from 'nextra/components'
+import { Banner } from 'fumadocs-ui/components/banner'
 import type { ReactNode } from 'react'
 
 /** The announcement bar: one static line, brand blue, the stylized A as a faded watermark behind
@@ -16,7 +16,7 @@ export function Announcement({
   children: ReactNode
 }) {
   return (
-    <Banner storageKey={`agentdeck-${id}`} dismissible>
+    <Banner id={`agentdeck-${id}`}>
       <a className="ad-announce" href={href}>
         <Spark />
         <span className="ad-announce__claim">{children}</span>

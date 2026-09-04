@@ -39,14 +39,14 @@ Defects to fix before adding anything:
 
 | # | Decision | Why |
 |---|---|---|
-| DS-D1 | Stay on Nextra 4; no migration to Docusaurus/Mintlify/Fumadocs | It builds, it deploys, it searches. Migration buys layout opinions we don't need. |
+| DS-D1 | Migrate from Nextra 4 to Fumadocs; the site owns its layout components | Nextra's theme is configured from outside, which #140 recorded as why the pages don't read like the documentation we researched, and its loader forces every fenced block through twoslash, whose peer range blocks TypeScript 7 (#664). Fumadocs keeps Next 16, the app router and the site's own React, and hands the layout over. Supersedes #140's Docusaurus target, which would have meant rewriting that React against Infima. |
 | DS-D2 | No generated API reference | Public surface is small (`App`, definition bases, capability specs, settings, HTTP). Hand-written pages read better and a Python→MDX pipeline is a permanent maintenance tax. Revisit when FR-24 stdlib adds many entries. |
 | DS-D3 | No version switcher; one "latest" site + `Since v2.x` notes on new pages | NFR-1 says v1.2.1 projects keep working. If nothing breaks, snapshots per version are pure cost. |
 | DS-D4 | Every Python block in every page is checked by `make check`  -  parsed and import-resolved in DS-0, executed from DS-1 | The one mechanism that makes the site trustworthy. §6. |
 | DS-D5 | Deploy stays release-gated (`docs-pages.yml`) | Published docs describe the released package. `workflow_dispatch` covers the rare preview. |
 | DS-D6 | Delete `cookbook.mdx`; recipes are Guides | Two names for task-oriented pages splits the same content twice. |
 | DS-D7 | Diagrams only where the mechanism is invisible in prose  -  event-log fan-out, three rings, run-control safe points. Mermaid in MDX, no image assets | Screenshots and decorative diagrams rot faster than text. |
-| DS-D8 | No analytics, no Algolia, no custom theme in phase DS-0/DS-1 | Pagefind ships with the theme and now works; nothing else here is load-bearing for §1. |
+| DS-D8 | No analytics, no Algolia, no Orama | Pagefind indexes the static export and works. Since DS-D1 the index and its dialog are ours, not the theme's. |
 | DS-D9 | Install instructions use a git+tag pin while the repo is private; publishing to PyPI is a product decision, not a docs prerequisite | Documenting `pip install agentdeck` would be the exact fiction §2 flags. Revisit if/when the package is published. |
 | DS-D10 | The site owns the *user-facing* contract for run control (safe points, restart semantics); `docs/` owns the internal mechanism, and epic Story 3's AC points at the site page | Otherwise safe-point semantics get two homes and we recreate the precedence ambiguity `00-project-index.md` exists to kill. |
 

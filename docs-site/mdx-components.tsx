@@ -1,5 +1,7 @@
-import { Callout, Cards, Steps, Tabs } from 'nextra/components'
-import { useMDXComponents as getThemeComponents } from 'nextra-theme-docs'
+import type { MDXComponents } from 'mdx/types'
+import defaultComponents from 'fumadocs-ui/mdx'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Steps } from 'fumadocs-ui/components/steps'
 import { MentalModel } from './app/diagram'
 import { BrandCallout } from './app/callout'
 import { Contribute } from './app/contribute'
@@ -19,13 +21,12 @@ import {
   FinalCTA
 } from './app/landing-components'
 
-export function useMDXComponents(components = {}) {
+// `Cards` and `Tabs` were exported and never used by any of the 44 pages.
+export function getMDXComponents(components: MDXComponents = {}): MDXComponents {
   return {
-    ...getThemeComponents(),
+    ...defaultComponents,
     Callout,
-    Cards,
     Steps,
-    Tabs,
     MentalModel,
     BrandCallout,
     Contribute,

@@ -1,9 +1,9 @@
-import nextra from 'nextra'
+import { createMDX } from 'fumadocs-mdx/next'
 
-const withNextra = nextra({})
+const withMDX = createMDX()
 const isGitHubPages = process.env.GITHUB_ACTIONS === 'true'
 
-export default withNextra({
+export default withMDX({
   output: 'export',
   trailingSlash: true,
   basePath: isGitHubPages ? '/agentdeck' : '',

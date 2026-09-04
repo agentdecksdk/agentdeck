@@ -22,8 +22,8 @@ afterwards, approvals that outlive the process that requested them.
 - [CLI](https://agentdecksdk.com/reference/cli): The agentdeck command tree, generated from agentdeck/cli.py's own --help output.
 - [Deck](https://agentdecksdk.com/reference/deck): The composition root  -  builds a catalog from Agent objects and @workflow definitions or a project directory, and runs every turn on it.
 - [Events](https://agentdecksdk.com/reference/events): Every event kind a run can emit, with its payload fields.
-- [python-api](https://agentdecksdk.com/reference/python-api)
-- [run](https://agentdecksdk.com/reference/run)
+- [Python API](https://agentdecksdk.com/reference/python-api)
+- [Run Reference](https://agentdecksdk.com/reference/run)
 - [Settings](https://agentdecksdk.com/reference/settings): Every AGENTDECK_*, OPENAI_*, ANTHROPIC_*, GEMINI_*, OLLAMA_*, OPENROUTER_*, and TAVILY_* environment variable, generated from agentdeck/runtime/settings.py.
 - [Bindings](https://agentdecksdk.com/bindings): Serve one Deck over multiple protocols and surfaces at once.
 - [AG-UI](https://agentdecksdk.com/bindings/agui): Project a whole Deck, or one pinned target, into the AG-UI protocol.
@@ -33,18 +33,18 @@ afterwards, approvals that outlive the process that requested them.
 - [Write Your Own](https://agentdecksdk.com/bindings/write-your-own): The SPI a binding is held to, in or out of tree.
 - [Agents](https://agentdecksdk.com/build-your-deck/agents): Declarative agents with tools, instructions, and model configurations.
 - [Context](https://agentdecksdk.com/build-your-deck/context): Typed, request-scoped access to your own application state, for tools and workflows.
-- [deck](https://agentdecksdk.com/build-your-deck/deck)
-- [skills](https://agentdecksdk.com/build-your-deck/skills)
-- [tools](https://agentdecksdk.com/build-your-deck/tools)
-- [workflows](https://agentdecksdk.com/build-your-deck/workflows)
-- [index](https://agentdecksdk.com/examples)
+- [Deck](https://agentdecksdk.com/build-your-deck/deck)
+- [Skills](https://agentdecksdk.com/build-your-deck/skills)
+- [Tools](https://agentdecksdk.com/build-your-deck/tools)
+- [Workflows](https://agentdecksdk.com/build-your-deck/workflows)
+- [Examples](https://agentdecksdk.com/examples)
 - [Agent with a Skill](https://agentdecksdk.com/examples/agent-with-a-skill): Two tools and one skill, prose the model loads only when it decides it needs it.
 - [Chat Agent with a Tool](https://agentdecksdk.com/examples/chat-agent-with-a-tool): An agent that answers order questions by calling a plain Python function.
 - [Chat in the Terminal](https://agentdecksdk.com/examples/chat-in-the-terminal): A workflow that asks the questions, driven by agentdeck chat. No API key.
 - [Run Events Stream](https://agentdecksdk.com/examples/run-events-stream): A run's typed event log, printed as it arrives. No API key.
-- [existing-agents](https://agentdecksdk.com/integrations/existing-agents)
-- [mcp](https://agentdecksdk.com/integrations/mcp)
-- [openai-agents-sdk](https://agentdecksdk.com/integrations/openai-agents-sdk)
+- [Existing Agents](https://agentdecksdk.com/integrations/existing-agents)
+- [Model Context Protocol (MCP)](https://agentdecksdk.com/integrations/mcp)
+- [OpenAI Agents SDK](https://agentdecksdk.com/integrations/openai-agents-sdk)
 - [How Jack is built](https://agentdecksdk.com/jack): What building a real application with AgentDeck looks like, and what AgentDeck provides around your application code.
 - [Implementation notes](https://agentdecksdk.com/jack/notes): The decisions behind Jack, and the alternatives each one beat.
 - [Mental Model](https://agentdecksdk.com/meet-agentdeck/mental-model): The four primitives, what you declare versus what AgentDeck runs, and how one becomes the other.
@@ -53,12 +53,12 @@ afterwards, approvals that outlive the process that requested them.
 - [Deployment](https://agentdecksdk.com/operate/deployment): Running a Deck as a supervised, long-lived service, not `python run.py`.
 - [Changelog](https://agentdecksdk.com/resources/changelog): What changed in each release of AgentDeck, and what to do about it when upgrading.
 - [Known Issues](https://agentdecksdk.com/resources/known-issues): Defects in the current release that will surprise you, what happens, and what to do until each is fixed.
-- [migration-guides](https://agentdecksdk.com/resources/migration-guides)
-- [troubleshooting](https://agentdecksdk.com/resources/troubleshooting)
+- [Migration Guides](https://agentdecksdk.com/resources/migration-guides)
+- [Troubleshooting](https://agentdecksdk.com/resources/troubleshooting)
 - [Events](https://agentdecksdk.com/runs-and-control/events): One ordered log per run, how to stream it live, and how to read it back afterwards.
-- [human-input](https://agentdecksdk.com/runs-and-control/human-input)
+- [Human Input](https://agentdecksdk.com/runs-and-control/human-input)
 - [Lifecycle & Control](https://agentdecksdk.com/runs-and-control/lifecycle-and-control): The six states a run can be in, what moves it between them, and which ones you can act on.
-- [pause-resume](https://agentdecksdk.com/runs-and-control/pause-resume)
+- [Pause / Resume](https://agentdecksdk.com/runs-and-control/pause-resume)
 - [Runs](https://agentdecksdk.com/runs-and-control/runs): A run is a first-class execution with a durable identity you can pick up again, in this process or another one.
 - [Sessions](https://agentdecksdk.com/runs-and-control/sessions): Keep an agent's message history across multiple runs, and what happens when two runs reach for the same one at once.
 

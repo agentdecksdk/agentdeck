@@ -8,6 +8,12 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Changed
+
+- **The documentation site runs on Fumadocs instead of Nextra 4** (#683). Same 44 URLs, same
+  Pagefind search, same pages. Nextra's loader routed every fenced block through `twoslash`,
+  whose peer range pinned TypeScript below 7 (#664); nothing does now.
+
 ## [6.0.3] - 2026-09-04
 
 ### Fixed
