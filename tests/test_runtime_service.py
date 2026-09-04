@@ -1122,6 +1122,32 @@ async def test_a_store_failure_during_the_opening_claim_closes_the_run_and_frees
         assert (await _collect(runtime))[-1].kind == "run.completed"
 
 
+async def test_a_store_that_fails_the_abandonment_too_still_raises_the_callers_own_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Broadening the cover means bookkeeping now runs on a store that is itself failing, and the
+    exception worth raising is the caller's. The run stays open for the next turn to find stale,
+    which is what :meth:`_claim_session` already does for a takeover it could not close.
+    """
+
+    class _NothingWorks(_ClaimThenFail):
+        async def read_run(self, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
+            raise StoreError("the log is unreachable")
+
+    spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
+    store = _NothingWorks()
+    runtime = Runtime([StubExecutor()], store, {spec.name: spec})
+
+    with (
+        caplog.at_level(logging.ERROR, logger="agentdeck.runtime.service"),
+        pytest.raises(StoreError, match="the connection dropped after the append committed"),
+    ):
+        await _collect(runtime)
+
+    assert "whose claim never reached its play" in caplog.text
+    assert [event.kind for event in await store.read_session(CTX)] == ["run.started"]
+
+
 class _ClaimThenFailTheRead(MemoryEventStore):
     """Commits a resume claim and then fails the history read that follows it: the window
     ``_ClaimThenStall`` cancels in, left by an exception instead. One failure only, so the
