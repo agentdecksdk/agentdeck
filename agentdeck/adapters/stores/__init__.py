@@ -11,18 +11,15 @@ if TYPE_CHECKING:
     from agentdeck.core.context import RunContext
 
 
-def _refuse_if_cancelled(status: RunStatus | None, ctx: RunContext) -> None:
-    """Refuse the append a store is inside when the run is already ``CANCELLED``.
+def _refuse_if_sealed(status: RunStatus | None, ctx: RunContext) -> None:
+    """Refuse the append a store is inside when the run's log is already sealed.
 
-    Shared by all four stores rather than written out in each: the refusal is one decision the
-    port states and every backend owes, and it is called from inside whatever makes that
-    backend's write indivisible  -  the only place a write already suspended in there can still
-    be stopped. It lives here and not on the port because ``agentdeck.core`` may not name an
-    error type.
+    Shared by all four stores rather than written out in each, and called from inside whatever
+    makes that backend's write indivisible  -  the only place a write already suspended in there
+    can still be stopped. Not on the port, because ``agentdeck.core`` may not name an error type.
 
-    Cancelled and not every terminal status: a takeover's ``run.failed`` is advisory, and a run
-    that turns out to be alive after being stepped over goes on writing and may reclaim its own
-    session. That is deliberate (ADR-D11 §5) and this refusal leaves it alone.
+    ``CANCELLED`` and ``COMPLETED`` only: whichever of the two landed first is the run's outcome,
+    and a takeover's ``run.failed`` deliberately seals nothing (ADR-D11 §5).
     """
-    if status is RunStatus.CANCELLED:
-        raise RunStateError(f"run {ctx.run_id!r} was cancelled; nothing can be appended to it any more")
+    if status in (RunStatus.CANCELLED, RunStatus.COMPLETED):
+        raise RunStateError(f"run {ctx.run_id!r} is already {status}; nothing can be appended to it any more")
