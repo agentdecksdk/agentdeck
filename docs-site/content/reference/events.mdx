@@ -24,7 +24,7 @@ Every event carries the same envelope, whatever its kind:
 | `kind` | One of the kinds below |
 | `seq` | Position in this run's log, monotonic from 0 |
 | `run_id` | The run this belongs to |
-| `session_id` | The session, when the run has one |
+| `session_id` | The session, when the run has one, and on a `ctx.invoke` child the session its invoker was started on |
 | `namespace` | The run's namespace label |
 | `origin` | Which invocable emitted it |
 | `ts` | When the store recorded it |
@@ -43,7 +43,7 @@ Each of these sets the run's status. See [Lifecycle & Control](/runs-and-control
 
 | Kind | Payload | Notes |
 |---|---|---|
-| `run.started` | `invocable`, `kind_of_invocable`, `input` | Opens the run |
+| `run.started` | `invocable`, `kind_of_invocable`, `input`, `parent_run_id` | Opens the run. `parent_run_id` is set on a `ctx.invoke` child and names the run that invoked it |
 | `run.completed` | `output`, `usage` | Terminal. `usage` is the authoritative total |
 | `run.failed` | `error_code`, `message`, `retryable` | Terminal. `error_code` is closed, so branch on it rather than parsing the message |
 | `run.paused` | `reason` | Not terminal, and not waiting on an answer |

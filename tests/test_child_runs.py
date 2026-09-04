@@ -15,6 +15,8 @@ from typing import Any
 import pytest
 
 from agentdeck import Deck, ToolCtx, WorkflowCtx, tool, workflow
+from agentdeck.core.context import RunContext
+from agentdeck.core.ports import Observer
 from agentdeck.core.status import RunStatus
 from agentdeck.errors import ConfigError, NotFoundError, RunSuspendedError
 
@@ -474,3 +476,74 @@ async def _settles(run: Any, status: RunStatus) -> None:
             return
         await asyncio.sleep(0.01)
     raise AssertionError(f"run {run.id} never reached {status}, last seen {await run.status()}")
+
+
+class _Buckets(Observer):
+    """A consumer bucketing the stream by conversation, which is what #491 was reported from."""
+
+    def __init__(self) -> None:
+        self.seen: dict[str | None, list[str]] = {}
+
+    async def emit(self, event: Any) -> None:
+        self.seen.setdefault(event.session_id, []).append(event.kind)
+
+
+async def test_a_childs_events_name_the_conversation_its_parent_was_started_on() -> None:
+    """#491: the child's whole lifecycle used to arrive with no session at all, so a consumer
+    bucketing by conversation dropped it into a process-wide bucket shared with every other
+    tenant's children. The parent's own claim on the session is untouched, which the child
+    opening at all proves: a turn on that session would be refused for it."""
+    buckets = _Buckets()
+
+    @workflow
+    async def delegating(ctx: WorkflowCtx, word: str) -> str:
+        return str(await ctx.invoke(shout, word))
+
+    async with Deck(workflows=[shout, delegating], observers=[buckets]) as deck:
+        assert await deck.run("delegating", "quiet", session_id="s-1") == "QUIET"
+
+    assert None not in buckets.seen
+    assert buckets.seen["s-1"].count("run.started") == 2
+    assert buckets.seen["s-1"].count("run.completed") == 2
+
+
+async def test_attributing_a_child_leaves_the_conversations_own_log_alone() -> None:
+    """Attribution, not participation: the child is named on its events and nowhere else, so the
+    conversation's log  -  which is the transcript an executor is played with and the set a claim
+    scans  -  holds the parent's turn and only that."""
+
+    @workflow
+    async def delegating(ctx: WorkflowCtx, word: str) -> str:
+        return str(await ctx.invoke(shout, word))
+
+    async with Deck(workflows=[shout, delegating]) as deck:
+        parent = await deck.runs.start("delegating", "quiet", session_id="s-1")
+        assert await parent == "QUIET"
+
+        logged = await deck._runtime.store.read_session(RunContext(run_id="reader", session_id="s-1"))
+        assert {event.run_id for event in logged} == {parent.id}
+
+
+async def test_an_answered_childs_later_events_are_attributed_too() -> None:
+    """The half a single-segment run never reaches: a child that suspends is answered from
+    outside, and the events of that second segment name the same conversation as its first."""
+    buckets = _Buckets()
+    ids: list[str] = []
+
+    @workflow
+    async def impatient(ctx: WorkflowCtx) -> str:
+        child = ctx.invoke("asker", "ready?")
+        ids.append(child.id)
+        return str(await child)
+
+    async with Deck(workflows=[asker, impatient], observers=[buckets]) as deck:
+        run = await deck.runs.start("impatient", None, session_id="s-1")
+        with pytest.raises(RunSuspendedError):
+            await run
+
+        child = await _child(deck, ids[0])
+        await child.answer("yes")
+        assert await child == "ready?:yes"
+
+    assert None not in buckets.seen
+    assert "run.resumed" in buckets.seen["s-1"]
