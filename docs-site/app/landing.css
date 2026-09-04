@@ -328,8 +328,8 @@ article:has(.landing) > .x\:float-end {
 .chapter.is-wide .chapter-code,
 .chapter.is-wide .chapter-figure,
 .chapter.is-wide .snippet,
-/* Nextra wraps every code block in `.nextra-code`, so the fill has to pass through it. */
-.chapter.is-wide .snippet .nextra-code,
+/* fumadocs-ui's CodeBlock wraps every code block in a `<figure>`, so the fill has to pass through it. */
+.chapter.is-wide .snippet figure,
 .chapter.is-wide .snippet pre,
 .chapter.is-wide .tree-figure {
   height: 100%;
