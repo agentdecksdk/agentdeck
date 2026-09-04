@@ -411,12 +411,65 @@ async def test_an_abandoned_run_is_closed_in_the_log() -> None:
 
 
 async def test_a_completed_run_is_not_cancelled_when_its_consumer_lets_go() -> None:
-    """The close path must not fire on a run that already ended  -  that would be two terminals."""
+    """The close path must not fire on a run that already ended  -  that would be two terminals.
+
+    Let go *at* the completion rather than after draining past it. The ordinary ``break`` on
+    ``run.completed`` leaves ``_play`` suspended having just handed it out, which is the one
+    moment its walkaway arm could write a cancel behind a terminal event (#471).
+    """
     runtime, store = _runtime()
     async with aclosing(runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)) as run:
-        async for _ in run:
+        async for event in run:
+            if event.kind == "run.completed":
+                break
+
+    stored = await store.read_session(CTX)
+    assert [event.kind for event in stored][-1] == "run.completed"
+    assert check_terminal(stored) is None
+
+
+async def test_a_completed_run_is_not_cancelled_when_its_consumer_task_is_cancelled(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The other walkaway arm, reached the way a real ASGI server reaches it: the task streaming
+    the response is cancelled rather than the generator closed. ``_play`` is past its terminal
+    event and inside the lease release when that lands, so the close must not fire. It writes
+    through a shield, where a refusal surfaces only as an unretrieved task exception  -  so the
+    branch saying it wrote nothing is what this asserts.
+    """
+
+    class _SlowRelease(MemoryLeasePort):
+        """Parks in ``_holding``'s release: the one await ``_play`` has left after a terminal
+        event, and so the only place a cancellation can land with ``last`` already terminal."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.releasing = asyncio.Event()
+
+        async def release(self, run_id: str) -> None:
+            self.releasing.set()
+            await asyncio.Event().wait()
+
+    spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
+    store = MemoryEventStore()
+    lease = _SlowRelease()
+    runtime = Runtime([StubExecutor()], store, {spec.name: spec}, lease=lease)
+
+    async def consume() -> None:
+        async for _ in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace):
             pass
-    assert [event.kind for event in await store.read_session(CTX)][-1] == "run.completed"
+
+    consuming = asyncio.create_task(consume())
+    await lease.releasing.wait()
+    with caplog.at_level(logging.DEBUG, logger="agentdeck.runtime.service"):
+        consuming.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await consuming
+
+    assert "which already closed it" in caplog.text, "the arm that wrote nothing has to say so"
+    stored = await store.read_session(CTX)
+    assert [event.kind for event in stored][-1] == "run.completed"
+    assert check_terminal(stored) is None
 
 
 async def test_a_suspended_run_is_not_cancelled_when_its_consumer_lets_go() -> None:

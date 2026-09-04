@@ -568,8 +568,11 @@ class Runtime:
                     async for payload in payloads:
                         async for report in self._drain(reports, spec, ctx):
                             yield report
-                        yield await self._record(payload, spec, ctx)
+                        event = await self._record(payload, spec, ctx)
+                        # Before the yield, which is where a consumer's walkaway lands: read
+                        # after it, ``last`` still names the payload before this one (#471).
                         last = payload.kind
+                        yield event
                         if last in TERMINAL_KINDS:
                             # Terminal means terminal: stop reading so nothing can follow it
                             # into the log. An engine yielding more after this gets it
@@ -578,6 +581,9 @@ class Runtime:
         except GeneratorExit:
             # Nobody is listening any more, so there is no event to yield  -  but an unclosed
             # run in the log is indistinguishable from one still in flight.
+            if last in TERMINAL_KINDS:
+                logger.debug("run %s was let go after %r, which already closed it", ctx.run_id, last)
+                raise
             logger.info("run %s abandoned by its consumer after %r", ctx.run_id, last)
             await self._record(RunCancelled(reason="consumer stopped reading"), spec, ctx)
             raise
@@ -586,6 +592,9 @@ class Runtime:
             # cancels the task streaming the response rather than closing the generator. This
             # arm exists because ``CancelledError`` is a BaseException, so the one below never
             # saw it and the run stayed open in the log forever.
+            if last in TERMINAL_KINDS:
+                logger.debug("run %s was cancelled after %r, which already closed it", ctx.run_id, last)
+                raise
             logger.info("run %s cancelled after %r", ctx.run_id, last)
             await self._close_cancelled(spec, ctx, "consumer cancelled")
             raise

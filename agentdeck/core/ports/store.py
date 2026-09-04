@@ -1,5 +1,5 @@
-# slopcheck: allow SLOP012  -  68 code lines are bodyless @abstractmethod signatures, so this
-# file is over the ratio however terse its contracts are; drop this when #681 recalibrates it.
+# slopcheck: allow SLOP012  -  a port whose members are almost all bodyless @abstractmethod
+# signatures is over the ratio however terse its contracts are; drop this when #681 recalibrates.
 """The event log  -  the platform's record of what happened.
 
 Not the engine's execution state: an engine that needs its exact prior items keeps them
