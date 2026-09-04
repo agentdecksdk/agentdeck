@@ -18,7 +18,7 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0",
+    "@types/node": "^26.4.0",
     "@types/react": "^19.0.0",
     "agentation": "^3.0.2",
     "pagefind": "^1.5.2",
