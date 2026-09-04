@@ -1316,6 +1316,55 @@ async def test_a_cancellation_while_a_suspended_run_is_being_cancelled_still_clo
         assert next_turn[0].kind == "run.started"
 
 
+class _TerminateThenFail(MemoryEventStore):
+    """Commits a resume claim and then refuses the first append behind it, the window
+    ``_TerminateThenStall`` hangs in left by an exception instead. One failure only, so the
+    abandonment it strands is written and read back through this same store.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.claimed = False
+
+    async def claim_resume(self, resumed: RunResumed, ctx: RunContext, origin: str) -> Event | None:
+        event = await super().claim_resume(resumed, ctx, origin)
+        if event is not None:
+            self.claimed = True
+        return event
+
+    async def append(self, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
+        if self.claimed:
+            self.claimed = False
+            raise StoreError("the log went away after the claim")
+        return await super().append(payloads, ctx, origin)
+
+
+async def test_a_store_failure_while_a_suspended_run_is_being_cancelled_still_closes_it() -> None:
+    """The other way out of #470's third site, and the other suspended status it claims: a store
+    that takes the claim and then refuses the ``control.requested`` behind it strands the run
+    exactly as a cancellation there does, so the site needs the cover for both.
+    """
+    spec = stub_spec("Chatty", RunPaused(reason="operator"))
+    store = _TerminateThenFail()
+    runtime = Runtime([StubExecutor()], store, {spec.name: spec}, control=MemoryControlPort())
+    paused = [event async for event in runtime.run("Chatty", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)]
+    run_id = paused[0].run_id
+
+    async with asyncio.timeout(WEDGE_TIMEOUT):
+        with pytest.raises(StoreError, match="the log went away after the claim"):
+            await runtime.signal(run_id, Signal.CANCEL, "the user closed the tab", namespace=CTX.namespace)
+
+        logged = await store.read_run(replace(CTX, run_id=run_id))
+        assert [event.kind for event in logged] == ["run.started", "run.paused", "run.resumed", "run.cancelled"]
+        assert check_terminal(logged) is None
+        assert logged[-1].payload.reason == "abandoned after the resume claim: StoreError"
+
+        next_turn = [
+            event async for event in runtime.run("Chatty", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
+        ]
+        assert next_turn[0].kind == "run.started"
+
+
 async def test_close_cancelled_says_which_status_it_found_when_the_run_closed_itself(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
