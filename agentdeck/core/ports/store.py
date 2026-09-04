@@ -1,3 +1,5 @@
+# slopcheck: allow SLOP012  -  68 code lines are bodyless @abstractmethod signatures, so this
+# file is over the ratio however terse its contracts are; drop this when #681 recalibrates it.
 """The event log  -  the platform's record of what happened.
 
 Not the engine's execution state: an engine that needs its exact prior items keeps them
@@ -79,6 +81,11 @@ class EventStorePort(ABC):
         Each gets this run's next ``seq`` and the store's own ``ts``, assigned inside whatever
         the backend uses to make the write indivisible. Must return only once they are durable,
         because the Runtime yields to consumers immediately after.
+
+        Raises ``RunStateError`` for a run already ``CANCELLED`` or ``COMPLETED``, decided inside
+        that same step  -  the only place left to stop an append that suspended in here before the
+        run's terminal event landed. A takeover's ``run.failed`` seals nothing (ADR-D11 §5).
+        (slopcheck: allow SLOP010  -  a port's Raises clause is signature-level contract, #681.)
 
         Run identity comes from ``ctx`` alone. The one write that belongs to a *different* run  -
         the terminal event a takeover stamps for a run it stepped over  -  passes a ``ctx`` built
