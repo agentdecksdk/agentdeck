@@ -574,7 +574,7 @@ class Runtime:
         spec: InvocableSpec,
         ctx: RunContext,
         executor: Executor,
-        recorded: deque[Event],
+        reports: deque[Event],
         settle: _Settle,
     ) -> AsyncGenerator[Event, None]:
         """Yield ``opening``, then everything ``stream`` produces  -  and close the run in the
@@ -582,7 +582,7 @@ class Runtime:
 
         One body for all three openings (a start, a resumed interrupt, a lifted pause) because
         every one of them owes the log the same four endings: a terminal event, a suspension, a
-        consumer that walked away, or an exception. ``recorded`` is handed on the same way for all
+        consumer that walked away, or an exception. ``reports`` is drained the same way for all
         three, and for the same reason there is one body at all.
 
         The lease is held here, around the whole of it, for exactly that reason: a run is being
@@ -601,8 +601,8 @@ class Runtime:
                             # The one write reports cannot follow: this seals the log (#471), so
                             # the ones this run already made are waited for rather than refused.
                             await settle()
-                        for _ in range(len(recorded)):
-                            yield recorded.popleft()
+                        for _ in range(len(reports)):
+                            yield reports.popleft()
                         event = await self._record(payload, spec, ctx)
                         # Before the yield, which is where a consumer's walkaway lands: read
                         # after it, ``last`` still names the payload before this one (#471).
@@ -1070,14 +1070,12 @@ class Runtime:
     def _bind(self, ctx: RunContext, spec: InvocableSpec) -> tuple[RunContext, deque[Event], _Settle]:
         """Give this run its control gate, its report writer and the agent it plays.
 
-        The Runtime, not the caller, decides whether a run is cancellable and where its status
-        and progress reports go  -  a caller builds a plain ``RunContext`` and never has to know
-        that a ``ControlPort`` or a store exists. The recorded reports and the wait for the ones
-        still in flight are per run and returned, so two runs can never wait on each other's.
+        A caller builds a plain ``RunContext`` and never has to know that a ``ControlPort`` or a
+        store exists. Both the recorded reports and the wait for the ones still in flight are per
+        run and returned rather than stored, so two runs can never take each other's.
 
-        ``ctx.agent`` comes off the resolved spec rather than from whoever called in, which is
-        what makes it the same instance on a fresh play, a lifted pause and an answered interrupt:
-        every one of those resolves the spec, and none of them could be relied on to pass it.
+        ``ctx.agent`` comes off the resolved spec, not from whoever called in, which is what makes
+        it the same instance on a fresh play, a lifted pause and an answered interrupt.
         """
         recorded: deque[Event] = deque()
         gate = (
@@ -1094,15 +1092,11 @@ class Runtime:
     ) -> tuple[Callable[[Reported], None], _Settle]:
         """One run's report writer, and the wait that lets its terminal event follow the reports.
 
-        A report is handed over from whichever thread made it and written on the loop that plays
-        the run, one hop later: the deque is the hand-off, not a backlog, and ``writing`` is what
-        keeps two of these in order. ``settle`` is the same write, awaited rather than scheduled,
-        so a run about to seal its log takes the reports it already made with it (#487).
-
-        Unbounded, because the ceiling is now the store's to refuse: the first ``RunStateError``
-        says the log is sealed for good (#471) and everything behind it is dropped in one line
-        rather than warned about per report. A report is dropped, never raised: it is advisory,
-        and an emitter is not a store's caller.
+        Handed over from whichever thread made it and written on the run's own loop one hop later:
+        the deque is that hand-off, not a backlog, and ``writing`` keeps two writes in order.
+        ``settle`` is the same write awaited rather than scheduled, so a run about to seal its log
+        takes the reports it already made with it (#487). Unbounded otherwise: the ceiling is the
+        store refusing an append (#471), said once rather than once per report behind it.
         """
         loop = asyncio.get_running_loop()
         pending: deque[Reported] = deque()

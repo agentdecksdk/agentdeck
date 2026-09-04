@@ -4,9 +4,8 @@ The mirror image of :class:`~agentdeck.core.control.Gate`  -  control in on ``Ru
 updates out the same way. A tool six frames inside an engine cannot yield an event and must not
 know a Runtime exists, so it hands the report to the context it has.
 
-Written when made, never awaited: the Runtime binds a writer that schedules the append, so an
-emitter is never charged for a store append and a refused write never surfaces as an exception
-inside somebody's tool. What that still costs is stated on :class:`Reporter`.
+Written when made, never awaited: the Runtime binds a writer that schedules the append, so no
+emitter waits on a store and a refused write never surfaces inside somebody's tool.
 """
 
 from __future__ import annotations
@@ -30,10 +29,8 @@ class Reporter:
     drops the result, so an emitter learns its numbers are nonsense even outside a wired run.
     """
 
-    # ponytail: written when made, but a consumer reading the Runtime's generator still sees it at
-    # the engine's next payload, and an async body that reports and returns without awaiting gets
-    # its append after its own call ended. Lift both by racing the engine's stream against a report
-    # queue in its own task (#487 item 2), when a consumer needs the label *during* one call.
+    # ponytail: a consumer reading the Runtime's generator still sees a report at the engine's next
+    # payload. Lift it by racing that stream against a report queue in its own task (#487 item 2).
 
     __slots__ = ("_write",)
 
