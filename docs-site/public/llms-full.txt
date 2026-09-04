@@ -423,7 +423,7 @@ result = await deck.run(
 )
 ```
 
-Inline blocks are capped at **1 MB decoded**, enforced at construction rather than documented and
+Inline blocks are capped at **8 MB decoded**, enforced at construction rather than documented and
 hoped for: base64 in an event lands in an append-only log and replays down every SSE connection
 for the life of that run. Anything larger belongs in a `ResourceBlock`.
 
@@ -437,6 +437,27 @@ send its bytes as a text, image, audio or data block instead. `DataBlock` **is**
 sent: it renders as its own part, `json.dumps(data, ensure_ascii=False)` with nothing wrapped
 around it, since it is already a separate entry in the model's content list rather than text
 concatenated into a caller's own prompt.
+
+### What a completed run carries back
+
+The terminal `run.completed` event carries `output: list[ContentBlock]`, the same boundary `input`
+uses. It is the whole user-facing result: the artifacts the run produced (a hosted
+`ImageGenerationTool` image, a rich tool's image or file) come first, in the order the run made
+them, and the final text or structured output closes the list  -  artifact, then caption, which is
+what a channel sends. A text-only run is unchanged:
+
+```python no-test reason="illustrative run.completed output, not a call"
+[TextBlock(text="Hello")]                                        # a text run
+[ImageBlock(...), TextBlock(text="Here is the generated image")]  # a run that drew something
+```
+
+Nothing else from the transcript is promoted: tool results stay `tool.call.completed` events, and
+the final message is not repeated as a second block. An artifact over the inline cap is dropped
+with a warning rather than failing the run at its last event.
+
+A `TurnResult` from `await deck.run(...)` still reports `output` as the run's text or structured
+data; the blocks are on the event, which is what `stream`, observers and bindings read. A
+`@workflow` that returns a list of blocks gets exactly those blocks back from `run`.
 
 `stream` yields the same `Event` objects a run's log would hand back after the fact  -  `text.delta`
 per token for an agent, a terminal event last  -
@@ -1585,13 +1606,17 @@ result = await deck.run(
 
 The model has to accept images: `ollama/qwen3.5:9b` and `openai/gpt-4o` do, `gpt-4.1-mini` does not.
 
-Inline blocks are capped at 1 MB decoded, and anything larger needs a `ResourceBlock`, which points
+Inline blocks are capped at 8 MB decoded, and anything larger needs a `ResourceBlock`, which points
 at bytes held elsewhere instead of carrying them. `AudioBlock` and `DataBlock` cover audio and
 structured JSON; the [block reference](/reference/deck) has the full table and the per-engine
 limits.
 
 An image cannot reach the model through a tool's return value, because tool results are text.
 Content blocks on the way in are the only path.
+
+Blocks come back out too: a completed run's `output` carries the artifacts it produced  -  an
+`ImageGenerationTool` image, a rich tool's image or file  -  ahead of its final text. See
+[what a completed run carries back](/reference/deck#what-a-completed-run-carries-back).
 
 ## Use SDK-native options
 
@@ -1995,8 +2020,9 @@ silently re-running the workflow.
 
 `ctx.invoke(target, ...)` starts `target` as a child run and hands back its handle without
 waiting: an agent, a `@tool`/`@workflow`, or an `AgentInstance` all bind `*args`/`**kwargs` to
-their own signature. The child runs in its own deck-owned task from that call, whether or not
-the handle is ever awaited.
+their own signature. The handle is a run in its own right, with its own id, log, and
+`can.*`/lifecycle methods (`child.can.pause`, `await child.pause()`, and so on); it runs in its
+own deck-owned task from that call, whether or not the handle is ever awaited.
 
 | `await ctx.invoke(...)` on | resolves to |
 |---|---|
@@ -3039,7 +3065,21 @@ The current release is **v6.0.0**. Earlier releases are listed at the bottom.
 
 ## Unreleased
 
+### Changed
+
+- **A completed run reports the artifacts it produced** (#636). `run.completed`'s
+  `output: list[ContentBlock]` now leads with the media the run made  -  a hosted
+  `ImageGenerationTool` image, a rich tool's image or file  -  and closes with the final text or
+  structured block, so a channel can send the image and caption it from one result instead of
+  reassembling it from executor events. Nothing else from the transcript is promoted, and a
+  text-only run is byte for byte what it was. The inline cap on `ImageBlock`/`AudioBlock` moves
+  from 1 MB to 8 MB decoded, because a generated PNG does not fit under 1 MB.
+
 ### Fixed
+
+- **A `@workflow` returning content blocks crashed its own run** (#636). Anything other than a
+  `TextBlock` or `DataBlock` was wrapped in a `DataBlock` that could not hold it; a body may now
+  return any list of blocks and `run` hands back exactly those blocks.
 
 - **`ctx.invoke`'s return shape was undocumented.** `await ctx.invoke(<agent>)` resolves to a
   `TurnResult` (value at `.output`), `await ctx.invoke(<tool|workflow>)` resolves to the body's
