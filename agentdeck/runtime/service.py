@@ -30,6 +30,7 @@ from agentdeck.core.events import (
     AnswerRefused,
     ControlRequested,
     Event,
+    Reported,
     RunCancelled,
     RunCompleted,
     RunFailed,
@@ -54,7 +55,7 @@ from agentdeck.errors import ConfigError, InputError, NotFoundError, RunStateErr
 from agentdeck.runtime.dispatch import SinkDispatch
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, AsyncIterator, Mapping, Sequence
+    from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Mapping, Sequence
     from typing import Any
 
     from agentdeck.core.content import Input
@@ -63,6 +64,9 @@ if TYPE_CHECKING:
     from agentdeck.core.invocable import InvocableSpec
     from agentdeck.core.ports import ControlPort, EventStorePort, Executor, LeasePort, Observer
     from agentdeck.core.ports.store import RunSummary
+
+    type _Settle = Callable[[], Awaitable[None]]
+    """Wait for the reports a run already made, so the event that seals its log can follow them."""
 
 logger = logging.getLogger(__name__)
 
@@ -231,7 +235,7 @@ class Runtime:
         closed this generator or had its own task cancelled under it.
         """
         spec, executor = self._resolve(name)
-        ctx, reports = self._bind(
+        ctx, recorded, settle = self._bind(
             self._new_run_context(run_id=run_id, key=key, session_id=session_id, namespace=namespace, data=context),
             spec,
         )
@@ -259,7 +263,7 @@ class Runtime:
             raise
 
         async with aclosing(
-            self._play(claimed, executor.execute(spec, input, history, ctx), spec, ctx, executor, reports)
+            self._play(claimed, executor.execute(spec, input, history, ctx), spec, ctx, executor, recorded, settle)
         ) as run:
             async for event in run:
                 yield event
@@ -300,7 +304,7 @@ class Runtime:
         the reason :meth:`resume_run` gives: this claim is the only thing that will ever look.
         """
         spec, executor = self._resolve(name)
-        ctx, reports = self._bind(
+        ctx, recorded, settle = self._bind(
             self._context(run_id=run_id, session_id=session_id, namespace=namespace, data=context), spec
         )
         status = await self._store.run_status(ctx)
@@ -351,7 +355,7 @@ class Runtime:
             await self._abandon_claim(spec, ctx, exc, "after the resume claim")
             raise
         stream = executor.execute(spec, opened.input, history, ctx)
-        async with aclosing(self._play(opening, stream, spec, ctx, executor, reports)) as resumed:
+        async with aclosing(self._play(opening, stream, spec, ctx, executor, recorded, settle)) as resumed:
             async for event in resumed:
                 yield event
 
@@ -401,7 +405,7 @@ class Runtime:
             return
         session_id, opened = started
         spec, executor = self._resolve(opened.invocable)
-        run_ctx, reports = self._bind(replace(ctx, run_id=run_id, session_id=session_id), spec)
+        run_ctx, recorded, settle = self._bind(replace(ctx, run_id=run_id, session_id=session_id), spec)
         self.delegate(run_id, opened.parent_run_id, spec.name, await self._inherited(opened, ctx, session_id))
         try:
             opening = await self._claim_resume(spec, run_ctx, None, reason)
@@ -421,7 +425,7 @@ class Runtime:
             await self._abandon_claim(spec, run_ctx, exc, "after the resume claim")
             raise
         stream = executor.execute(spec, opened.input, history, run_ctx)
-        async with aclosing(self._play(opening, stream, spec, run_ctx, executor, reports)) as resumed:
+        async with aclosing(self._play(opening, stream, spec, run_ctx, executor, recorded, settle)) as resumed:
             async for event in resumed:
                 yield event
 
@@ -500,7 +504,7 @@ class Runtime:
             return False
         session_id, opened = started
         spec, _ = self._resolve(opened.invocable)
-        run_ctx, _ = self._bind(replace(ctx, run_id=run_id, session_id=session_id), spec)
+        run_ctx, _, _ = self._bind(replace(ctx, run_id=run_id, session_id=session_id), spec)
         try:
             if await self._claim_resume(spec, run_ctx, None, reason) is None:
                 return False
@@ -570,7 +574,8 @@ class Runtime:
         spec: InvocableSpec,
         ctx: RunContext,
         executor: Executor,
-        reports: deque[KnownPayload],
+        reports: deque[Event],
+        settle: _Settle,
     ) -> AsyncGenerator[Event, None]:
         """Yield ``opening``, then everything ``stream`` produces  -  and close the run in the
         log whichever way it ends.
@@ -592,8 +597,12 @@ class Runtime:
                 yield opening
                 async with aclosing(stream) as payloads:
                     async for payload in payloads:
-                        async for report in self._drain(reports, spec, ctx):
-                            yield report
+                        if payload.kind in TERMINAL_KINDS:
+                            # The one write reports cannot follow: this seals the log (#471), so
+                            # the ones this run already made are waited for rather than refused.
+                            await settle()
+                        for _ in range(len(reports)):
+                            yield reports.popleft()
                         event = await self._record(payload, spec, ctx)
                         # Before the yield, which is where a consumer's walkaway lands: read
                         # after it, ``last`` still names the payload before this one (#471).
@@ -628,13 +637,32 @@ class Runtime:
             # The exception is the caller's, the event is the record  -  both, always. The type
             # name only, `InputError` excepted: its message is written for the caller.
             logger.exception("run %s failed in engine %r", ctx.run_id, executor.name)
-            yield await self._record(_failed(exc, executor.name), spec, ctx)
+            async for event in self._sealing(_failed(exc, executor.name), spec, ctx, reports, settle):
+                yield event
             raise
 
         if last not in TERMINAL_KINDS and last not in SUSPENDED_KINDS:
             # An engine that just stops leaves consumers waiting forever; close the run for it.
             logger.error("engine %r ended run %s after %r, not a terminal event", executor.name, ctx.run_id, last)
-            yield await self._record(_engine_failed(f"engine {executor.name!r} ended after {last!r}"), spec, ctx)
+            ended = _engine_failed(f"engine {executor.name!r} ended after {last!r}")
+            async for event in self._sealing(ended, spec, ctx, reports, settle):
+                yield event
+
+    async def _sealing(
+        self, payload: KnownPayload, spec: InvocableSpec, ctx: RunContext, reports: deque[Event], settle: _Settle
+    ) -> AsyncGenerator[Event, None]:
+        """Close a run the engine did not close itself, behind the reports it already made.
+
+        The two arms that end a run for it owe the log what the terminal-payload arm owes it: a
+        report fired before the engine raised is one this run made, so it goes in front of
+        ``run.failed`` rather than behind it. Recorded before either is yielded, because a
+        consumer walking away mid-report must not leave the run open.
+        """
+        await settle()
+        closing = await self._record(payload, spec, ctx)
+        for _ in range(len(reports)):
+            yield reports.popleft()
+        yield closing
 
     @asynccontextmanager
     async def _holding(self, run_id: str) -> AsyncIterator[None]:
@@ -1058,25 +1086,77 @@ class Runtime:
         """
         return RunContext(run_id=run_id or str(uuid4()), key=key, session_id=session_id, namespace=namespace, data=data)
 
-    def _bind(self, ctx: RunContext, spec: InvocableSpec) -> tuple[RunContext, deque[KnownPayload]]:
-        """Give this run its control gate, its report buffer and the agent it plays.
+    def _bind(self, ctx: RunContext, spec: InvocableSpec) -> tuple[RunContext, deque[Event], _Settle]:
+        """Give this run its control gate, its report writer and the agent it plays.
 
-        The Runtime, not the caller, decides whether a run is cancellable and where its status
-        and progress reports go  -  a caller builds a plain ``RunContext`` and never has to know
-        that a ``ControlPort`` or a buffer exists. The buffer is per run and returned rather than
-        stored, so two concurrent runs on one Runtime can never drain into each other.
+        A caller builds a plain ``RunContext`` and never has to know that a ``ControlPort`` or a
+        store exists. Both the recorded reports and the wait for the ones still in flight are per
+        run and returned rather than stored, so two runs can never take each other's.
 
-        ``ctx.agent`` comes off the resolved spec rather than from whoever called in, which is
-        what makes it the same instance on a fresh play, a lifted pause and an answered interrupt:
-        every one of those resolves the spec, and none of them could be relied on to pass it.
+        ``ctx.agent`` comes off the resolved spec, not from whoever called in, which is what makes
+        it the same instance on a fresh play, a lifted pause and an answered interrupt.
         """
-        reports: deque[KnownPayload] = deque()
+        recorded: deque[Event] = deque()
         gate = (
             ctx.gate
             if self._control is None
             else Gate(self._control, ctx.id, poll_interval=self._control_poll_interval)
         )
-        return replace(ctx, gate=gate, reporter=Reporter(reports), agent=spec.metadata.get("agent")), reports
+        bound = replace(ctx, gate=gate, agent=spec.metadata.get("agent"))
+        write, settle = self._reporting(spec, bound, recorded)
+        return replace(bound, reporter=Reporter(write)), recorded, settle
+
+    def _reporting(
+        self, spec: InvocableSpec, ctx: RunContext, recorded: deque[Event]
+    ) -> tuple[Callable[[Reported], None], _Settle]:
+        """One run's report writer, and the wait that lets its terminal event follow the reports.
+
+        Handed over from whichever thread made it and written on the run's own loop one hop later:
+        the deque is that hand-off, not a backlog, and ``writing`` keeps two writes in order.
+        ``settle`` is the same write awaited rather than scheduled, so a run about to seal its log
+        takes the reports it already made with it (#487). Unbounded otherwise: the ceiling is the
+        store refusing an append (#471), said once rather than once per report behind it.
+        """
+        loop = asyncio.get_running_loop()
+        # No lock on the hand-off: a deque's ``append`` and ``popleft`` are each atomic under the
+        # GIL, and the writer runs on one loop, so only the write itself needs ordering.
+        pending: deque[Reported] = deque()
+        writing = asyncio.Lock()
+        closed = False
+
+        async def settle() -> None:
+            nonlocal closed
+            async with writing:
+                # Counted once, and every report made before this call is in the count: a report
+                # made *during* it belongs to the next write, so a loop cannot starve this one.
+                for _ in range(len(pending)):
+                    payload = pending.popleft()
+                    if closed:
+                        continue
+                    try:
+                        recorded.append(await self._record(payload, spec, ctx))
+                    except RunStateError:
+                        closed = True
+                        logger.info("run %s is closed; the report it made and any behind it are dropped", ctx.run_id)
+                    except (Exception, asyncio.CancelledError):
+                        # Caught here or nowhere: nothing awaits the scheduled write, so an
+                        # exception leaving it is only ever "never retrieved" noise on the loop.
+                        logger.warning("run %s could not record its %s; dropping the report", ctx.run_id, payload.kind)
+
+        def fire(payload: Reported) -> None:
+            if closed:
+                return
+            pending.append(payload)
+            writing_it = settle()
+            try:
+                asyncio.run_coroutine_threadsafe(writing_it, loop)
+            except RuntimeError:
+                # The loop the run was played on is gone: a context outliving its run still reports.
+                writing_it.close()
+                pending.pop()
+                logger.warning("run %s reported after its loop closed; dropping the report", ctx.run_id)
+
+        return fire, settle
 
     def delegate(self, run_id: str, parent_run_id: str | None, invocable: str, session_id: str | None = None) -> None:
         """Place ``run_id`` in the delegation tree, refusing it if that puts the tree past a bound.
@@ -1141,31 +1221,6 @@ class Runtime:
         if above is not None:
             above.spent = total if above.spent is None else _summed(above.spent, total)
         return payload if placed.spent is None else payload.model_copy(update={"usage": total})
-
-    async def _drain(
-        self, reports: deque[KnownPayload], spec: InvocableSpec, ctx: RunContext
-    ) -> AsyncGenerator[Event, None]:
-        """Record whatever the run reported about itself since the last event.
-
-        Called just *before* each engine payload, never after: that payload may be terminal, and
-        nothing may follow a terminal event into the log. So a report is always in order and
-        always inside the run, and one emitted after the engine's final payload is dropped  -  the
-        ceiling ``core/reporting.py`` states.
-
-        The count is taken once. A report arriving while these are being written belongs to the
-        next payload's batch, so an emitter in a loop cannot starve the engine's own event.
-
-        A store that refuses a report costs the report, never the run: an advisory event is not
-        worth a run, and the alternative is a store that dislikes one *kind* turning a run that
-        would have completed into ``run.failed``. It costs the report only  -  a refused append
-        never took a number, so the log this leaves behind is dense.
-        """
-        for _ in range(len(reports)):
-            payload = reports.popleft()
-            try:
-                yield await self._record(payload, spec, ctx)
-            except StoreError:
-                logger.warning("run %s could not record its %s; dropping the report", ctx.run_id, payload.kind)
 
     def _resolve(self, name: str) -> tuple[InvocableSpec, Executor]:
         spec = self._invocables.get(name)

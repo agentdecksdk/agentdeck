@@ -111,7 +111,7 @@ streaming to a client that never disconnects holds the whole shutdown hostage. S
 `--timeout-graceful-shutdown <n>` bounds that wait: past `n` seconds uvicorn cancels the
 remaining connections itself and proceeds to the lifespan shutdown, so `aclose()` still runs.
 Without it, an operator relying on `TimeoutStopSec` alone gets a `SIGKILL` instead: `aclose()`
-never runs, in-flight runs never get their `run.cancelled`, and buffered reports never flush.
+never runs and in-flight runs never get their `run.cancelled`.
 
 Set `--timeout-graceful-shutdown` on uvicorn below `TimeoutStopSec`, leaving room for `aclose()`
 itself afterward.
