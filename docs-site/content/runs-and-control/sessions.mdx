@@ -39,6 +39,47 @@ Both runs share `session_id="conversation-1"`, so the second run's model call ca
 run's messages along with its own. Every run gets a session either way: leave `session_id` out and
 it is scoped to that run's own `run.id`, so nothing carries into the next call.
 
+## What a session carries
+
+A session carries two things, and they are separate: the **event stream** every run on it
+appears in, and the **message history** the model is handed. Joining the first is not joining
+the second. Only a turn the conversation itself asked an agent for contributes to the message
+history: a workflow or tool run passed the same `session_id` is on the stream, and its
+input stays out of the transcript, because an orchestration argument is not something a person
+said.
+
+That is what makes "enrich, then answer" one conversation:
+
+```python run
+import asyncio
+
+from agentdeck import Agent, Deck, WorkflowCtx, workflow
+
+steward = Agent(name="Steward", instructions="Keep replies to one short sentence.")
+
+
+@workflow
+async def discovery(ctx: WorkflowCtx, said: str) -> dict[str, str]:
+    """Whatever enrichment a turn needs before the agent answers it."""
+    return {"said": said, "length": str(len(said))}
+
+
+async def main() -> None:
+    said = "Hi, I run a studio in Ornit."
+    async with Deck(agents=[steward], workflows=[discovery]) as deck:
+        enriched = await deck.run("discovery", said, session_id="conversation-3")
+        answer = await deck.run("Steward", said, session_id="conversation-3")
+        print(enriched["length"], answer.output)
+
+
+asyncio.run(main())
+```
+
+Both runs are on `conversation-3`, so every event either produced carries that `session_id` and
+an operator surface keyed by it shows both. The steward's model call still sees `said` exactly
+once. Before this, sharing the session was the only way to get the workflow onto the stream, and
+it cost the model an extra user message on the first turn.
+
 ## One turn per session at a time
 
 A session's history changes while a run is using it, so only one run may hold a session at a time.

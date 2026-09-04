@@ -2057,6 +2057,11 @@ the rest up.
 
 One parameter is one value, a mapping included. Several parameters bind by name.
 
+That input is an argument, never a conversational turn. Pass a workflow the `session_id` an
+agent is using and its run joins that conversation's event stream, so one operator surface sees
+both; the argument stays out of the message history the agent's model call is handed. See
+[Sessions](/runs-and-control/sessions) for "enrich, then answer" on one conversation.
+
 ---
 
 # index
@@ -3063,6 +3068,26 @@ are written for someone using the package: what changed, and what to do about it
 
 The current release is **v6.0.1**. Earlier releases are listed at the bottom.
 
+## Unreleased
+
+### Fixed
+
+- **A workflow sharing a conversation's `session_id` no longer duplicates its input into the
+  agent's next prompt** (#490). Only an agent turn is a conversational turn: a workflow or tool
+  run passed the same `session_id` joins that conversation's event stream, so an operator
+  surface keyed by the session sees it, but its input is an orchestration argument and never
+  reaches the model as something the user said. "Enrich, then answer" on one session is now the
+  one obvious path, with no derived `<session>|step` id to invent.
+  One limit, for a conversation that already ran a workflow on a shared `session_id` under an
+  earlier release: that release replayed the workflow's input into the engine's session, which
+  the transcript no longer counts, so the two disagree from that message on. Such a session
+  reports `openai_agents.session_diverged` on every later turn and skips crash repair, the
+  reconciliation that replays a message the log recorded and a killed process never wrote. Turns
+  themselves are unaffected, and nothing is written into a session AgentDeck cannot account for.
+  Reset one with `await deck.session_for("<session-id>").clear_session()`, which drops that
+  conversation's engine-side memory (the event log is untouched), or move the conversation to a
+  new `session_id`. A session that never shared a workflow run is unaffected.
+
 ## v6.0.1
 
 *Released 2026-09-04.*
@@ -3743,6 +3768,47 @@ asyncio.run(main())
 Both runs share `session_id="conversation-1"`, so the second run's model call carries the first
 run's messages along with its own. Every run gets a session either way: leave `session_id` out and
 it is scoped to that run's own `run.id`, so nothing carries into the next call.
+
+## What a session carries
+
+A session carries two things, and they are separate: the **event stream** every run on it
+appears in, and the **message history** the model is handed. Joining the first is not joining
+the second. Only a turn the conversation itself asked an agent for contributes to the message
+history: a workflow or tool run passed the same `session_id` is on the stream, and its
+input stays out of the transcript, because an orchestration argument is not something a person
+said.
+
+That is what makes "enrich, then answer" one conversation:
+
+```python run
+import asyncio
+
+from agentdeck import Agent, Deck, WorkflowCtx, workflow
+
+steward = Agent(name="Steward", instructions="Keep replies to one short sentence.")
+
+
+@workflow
+async def discovery(ctx: WorkflowCtx, said: str) -> dict[str, str]:
+    """Whatever enrichment a turn needs before the agent answers it."""
+    return {"said": said, "length": str(len(said))}
+
+
+async def main() -> None:
+    said = "Hi, I run a studio in Ornit."
+    async with Deck(agents=[steward], workflows=[discovery]) as deck:
+        enriched = await deck.run("discovery", said, session_id="conversation-3")
+        answer = await deck.run("Steward", said, session_id="conversation-3")
+        print(enriched["length"], answer.output)
+
+
+asyncio.run(main())
+```
+
+Both runs are on `conversation-3`, so every event either produced carries that `session_id` and
+an operator surface keyed by it shows both. The steward's model call still sees `said` exactly
+once. Before this, sharing the session was the only way to get the workflow onto the stream, and
+it cost the model an extra user message on the first turn.
 
 ## One turn per session at a time
 
