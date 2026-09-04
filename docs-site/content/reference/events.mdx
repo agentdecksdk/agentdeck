@@ -37,7 +37,8 @@ A `ctx.invoke` child run has no session of its own, so its stored `session_id` i
 `Observer` gets that one field rewritten to the session the child's invoker was started on, so a
 live consumer can bucket the child under the conversation. Every read of the log returns the
 null  -  `Run.events()`, `deck.stream()` and `GET /runs/{run_id}/events` all replay stored rows  -  so
-correlate a stored child with its conversation through `run.started.parent_run_id` instead.
+correlate a stored child through `run.started.parent_run_id`, following it up until a run that
+has a session, since a nested child's invoker is session-less too.
 
 `v` is `{major: 4, minor: 0}`. A reader refuses any other major outright rather than guessing at a
 wire shape it was never taught, so a log written by another major is read with the release that

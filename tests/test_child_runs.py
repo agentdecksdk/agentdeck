@@ -576,6 +576,37 @@ async def test_a_child_answered_by_a_worker_that_never_played_its_parent_is_stil
     assert "run.resumed" in buckets.seen["s-1"]
 
 
+async def test_a_nested_child_answered_by_a_fresh_worker_walks_up_to_the_conversation() -> None:
+    """One level up is not enough: a child's parent is itself often a child, whose own stored
+    opening is session-less by exactly this design, so the edge has to be followed until a run
+    that has a session. ``MAX_DELEGATION_DEPTH`` makes this a supported shape, not a corner."""
+    buckets = _Buckets()
+    ids: list[str] = []
+
+    @workflow
+    async def inner(ctx: WorkflowCtx) -> str:
+        child = ctx.invoke("asker", "ready?")
+        ids.append(child.id)
+        return str(await child)
+
+    @workflow
+    async def outer(ctx: WorkflowCtx) -> str:
+        return str(await ctx.invoke(inner))
+
+    async with Deck(workflows=[asker, inner, outer], observers=[buckets]) as deck:
+        run = await deck.runs.start("outer", None, session_id="s-1")
+        with pytest.raises(RunSuspendedError):
+            await run
+
+        grandchild = await _child(deck, ids[0])
+        deck._runtime._tree.clear()
+        await grandchild.answer("yes")
+        assert await grandchild == "ready?:yes"
+
+    assert None not in buckets.seen
+    assert "run.resumed" in buckets.seen["s-1"]
+
+
 async def test_a_child_closed_from_outside_is_attributed_as_it_is_closed() -> None:
     """``close_cancelled`` writes straight to the store, for a run whose own task is still alive,
     rather than through ``_record``  -  so the attribution has to be read there too, or the one

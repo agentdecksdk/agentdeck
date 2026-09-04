@@ -1173,17 +1173,27 @@ class Runtime:
 
     async def _inherited(self, opening: RunStarted, ctx: RunContext, session_id: str | None) -> str | None:
         """The session a run being played belongs to: ``session_id``, its own, unless it is a
-        child  -  then its invoker's, read off that run's opening.
+        child  -  then the conversation above it, walked up the recorded delegation edge.
 
-        The read is for the worker that never played the parent and so has no tree entry to
-        inherit from: a second process answering a child, which is the deployment a shared store
-        exists for. One this worker *is* playing already carries the answer in the tree, which
-        :meth:`delegate` prefers over anything passed here.
+        Walked rather than read once, because an invoker that is itself a child has a
+        session-less opening by this design, so one hop up answers only at depth 1. For the
+        worker that never played the parent and so has no tree entry to inherit from; one this
+        worker *is* playing carries the answer already, which :meth:`delegate` prefers.
         """
-        if opening.parent_run_id is None or opening.parent_run_id in self._tree:
+        parent_run_id = opening.parent_run_id
+        if parent_run_id is None or parent_run_id in self._tree:
             return session_id
-        above = await self._opening_of(opening.parent_run_id, ctx)
-        return None if above is None else above[0]
+        for _ in range(MAX_DELEGATION_DEPTH):
+            found = await self._opening_of(parent_run_id, ctx)
+            if found is None:
+                return None
+            inherited, above = found
+            if inherited is not None:
+                return inherited
+            if above.parent_run_id is None:
+                return None
+            parent_run_id = above.parent_run_id
+        return None
 
     def _attributed(self, run_id: str) -> str | None:
         """The conversation a delegated run's events name  -  ``None`` for a run that is nobody's
