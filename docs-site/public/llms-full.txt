@@ -839,6 +839,13 @@ Every event carries the same envelope, whatever its kind:
 `seq` and `ts` are assigned by the store, not the producer, so ordering is the store's to
 guarantee rather than a caller's to get right.
 
+A `ctx.invoke` child run has no session of its own, so its stored `session_id` is null. An
+`Observer` gets that one field rewritten to the session the child's invoker was started on, so a
+live consumer can bucket the child under the conversation. Every read of the log returns the
+null  -  `Run.events()`, `deck.stream()` and `GET /runs/{run_id}/events` all replay stored rows  -  so
+correlate a stored child through `run.started.parent_run_id`, following it up until a run that
+has a session, since a nested child's invoker is session-less too.
+
 `v` is `{major: 4, minor: 0}`. A reader refuses any other major outright rather than guessing at a
 wire shape it was never taught, so a log written by another major is read with the release that
 wrote it or replayed into a new store. There is no migration.
@@ -849,7 +856,7 @@ Each of these sets the run's status. See [Lifecycle & Control](/runs-and-control
 
 | Kind | Payload | Notes |
 |---|---|---|
-| `run.started` | `invocable`, `kind_of_invocable`, `input` | Opens the run |
+| `run.started` | `invocable`, `kind_of_invocable`, `input`, `parent_run_id` | Opens the run. `parent_run_id` is set on a `ctx.invoke` child and names the run that invoked it |
 | `run.completed` | `output`, `usage` | Terminal. `usage` is the authoritative total |
 | `run.failed` | `error_code`, `message`, `retryable` | Terminal. `error_code` is closed, so branch on it rather than parsing the message |
 | `run.paused` | `reason` | Not terminal, and not waiting on an answer |
@@ -2057,6 +2064,11 @@ the rest up.
 
 One parameter is one value, a mapping included. Several parameters bind by name.
 
+That input is an argument, never a conversational turn. Pass a workflow the `session_id` an
+agent is using and its run joins that conversation's event stream, so one operator surface sees
+both; the argument stays out of the message history the agent's model call is handed. See
+[Sessions](/runs-and-control/sessions) for "enrich, then answer" on one conversation.
+
 ---
 
 # index
@@ -3061,39 +3073,42 @@ Source: https://agentdecksdk.com/resources/changelog
 Rendered from the repository's own `CHANGELOG.md`, so this page cannot drift from it. Entries
 are written for someone using the package: what changed, and what to do about it.
 
-The current release is **v6.0.1**. Earlier releases are listed at the bottom.
+The current release is **v6.0.2**. Earlier releases are listed at the bottom.
 
-## v6.0.1
+## v6.0.2
 
 *Released 2026-09-04.*
 
-### Changed
-
-- **A completed run reports the artifacts it produced** (#636). `run.completed`'s
-  `output: list[ContentBlock]` now leads with the media the run made  -  a hosted
-  `ImageGenerationTool` image, a rich tool's image or file  -  and closes with the final text or
-  structured block, so a channel can send the image and caption it from one result instead of
-  reassembling it from executor events. Nothing else from the transcript is promoted, and a
-  text-only run is byte for byte what it was. The inline cap on `ImageBlock`/`AudioBlock` moves
-  from 1 MB to 8 MB decoded, because a generated PNG does not fit under 1 MB.
-
 ### Fixed
 
-- **A `@workflow` returning content blocks crashed its own run** (#636). Anything other than a
-  `TextBlock` or `DataBlock` was wrapped in a `DataBlock` that could not hold it; a body may now
-  return any list of blocks and `run` hands back exactly those blocks.
-
-- **`ctx.invoke`'s return shape was undocumented.** `await ctx.invoke(<agent>)` resolves to a
-  `TurnResult` (value at `.output`), `await ctx.invoke(<tool|workflow>)` resolves to the body's
-  return value directly, and `ctx.parallel(...)` resolves to a list of each handle's own result,
-  never to handles. `build-your-deck/workflows` now states all three, and
-  `WorkflowCtx.invoke`'s docstring no longer claims the body's return value unconditionally
-  (#489).
+- **A `ctx.invoke` child run's events reach an `Observer` under its parent's session** (#491). A
+  sink bucketing by conversation now sees the child's `run.started` / `usage.reported` /
+  `run.completed` under it, instead of losing them to a process-wide session-less bucket shared
+  with every other conversation's children. Live sinks only, and attribution only: the child's
+  stored rows stay session-less, so it still claims no session, is still played with its own
+  history, and still contributes nothing to the conversation's transcript. Read a stored child
+  back through `run.started.parent_run_id`.
+- **A workflow sharing a conversation's `session_id` no longer duplicates its input into the
+  agent's next prompt** (#490). Only an agent turn is a conversational turn: a workflow or tool
+  run passed the same `session_id` joins that conversation's event stream, so an operator
+  surface keyed by the session sees it, but its input is an orchestration argument and never
+  reaches the model as something the user said. "Enrich, then answer" on one session is now the
+  one obvious path, with no derived `<session>|step` id to invent.
+  One limit, for a conversation that already ran a workflow on a shared `session_id` under an
+  earlier release: that release replayed the workflow's input into the engine's session, which
+  the transcript no longer counts, so the two disagree from that message on. Such a session
+  reports `openai_agents.session_diverged` on every later turn and skips crash repair, the
+  reconciliation that replays a message the log recorded and a killed process never wrote. Turns
+  themselves are unaffected, and nothing is written into a session AgentDeck cannot account for.
+  Reset one with `await deck.session_for("<session-id>").clear_session()`, which drops that
+  conversation's engine-side memory (the event log is untouched), or move the conversation to a
+  new `session_id`. A session that never shared a workflow run is unaffected.
 
 ## Earlier releases
 
 | Version | Date | Notes |
 |---|---|---|
+| [v6.0.1](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.1) | 2026-09-04 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.1) |
 | [v6.0.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.0) | 2026-09-03 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.0) |
 | [v5.2.1](https://github.com/agentdecksdk/agentdeck/releases/tag/v5.2.1) | 2026-08-29 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v5.2.1) |
 | [v5.2.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v5.2.0) | 2026-08-29 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v5.2.0) |
@@ -3743,6 +3758,47 @@ asyncio.run(main())
 Both runs share `session_id="conversation-1"`, so the second run's model call carries the first
 run's messages along with its own. Every run gets a session either way: leave `session_id` out and
 it is scoped to that run's own `run.id`, so nothing carries into the next call.
+
+## What a session carries
+
+A session carries two things, and they are separate: the **event stream** every run on it
+appears in, and the **message history** the model is handed. Joining the first is not joining
+the second. Only a turn the conversation itself asked an agent for contributes to the message
+history: a workflow or tool run passed the same `session_id` is on the stream, and its
+input stays out of the transcript, because an orchestration argument is not something a person
+said.
+
+That is what makes "enrich, then answer" one conversation:
+
+```python run
+import asyncio
+
+from agentdeck import Agent, Deck, WorkflowCtx, workflow
+
+steward = Agent(name="Steward", instructions="Keep replies to one short sentence.")
+
+
+@workflow
+async def discovery(ctx: WorkflowCtx, said: str) -> dict[str, str]:
+    """Whatever enrichment a turn needs before the agent answers it."""
+    return {"said": said, "length": str(len(said))}
+
+
+async def main() -> None:
+    said = "Hi, I run a studio in Ornit."
+    async with Deck(agents=[steward], workflows=[discovery]) as deck:
+        enriched = await deck.run("discovery", said, session_id="conversation-3")
+        answer = await deck.run("Steward", said, session_id="conversation-3")
+        print(enriched["length"], answer.output)
+
+
+asyncio.run(main())
+```
+
+Both runs are on `conversation-3`, so every event either produced carries that `session_id` and
+an operator surface keyed by it shows both. The steward's model call still sees `said` exactly
+once. Before this, sharing the session was the only way to get the workflow onto the stream, and
+it cost the model an extra user message on the first turn.
 
 ## One turn per session at a time
 

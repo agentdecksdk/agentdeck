@@ -95,11 +95,15 @@ class _Delegation:
     ``spent`` is what this run's *settled children* have used, folded into its own total when it
     ends; ``children`` counts every one it started, not the ones still running, because the bound
     is on the tree a run can build and not on how much of it is in flight at once.
+
+    ``session`` is the conversation the run at the top of this edge was started on, carried down
+    it so a child's events can name the conversation they came from (:meth:`Runtime._attributed`).
     """
 
     parent: str | None
     depth: int
     invocable: str
+    session: str | None = None
     children: int = 0
     spent: Usage | None = None
 
@@ -221,7 +225,6 @@ class Runtime:
         One turn per session at a time: opening the run is a conditional append that fails if
         the session already has one in flight, so a second concurrent turn raises
         ``SessionBusyError`` instead of running against a conversation that is still changing.
-
         The engine's exception, if any, reaches the caller  -  but ``run.failed`` is recorded
         first, so the log tells the whole story even when nobody was listening. Every exit
         closes the run in the log: a consumer that walks away gets ``run.cancelled``, whether it
@@ -232,7 +235,7 @@ class Runtime:
             self._new_run_context(run_id=run_id, key=key, session_id=session_id, namespace=namespace, data=context),
             spec,
         )
-        self.delegate(ctx.run_id, parent_run_id, spec.name)
+        self.delegate(ctx.run_id, parent_run_id, spec.name, session_id)
         # ponytail: whole log per run  -  window it (or hand the engine a summary) once a
         # session's history outgrows one read, which a real store will notice long before this does
         history = await self._history(ctx)
@@ -321,7 +324,7 @@ class Runtime:
         opened = next((event.payload for event in events if isinstance(event.payload, RunStarted)), None)
         if opened is None:
             return
-        self.delegate(ctx.run_id, opened.parent_run_id, spec.name)
+        self.delegate(ctx.run_id, opened.parent_run_id, spec.name, await self._inherited(opened, ctx, ctx.session_id))
         if (why := _refuses(events, value)) is not None:
             # Recorded, then raised, and both before the claim: the run is still waiting, so the
             # answerer can send a real one  -  and the log keeps the fact that somebody tried.
@@ -399,7 +402,7 @@ class Runtime:
         session_id, opened = started
         spec, executor = self._resolve(opened.invocable)
         run_ctx, reports = self._bind(replace(ctx, run_id=run_id, session_id=session_id), spec)
-        self.delegate(run_id, opened.parent_run_id, spec.name)
+        self.delegate(run_id, opened.parent_run_id, spec.name, await self._inherited(opened, ctx, session_id))
         opening = await self._claim_resume(spec, run_ctx, None, reason)
         if opening is None:
             return
@@ -753,7 +756,7 @@ class Runtime:
                 # whole window. The abandoned run stays open instead, and the next turn  -  which
                 # finds it just as stale  -  closes it then.
                 logger.exception("could not close abandoned run %s; leaving it for the next turn", tail.run_id)
-        await self._fan_out(event)
+        await self._fan_out(event, self._attributed(ctx.run_id))
         return event
 
     async def _session_busy_message(self, ctx: RunContext, held_by: str | None) -> str:
@@ -857,7 +860,7 @@ class Runtime:
         session_id, opened = started
         closing = replace(ctx, session_id=session_id)
         event = (await self._store.append([RunCancelled(reason=reason)], closing, opened.invocable))[0]
-        await self._fan_out(event)
+        await self._fan_out(event, self._attributed(run_id))
 
     async def _claim_resume(
         self, spec: InvocableSpec, ctx: RunContext, value: Any, reason: str | None = None
@@ -885,7 +888,7 @@ class Runtime:
         event = await self._store.claim_resume(resumed, ctx, spec.name)
         if event is None:
             return None
-        await self._fan_out(event)
+        await self._fan_out(event, self._attributed(ctx.run_id))
         return event
 
     async def pending(self, *, namespace: str | None = None) -> list[PendingRun]:
@@ -1028,7 +1031,7 @@ class Runtime:
         )
         return replace(ctx, gate=gate, reporter=Reporter(reports), agent=spec.metadata.get("agent")), reports
 
-    def delegate(self, run_id: str, parent_run_id: str | None, invocable: str) -> None:
+    def delegate(self, run_id: str, parent_run_id: str | None, invocable: str, session_id: str | None = None) -> None:
         """Place ``run_id`` in the delegation tree, refusing it if that puts the tree past a bound.
 
         Called wherever a run is played, so a child answered or resumed in a later segment is
@@ -1064,7 +1067,12 @@ class Runtime:
                     f"a workflow that starts them as runs of its own."
                 )
             above.children += 1
-        self._tree[run_id] = _Delegation(parent=parent_run_id, depth=depth, invocable=invocable)
+        self._tree[run_id] = _Delegation(
+            parent=parent_run_id,
+            depth=depth,
+            invocable=invocable,
+            session=above.session if above is not None else session_id,
+        )
 
     def _rolling_up(self, payload: KnownPayload, ctx: RunContext) -> KnownPayload:
         """A terminal payload with what this run delegated folded into it, and its own total
@@ -1143,19 +1151,61 @@ class Runtime:
         """
         if ctx.run_id in self._abandoned:
             raise asyncio.CancelledError(f"run {ctx.run_id} was abandoned by the deck closing")
+        # Read before the roll-up, which retires this run's place in the tree along with its
+        # total: the terminal event is the one a consumer most needs attributed.
+        session = self._attributed(ctx.run_id)
         event = (await self._store.append([self._rolling_up(payload, ctx)], ctx, spec.name))[0]
-        await self._fan_out(event)
+        await self._fan_out(event, session)
         return event
 
-    async def _fan_out(self, event: Event) -> None:
-        """Sinks get a copy of the stream and no say in it: never called inline, never fatal.
+    async def _fan_out(self, event: Event, session: str | None = None) -> None:
+        """Sinks get a copy of the stream and no say in it: never called inline, never fatal  -
+        with ``session`` stamped on that copy when the run has one to inherit
+        (:meth:`_attributed`), which is the one place a sink's envelope differs from the log's.
 
         Each sink gets a queue put rather than an ``emit``, and a full queue costs one loop
         turn before it starts dropping  -  so the run is never waiting on a sink, only ever on
         the loop it already shares with one.
         """
+        emitted = event if session is None else event.model_copy(update={"session_id": session})
         for dispatch in self._sinks:
-            await dispatch.submit(event)
+            await dispatch.submit(emitted)
+
+    async def _inherited(self, opening: RunStarted, ctx: RunContext, session_id: str | None) -> str | None:
+        """The session a run being played belongs to: ``session_id``, its own, unless it is a
+        child  -  then the conversation above it, walked up the recorded delegation edge.
+
+        Walked rather than read once, because an invoker that is itself a child has a
+        session-less opening by this design, so one hop up answers only at depth 1. For the
+        worker that never played the parent and so has no tree entry to inherit from; one this
+        worker *is* playing carries the answer already, which :meth:`delegate` prefers.
+        """
+        parent_run_id = opening.parent_run_id
+        if parent_run_id is None or parent_run_id in self._tree:
+            return session_id
+        for _ in range(MAX_DELEGATION_DEPTH):
+            found = await self._opening_of(parent_run_id, ctx)
+            if found is None:
+                return None
+            inherited, above = found
+            if inherited is not None:
+                return inherited
+            if above.parent_run_id is None:
+                return None
+            parent_run_id = above.parent_run_id
+        return None
+
+    def _attributed(self, run_id: str) -> str | None:
+        """The conversation a delegated run's events name  -  ``None`` for a run that is nobody's
+        child, which already carries its own session on every envelope the store writes.
+
+        Stamped as the event goes out rather than written, because a child written under the
+        conversation would be *in* it: that log is the transcript its executor is played with
+        and the set its claim scans, so the child would be prompted with the conversation and
+        refused for the very run that invoked it (#491).
+        """
+        placed = self._tree.get(run_id)
+        return placed.session if placed is not None and placed.parent is not None else None
 
 
 def _summed(one: Usage, other: Usage) -> Usage:

@@ -113,3 +113,8 @@ the rest up.
 | `deck.run("summarize", {"a": 1})` | `summarize(ctx, payload)` gets the mapping whole |
 
 One parameter is one value, a mapping included. Several parameters bind by name.
+
+That input is an argument, never a conversational turn. Pass a workflow the `session_id` an
+agent is using and its run joins that conversation's event stream, so one operator surface sees
+both; the argument stays out of the message history the agent's model call is handed. See
+[Sessions](/runs-and-control/sessions) for "enrich, then answer" on one conversation.
