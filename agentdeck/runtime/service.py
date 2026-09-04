@@ -637,13 +637,32 @@ class Runtime:
             # The exception is the caller's, the event is the record  -  both, always. The type
             # name only, `InputError` excepted: its message is written for the caller.
             logger.exception("run %s failed in engine %r", ctx.run_id, executor.name)
-            yield await self._record(_failed(exc, executor.name), spec, ctx)
+            async for event in self._sealing(_failed(exc, executor.name), spec, ctx, reports, settle):
+                yield event
             raise
 
         if last not in TERMINAL_KINDS and last not in SUSPENDED_KINDS:
             # An engine that just stops leaves consumers waiting forever; close the run for it.
             logger.error("engine %r ended run %s after %r, not a terminal event", executor.name, ctx.run_id, last)
-            yield await self._record(_engine_failed(f"engine {executor.name!r} ended after {last!r}"), spec, ctx)
+            ended = _engine_failed(f"engine {executor.name!r} ended after {last!r}")
+            async for event in self._sealing(ended, spec, ctx, reports, settle):
+                yield event
+
+    async def _sealing(
+        self, payload: KnownPayload, spec: InvocableSpec, ctx: RunContext, reports: deque[Event], settle: _Settle
+    ) -> AsyncGenerator[Event, None]:
+        """Close a run the engine did not close itself, behind the reports it already made.
+
+        The two arms that end a run for it owe the log what the terminal-payload arm owes it: a
+        report fired before the engine raised is one this run made, so it goes in front of
+        ``run.failed`` rather than behind it. Recorded before either is yielded, because a
+        consumer walking away mid-report must not leave the run open.
+        """
+        await settle()
+        closing = await self._record(payload, spec, ctx)
+        for _ in range(len(reports)):
+            yield reports.popleft()
+        yield closing
 
     @asynccontextmanager
     async def _holding(self, run_id: str) -> AsyncIterator[None]:
@@ -1099,6 +1118,8 @@ class Runtime:
         store refusing an append (#471), said once rather than once per report behind it.
         """
         loop = asyncio.get_running_loop()
+        # No lock on the hand-off: a deque's ``append`` and ``popleft`` are each atomic under the
+        # GIL, and the writer runs on one loop, so only the write itself needs ordering.
         pending: deque[Reported] = deque()
         writing = asyncio.Lock()
         closed = False

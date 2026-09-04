@@ -423,3 +423,56 @@ def test_a_report_made_after_the_loop_that_played_the_run_closed_is_dropped(
         reporters[0].info("the loop is gone")
 
     assert "reported after its loop closed" in caplog.text
+
+
+async def test_a_run_that_reports_and_then_fails_still_ends_on_run_failed() -> None:
+    """The arm that ends a run the engine did not end itself owes the log the same order the
+    terminal-payload arm does: five reports fired before the raise are in front of ``run.failed``,
+    so a run that merely failed cannot read as one resurrected past its own terminal event."""
+    store = _ReportGate()
+
+    @tool
+    def _reports_then_raises(ctx: ToolCtx) -> str:
+        """Report five times from a worker thread, then fail."""
+        for n in range(5):
+            ctx.reporter.report("step", n=n)
+        raise RuntimeError("the tool gave up")
+
+    runtime = _reporting_runtime(store, _reports_then_raises, "_reports_then_raises")
+    ctx = RunContext(namespace="acme", run_id="r-failing")
+
+    streamed: list[str] = []
+    with pytest.raises(RuntimeError, match="gave up"):
+        async for event in runtime.run("_reports_then_raises", coerce_input(""), namespace="acme", run_id="r-failing"):
+            streamed.append(event.kind)
+
+    logged = await store.read_run(ctx)
+    assert streamed == ["run.started", *["report"] * 5, "run.failed"]
+    assert [event.kind for event in logged] == streamed
+    assert check_terminal(logged) is None and check_contiguous(logged) == []
+
+
+async def test_a_run_whose_engine_just_stops_keeps_its_reports_in_front_of_the_failure() -> None:
+    """The other arm that closes a run for its engine, and the same order: an engine that ends
+    without a terminal event has one written for it, behind whatever the run already reported."""
+    store = _ReportGate()
+
+    class _ReportsThenStops(StubExecutor):
+        async def execute(
+            self, spec: InvocableSpec, input: Input, history: Sequence[Event], ctx: RunContext
+        ) -> AsyncGenerator[KnownPayload, None]:
+            ctx.reporter.info("about to stop saying anything")
+            return
+            yield  # pragma: no cover  -  an engine that yields nothing is still a generator
+
+    spec = stub_spec("Stopper")
+    runtime = Runtime([_ReportsThenStops()], store, {spec.name: spec})
+    ctx = RunContext(namespace="acme", run_id="r-stopped")
+
+    streamed = [
+        event.kind async for event in runtime.run("Stopper", coerce_input(""), namespace="acme", run_id="r-stopped")
+    ]
+
+    assert streamed == ["run.started", "report", "run.failed"]
+    assert [event.kind for event in await store.read_run(ctx)] == streamed
+    assert check_terminal(await store.read_run(ctx)) is None
