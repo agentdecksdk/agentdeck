@@ -27,7 +27,7 @@
     "agentation": "^3.0.2",
     "pagefind": "^1.5.2",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5.9.0"
+    "typescript": "^7.0.2"
   },
   "overrides": {
     "@xmldom/xmldom": "0.9.12"
