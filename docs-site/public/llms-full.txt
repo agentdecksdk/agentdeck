@@ -929,7 +929,7 @@ from agentdeck.core.events import KNOWN_KINDS, TERMINAL_KINDS
 
 ---
 
-# python-api
+# Python API
 
 
 Source: https://agentdecksdk.com/reference/python-api
@@ -991,7 +991,7 @@ importing the SPI pulls in neither an HTTP stack nor the AG-UI models. The guide
 
 ---
 
-# run
+# Run Reference
 
 
 Source: https://agentdecksdk.com/reference/run
@@ -1765,7 +1765,7 @@ A context is a live Python object, never serialized, and it cannot cross the HTT
 
 ---
 
-# deck
+# Deck
 
 
 Source: https://agentdecksdk.com/build-your-deck/deck
@@ -1808,7 +1808,7 @@ it does, and nothing in it knows which store, executor or surface it will run un
 
 ---
 
-# skills
+# Skills
 
 
 Source: https://agentdecksdk.com/build-your-deck/skills
@@ -1823,7 +1823,7 @@ Attach skills directly to agents or load them from `./.agentdeck/skills/`.
 
 ---
 
-# tools
+# Tools
 
 
 Source: https://agentdecksdk.com/build-your-deck/tools
@@ -1948,7 +1948,7 @@ tool results on the way back. See [sending an agent an image](/build-your-deck/a
 
 ---
 
-# workflows
+# Workflows
 
 
 Source: https://agentdecksdk.com/build-your-deck/workflows
@@ -2071,7 +2071,7 @@ both; the argument stays out of the message history the agent's model call is ha
 
 ---
 
-# index
+# Examples
 
 
 Source: https://agentdecksdk.com/examples
@@ -2357,7 +2357,7 @@ Next: [Runs](/runs-and-control/runs) · [Events](/reference/events)
 
 ---
 
-# existing-agents
+# Existing Agents
 
 
 Source: https://agentdecksdk.com/integrations/existing-agents
@@ -2372,7 +2372,7 @@ Bring your custom agent implementations and wrap them with AgentDeck's runtime.
 
 ---
 
-# mcp
+# Model Context Protocol (MCP)
 
 
 Source: https://agentdecksdk.com/integrations/mcp
@@ -2387,7 +2387,7 @@ Attach MCP clients directly to your `Deck` configuration.
 
 ---
 
-# openai-agents-sdk
+# OpenAI Agents SDK
 
 
 Source: https://agentdecksdk.com/integrations/openai-agents-sdk
@@ -3075,6 +3075,14 @@ are written for someone using the package: what changed, and what to do about it
 
 The current release is **v6.0.2**. Earlier releases are listed at the bottom.
 
+## Unreleased
+
+### Changed
+
+- **The documentation site runs on Fumadocs instead of Nextra 4** (#683). Same 44 URLs, same
+  Pagefind search, same pages. Nextra's loader routed every fenced block through `twoslash`,
+  whose peer range pinned TypeScript below 7 (#664); nothing does now.
+
 ## v6.0.2
 
 *Released 2026-09-04.*
@@ -3230,7 +3238,7 @@ read-path CLI in #256, are tracked on the [v6.x milestone](https://github.com/ag
 
 ---
 
-# migration-guides
+# Migration Guides
 
 
 Source: https://agentdecksdk.com/resources/migration-guides
@@ -3353,7 +3361,7 @@ the full list on the [Settings reference](/reference/settings)), and delete the 
 
 ---
 
-# troubleshooting
+# Troubleshooting
 
 
 Source: https://agentdecksdk.com/resources/troubleshooting
@@ -3497,7 +3505,7 @@ log written by a newer release of the same schema major.
 
 ---
 
-# human-input
+# Human Input
 
 
 Source: https://agentdecksdk.com/runs-and-control/human-input
@@ -3608,7 +3616,7 @@ attached to each cell.
 
 ---
 
-# pause-resume
+# Pause / Resume
 
 
 Source: https://agentdecksdk.com/runs-and-control/pause-resume

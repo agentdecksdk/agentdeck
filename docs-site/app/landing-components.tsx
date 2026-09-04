@@ -2,14 +2,14 @@ import React from 'react'
 import Link from 'next/link'
 
 import { TreeFigure, type TreeNode } from './deck-figure'
-import { docsSlugs } from './docs-slugs'
+import { pageSlugs } from './source'
 import { JackLive } from './jack-live'
 import { InstallLine } from './install-line'
 import { Hero } from './hero'
 
 // Read once at build time (this module never crosses into the client bundle); JackLive uses it
 // to decide which of Jack's citations are real pages worth linking.
-const DOC_SLUGS = docsSlugs()
+const DOC_SLUGS = pageSlugs()
 
 /**
  * The landing page.

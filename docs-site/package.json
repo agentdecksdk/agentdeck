@@ -6,26 +6,30 @@
     "build": "next build",
     "postbuild": "pagefind --site out --output-path out/_pagefind",
     "preview": "npm run build && python3 -m http.server -d out 3031",
-    "start": "next start"
+    "start": "next start",
+    "postinstall": "fumadocs-mdx"
   },
   "dependencies": {
+    "fumadocs-core": "^16.15.6",
+    "fumadocs-mdx": "^15.4.0",
+    "fumadocs-ui": "^16.15.6",
     "next": "^16.0.0",
-    "nextra": "^4.0.0",
-    "nextra-theme-docs": "^4.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/mdx": "^2.0.14",
     "@types/node": "^26.4.0",
     "@types/react": "^19.0.0",
     "agentation": "^3.0.2",
     "pagefind": "^1.5.2",
+    "tailwindcss": "^4.3.3",
     "typescript": "^5.9.0"
   },
   "overrides": {
-    "zod": "4.3.5",
     "@xmldom/xmldom": "0.9.12"
   }
 }
