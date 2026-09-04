@@ -664,6 +664,40 @@ async def test_an_append_suspended_inside_the_store_when_the_cancel_lands_is_ref
     assert await event_store.run_status(ctx) is RunStatus.CANCELLED
 
 
+async def test_a_cancel_suspended_inside_the_store_when_the_completion_lands_is_refused(
+    event_store: EventStorePort, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other side of the same window, and the one that is wrong about the *outcome*: the
+    deck's cancel is inside ``append`` when the run's own ``run.completed`` commits (#471).
+
+    Gated the way the case above is, not raced for: only the cancel is held, so the completion
+    commits while it sits there and it resumes into a sealed log. A run that completed reads as
+    ``COMPLETED`` on every store afterwards.
+    """
+    appending, released = asyncio.Event(), asyncio.Event()
+    real_append = event_store.append
+
+    async def gated(_: EventStorePort, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
+        if any(isinstance(payload, RunCancelled) for payload in payloads):
+            appending.set()
+            await released.wait()
+        return await real_append(payloads, ctx, origin)
+
+    monkeypatch.setattr(type(event_store), "append", gated)
+
+    ctx = _ctx()
+    await _write(event_store, [_started()], ctx)
+    cancel = asyncio.create_task(_write(event_store, [RunCancelled(reason="the deck closed")], ctx))
+    await appending.wait()
+    await _write(event_store, [_completed()], ctx)
+    released.set()
+
+    with pytest.raises(RunStateError, match="r-1"):
+        await cancel
+    assert [event.kind for event in await event_store.read_run(ctx)] == ["run.started", "run.completed"]
+    assert await event_store.run_status(ctx) is RunStatus.COMPLETED
+
+
 async def test_an_append_past_a_taken_over_runs_failure_still_lands(event_store: EventStorePort) -> None:
     """The carve-out, on every store. A takeover's ``run.failed`` is advisory: it is written for a
     run only *believed* dead, and one that turns out to be alive goes on writing and may reclaim

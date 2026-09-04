@@ -594,8 +594,11 @@ class Runtime:
                     async for payload in payloads:
                         async for report in self._drain(reports, spec, ctx):
                             yield report
-                        yield await self._record(payload, spec, ctx)
+                        event = await self._record(payload, spec, ctx)
+                        # Before the yield, which is where a consumer's walkaway lands: read
+                        # after it, ``last`` still names the payload before this one (#471).
                         last = payload.kind
+                        yield event
                         if last in TERMINAL_KINDS:
                             # Terminal means terminal: stop reading so nothing can follow it
                             # into the log. An engine yielding more after this gets it
@@ -604,6 +607,9 @@ class Runtime:
         except GeneratorExit:
             # Nobody is listening any more, so there is no event to yield  -  but an unclosed
             # run in the log is indistinguishable from one still in flight.
+            if last in TERMINAL_KINDS:
+                logger.debug("run %s was let go after %r, which already closed it", ctx.run_id, last)
+                raise
             logger.info("run %s abandoned by its consumer after %r", ctx.run_id, last)
             await self._record(RunCancelled(reason="consumer stopped reading"), spec, ctx)
             raise
@@ -612,6 +618,9 @@ class Runtime:
             # cancels the task streaming the response rather than closing the generator. This
             # arm exists because ``CancelledError`` is a BaseException, so the one below never
             # saw it and the run stayed open in the log forever.
+            if last in TERMINAL_KINDS:
+                logger.debug("run %s was cancelled after %r, which already closed it", ctx.run_id, last)
+                raise
             logger.info("run %s cancelled after %r", ctx.run_id, last)
             await self._close_cancelled(spec, ctx, "consumer cancelled")
             raise
@@ -837,8 +846,14 @@ class Runtime:
             retryable=False,
         )
         abandoned = replace(ctx, run_id=tail.run_id, session_id=tail.session_id)
-        event = (await self._store.append([payload], abandoned, tail.origin))[0]
-        await self._fan_out(event)
+        try:
+            event = (await self._store.append([payload], abandoned, tail.origin))[0]
+        except RunStateError:
+            # It was alive after all and sealed its own log while this was written, so the
+            # takeover was wrong about it (#471). Not raised on: the lease prune below still applies.
+            logger.debug("run %s ended itself as this takeover closed it; nothing was written", tail.run_id)
+        else:
+            await self._fan_out(event)
         if self._lease is not None:
             # The dead worker's expired row has done its job and nothing else prunes it. Not
             # required for correctness  -  the run is terminal now, so no claim ever consults it
@@ -885,7 +900,13 @@ class Runtime:
             return
         session_id, opened = started
         closing = replace(ctx, session_id=session_id)
-        event = (await self._store.append([RunCancelled(reason=reason)], closing, opened.invocable))[0]
+        try:
+            event = (await self._store.append([RunCancelled(reason=reason)], closing, opened.invocable))[0]
+        except RunStateError:
+            # The same benign half one turn later: the run's own terminal event was suspended
+            # inside the store when the read above saw RUNNING, and committed first (#471).
+            logger.debug("run %s closed itself while this cancel was in flight; nothing was written", run_id)
+            return
         await self._fan_out(event, self._attributed(run_id))
 
     async def _claim_resume(

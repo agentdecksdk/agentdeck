@@ -17,6 +17,14 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   `Runtime.signal(CANCEL)` against a suspended run had no cover at all, so a caller whose own
   task was cancelled mid-`Run.cancel()` wedged the very run it asked to stop. All four claim
   sites now record `run.cancelled` and free the session.
+- **A run that completed no longer reads back as cancelled** (#471). A cancel could land behind
+  that run's own `run.completed` and leave `run.status()` reporting `CANCELLED` for a run that
+  finished its work: written by `Deck.aclose` giving up on it, by a session takeover, or by the
+  run's own stream when a consumer broke out of `async for` at the completion, which needs
+  neither of the other two. Whichever of the two events commits first is now the run's outcome on
+  every store, and the loser is refused with `RunStateError` inside the write step that would
+  have appended it. A takeover's `run.failed` still seals nothing: it is written for a run only
+  *believed* dead, and one that turns out to be alive goes on writing (ADR-D11 §5).
 
 ## [6.0.2] - 2026-09-04
 
