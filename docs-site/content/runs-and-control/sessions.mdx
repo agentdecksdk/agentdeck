@@ -44,7 +44,7 @@ it is scoped to that run's own `run.id`, so nothing carries into the next call.
 A session carries two things, and they are separate: the **event stream** every run on it
 appears in, and the **message history** the model is handed. Joining the first is not joining
 the second. Only a turn the conversation itself asked an agent for contributes to the message
-history: a workflow, tool or skill run passed the same `session_id` is on the stream, and its
+history: a workflow or tool run passed the same `session_id` is on the stream, and its
 input stays out of the transcript, because an orchestration argument is not something a person
 said.
 
@@ -78,7 +78,7 @@ asyncio.run(main())
 Both runs are on `conversation-3`, so every event either produced carries that `session_id` and
 an operator surface keyed by it shows both. The steward's model call still sees `said` exactly
 once. Before this, sharing the session was the only way to get the workflow onto the stream, and
-it cost a duplicated first message.
+it cost the model an extra user message on the first turn.
 
 ## One turn per session at a time
 

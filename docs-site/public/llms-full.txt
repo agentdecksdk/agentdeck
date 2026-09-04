@@ -3073,18 +3073,20 @@ The current release is **v6.0.1**. Earlier releases are listed at the bottom.
 ### Fixed
 
 - **A workflow sharing a conversation's `session_id` no longer duplicates its input into the
-  agent's next prompt** (#490). Only an agent turn is a conversational turn: a workflow, tool or
-  skill run passed the same `session_id` joins that conversation's event stream, so an operator
+  agent's next prompt** (#490). Only an agent turn is a conversational turn: a workflow or tool
+  run passed the same `session_id` joins that conversation's event stream, so an operator
   surface keyed by the session sees it, but its input is an orchestration argument and never
   reaches the model as something the user said. "Enrich, then answer" on one session is now the
   one obvious path, with no derived `<session>|step` id to invent.
-- **A session holding more messages than its log no longer loses crash repair** (#490). Session
-  and log are compared by walking the log's messages through the session in order, so extra
-  messages sitting between them are the session being ahead rather than a disagreement. Sessions
-  an earlier release had already repaired from a workflow's input reported
-  `openai_agents.session_diverged` on every turn and silently skipped the repair the comparison
-  exists for; they now heal on the next turn with no reset. The one message such a session
-  already holds twice stays: the SDK session is the authority on what the model was shown.
+  One limit, for a conversation that already ran a workflow on a shared `session_id` under an
+  earlier release: that release replayed the workflow's input into the engine's session, which
+  the transcript no longer counts, so the two disagree from that message on. Such a session
+  reports `openai_agents.session_diverged` on every later turn and skips crash repair, the
+  reconciliation that replays a message the log recorded and a killed process never wrote. Turns
+  themselves are unaffected, and nothing is written into a session AgentDeck cannot account for.
+  Reset one with `await deck.session_for("<session-id>").clear_session()`, which drops that
+  conversation's engine-side memory (the event log is untouched), or move the conversation to a
+  new `session_id`. A session that never shared a workflow run is unaffected.
 
 ## v6.0.1
 
@@ -3772,7 +3774,7 @@ it is scoped to that run's own `run.id`, so nothing carries into the next call.
 A session carries two things, and they are separate: the **event stream** every run on it
 appears in, and the **message history** the model is handed. Joining the first is not joining
 the second. Only a turn the conversation itself asked an agent for contributes to the message
-history: a workflow, tool or skill run passed the same `session_id` is on the stream, and its
+history: a workflow or tool run passed the same `session_id` is on the stream, and its
 input stays out of the transcript, because an orchestration argument is not something a person
 said.
 
@@ -3806,7 +3808,7 @@ asyncio.run(main())
 Both runs are on `conversation-3`, so every event either produced carries that `session_id` and
 an operator surface keyed by it shows both. The steward's model call still sees `said` exactly
 once. Before this, sharing the session was the only way to get the workflow onto the stream, and
-it cost a duplicated first message.
+it cost the model an extra user message on the first turn.
 
 ## One turn per session at a time
 
