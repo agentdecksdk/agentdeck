@@ -247,9 +247,18 @@ async def _workflow_result(events: AsyncGenerator[Event, None]) -> tuple[Any, bo
             if isinstance(payload, RunInterrupted):
                 result, applied = interrupt_result(payload.payload, payload.thread_id or "", id=event.run_id), True
             elif isinstance(payload, RunCompleted):
-                result = next((block.data for block in payload.output if isinstance(block, DataBlock)), None)
-                applied = True
+                result, applied = _workflow_output(payload), True
     return result, applied
+
+
+def _workflow_output(payload: RunCompleted) -> Any:
+    """What a workflow body returned, read back off its ``run.completed``.
+
+    One ``DataBlock`` is the executor's wrapper around a plain value; anything else is a body
+    that returned content blocks itself, and those blocks are the result (#636).
+    """
+    blocks = payload.output
+    return blocks[0].data if len(blocks) == 1 and isinstance(blocks[0], DataBlock) else blocks
 
 
 def _content_for(root: Agent | NativeDefinition, input: Any) -> Input:
@@ -1349,15 +1358,12 @@ def _completed_result(deck: Deck, event: Event, payload: RunCompleted) -> Any:
     reading it here is what lets :meth:`Run.__await__` work identically whether this process
     started the run or only ever looked it up.
     """
-    data = next((block.data for block in payload.output if isinstance(block, DataBlock)), None)
-    if isinstance(deck._root(event.origin), Agent):
-        output = (
-            data
-            if data is not None
-            else "".join(block.text for block in payload.output if isinstance(block, TextBlock))
-        )
-        return TurnResult(output=output, usage=payload.usage, run_id=event.run_id, session_id=event.session_id)
-    return data
+    blocks = payload.output
+    if not isinstance(deck._root(event.origin), Agent):
+        return _workflow_output(payload)
+    data = next((block.data for block in blocks if isinstance(block, DataBlock)), None)
+    output = data if data is not None else "".join(block.text for block in blocks if isinstance(block, TextBlock))
+    return TurnResult(output=output, usage=payload.usage, run_id=event.run_id, session_id=event.session_id)
 
 
 class Run:

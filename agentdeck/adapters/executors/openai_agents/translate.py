@@ -1,11 +1,10 @@
-"""Stream-event → canonical-payload translation.
+"""Stream-event → canonical-payload translation, and a finished run's items → its result artifacts.
 
-Ported from the delta-only extraction in ``agents/runners/headless.py`` (v1 stays
-untouched) and widened to text deltas, completed messages, tool calls and their results.
-Reasoning items are deliberately not translated (ADR-D5: they live only in the SDK
-session, and mirroring them would chain the event schema to the SDK's item format).
-A completed handoff maps to the core kind ``agent.changed`` (#249, D10's second
-promotion after ``DataBlock``/#101): it stopped being one namespaced ``custom`` event.
+Ported from the delta-only extraction in ``agents/runners/headless.py`` (v1 stays untouched), widened to text
+deltas, completed messages, tool calls and their results, and again to the media a run leaves behind in
+``new_items`` (#636). Reasoning items are deliberately not translated (ADR-D5: they live only in the SDK
+session, and mirroring them would chain the event schema to the SDK's item format). A completed handoff maps to
+the core kind ``agent.changed`` (#249, D10's second promotion after ``DataBlock``/#101, out of ``custom``).
 """
 
 from __future__ import annotations
@@ -13,8 +12,14 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from typing import Any
+import re
+from typing import TYPE_CHECKING, Any
 
+from agents.items import ToolCallItem, ToolCallOutputItem
+from agents.tool import ToolOutputFileContent, ToolOutputImage
+from pydantic import ValidationError
+
+from agentdeck.core.content import ContentBlock, ImageBlock, ResourceBlock
 from agentdeck.core.events import (
     RESULT_PREVIEW_MAX,
     AgentChanged,
@@ -25,7 +30,11 @@ from agentdeck.core.events import (
     ToolCallStarted,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator, Sequence
+
 logger = logging.getLogger(__name__)
+_DATA_URL = re.compile(r"data:([^;,]+);base64,(.+)", re.DOTALL)
 
 
 def translate(event: Any, tool_names: dict[str, str], tool_failures: dict[str, str]) -> KnownPayload | None:
@@ -123,4 +132,57 @@ def _handoff(item: Any) -> KnownPayload:
     return AgentChanged(previous_agent=item.source_agent.name, next_agent=item.target_agent.name)
 
 
-__all__ = ["translate"]
+def run_artifacts(items: Sequence[Any]) -> list[ContentBlock]:
+    """The user-facing media a finished run produced, in the order the SDK recorded it (#636).
+
+    A run's result is its artifacts plus its final output, not its whole transcript, so a
+    ``MessageOutputItem`` is deliberately absent (``final_output`` already is that text, and
+    mapping both would duplicate it) and so is every other tool result, which stays a
+    ``tool.call.completed`` event. Never a ``DataBlock`` either: ``deck._completed_result``
+    reads the first one as the agent's own return value, and an artifact would hijack it.
+    """
+    return [block for item in items for block in _artifacts_of(item)]
+
+
+def _artifacts_of(item: Any) -> Iterator[ContentBlock]:
+    if isinstance(item, ToolCallItem):
+        raw = item.raw_item
+        if getattr(raw, "type", None) == "image_generation_call" and raw.status == "completed" and raw.result:
+            # The raw call carries id/result/status/type and nothing else, so the media type is
+            # not knowable here; the hosted tool returns PNG.
+            yield from _inline_image("image/png", raw.result)
+    elif isinstance(item, ToolCallOutputItem):
+        outputs = item.output if isinstance(item.output, list) else [item.output]
+        for output in outputs:
+            yield from _tool_output(output)
+
+
+def _tool_output(output: Any) -> Iterator[ContentBlock]:
+    """A rich function-tool result. The ``file_id``-only forms of both types are skipped: an id
+    into the provider's file store is not a URI this run's reader can dereference."""
+    if isinstance(output, ToolOutputImage) and output.image_url is not None:
+        yield from _image_url(output.image_url)
+    elif isinstance(output, ToolOutputFileContent) and output.file_url is not None:
+        yield ResourceBlock(uri=output.file_url)
+
+
+def _image_url(url: str) -> Iterator[ContentBlock]:
+    """A ``data:`` URL carries the bytes and becomes an inline block; anything else is a pointer
+    and stays one. A ``data:`` URL this cannot decode is neither, and is dropped rather than
+    handed on as a megabyte-long ``uri``."""
+    if not url.startswith("data:"):
+        yield ResourceBlock(uri=url)
+    elif match := _DATA_URL.match(url):
+        yield from _inline_image(match[1], match[2])
+
+
+def _inline_image(media_type: str, data_b64: str) -> Iterator[ImageBlock]:
+    """Over the inline cap, the block is dropped and the rest of the result survives: the run has
+    already finished, and raising here would fail it at its terminal event."""
+    try:
+        yield ImageBlock(media_type=media_type, data_b64=data_b64)
+    except ValidationError as exc:
+        logger.warning("dropped a %s artifact from the run result: %s", media_type, exc)
+
+
+__all__ = ["run_artifacts", "translate"]

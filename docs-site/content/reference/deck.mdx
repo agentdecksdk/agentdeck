@@ -217,7 +217,7 @@ result = await deck.run(
 )
 ```
 
-Inline blocks are capped at **1 MB decoded**, enforced at construction rather than documented and
+Inline blocks are capped at **8 MB decoded**, enforced at construction rather than documented and
 hoped for: base64 in an event lands in an append-only log and replays down every SSE connection
 for the life of that run. Anything larger belongs in a `ResourceBlock`.
 
@@ -231,6 +231,27 @@ send its bytes as a text, image, audio or data block instead. `DataBlock` **is**
 sent: it renders as its own part, `json.dumps(data, ensure_ascii=False)` with nothing wrapped
 around it, since it is already a separate entry in the model's content list rather than text
 concatenated into a caller's own prompt.
+
+### What a completed run carries back
+
+The terminal `run.completed` event carries `output: list[ContentBlock]`, the same boundary `input`
+uses. It is the whole user-facing result: the artifacts the run produced (a hosted
+`ImageGenerationTool` image, a rich tool's image or file) come first, in the order the run made
+them, and the final text or structured output closes the list  -  artifact, then caption, which is
+what a channel sends. A text-only run is unchanged:
+
+```python no-test reason="illustrative run.completed output, not a call"
+[TextBlock(text="Hello")]                                        # a text run
+[ImageBlock(...), TextBlock(text="Here is the generated image")]  # a run that drew something
+```
+
+Nothing else from the transcript is promoted: tool results stay `tool.call.completed` events, and
+the final message is not repeated as a second block. An artifact over the inline cap is dropped
+with a warning rather than failing the run at its last event.
+
+A `TurnResult` from `await deck.run(...)` still reports `output` as the run's text or structured
+data; the blocks are on the event, which is what `stream`, observers and bindings read. A
+`@workflow` that returns a list of blocks gets exactly those blocks back from `run`.
 
 `stream` yields the same `Event` objects a run's log would hand back after the fact  -  `text.delta`
 per token for an agent, a terminal event last  -
