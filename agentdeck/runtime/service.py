@@ -248,14 +248,14 @@ class Runtime:
         )
         try:
             claimed = await self._claim_session(opening, spec, ctx, history)
-        except asyncio.CancelledError:
-            # The claim commits this run before anything is yielded, and it is awaited in the
-            # caller's own coroutine  -  the one an ASGI server cancels when a client disconnects
-            # before the response starts. A cancellation landing between the two would leave the
-            # run open in the log and its session held for a whole staleness window.
-            # Anything not None is a run the claim opened, and it is owed a terminal event.
-            if await self._store.run_status(ctx) is not None:
-                await self._close_cancelled(spec, ctx, "cancelled during the claim")
+        except SessionBusyError:
+            # A refused claim is not a stranded one: this raise happens only where ``claim_start``
+            # returned no event, so there is no run of this id to owe anything to.
+            raise
+        except (Exception, asyncio.CancelledError) as exc:
+            # Awaited in the caller's own coroutine  -  the one an ASGI server cancels when a
+            # client disconnects before the response starts.
+            await self._abandon_claim(spec, ctx, exc, "during the claim")
             raise
 
         async with aclosing(
@@ -330,10 +330,10 @@ class Runtime:
             # answerer can send a real one  -  and the log keeps the fact that somebody tried.
             await self._record(AnswerRefused(reason=why), spec, ctx)
             raise InputError(why)
-        opening = await self._claim_resume(spec, ctx, value)
-        if opening is None:
-            return
         try:
+            opening = await self._claim_resume(spec, ctx, value)
+            if opening is None:
+                return
             ruling, pending = await self._route(ctx.id, status)
             if ruling.action is Action.TERMINATE and pending is not None:
                 closing = await self._terminate(spec, ctx, pending.reason)
@@ -347,8 +347,8 @@ class Runtime:
             # Read after the claim, so the ``run.resumed`` carrying the answer is in it: that
             # event is how the executor learns there is an answer at all, and what it is.
             history = await self._history(ctx)
-        except asyncio.CancelledError:
-            await self._abandon_claim(spec, ctx)
+        except (Exception, asyncio.CancelledError) as exc:
+            await self._abandon_claim(spec, ctx, exc, "after the resume claim")
             raise
         stream = executor.execute(spec, opened.input, history, ctx)
         async with aclosing(self._play(opening, stream, spec, ctx, executor, reports)) as resumed:
@@ -403,10 +403,10 @@ class Runtime:
         spec, executor = self._resolve(opened.invocable)
         run_ctx, reports = self._bind(replace(ctx, run_id=run_id, session_id=session_id), spec)
         self.delegate(run_id, opened.parent_run_id, spec.name, await self._inherited(opened, ctx, session_id))
-        opening = await self._claim_resume(spec, run_ctx, None, reason)
-        if opening is None:
-            return
         try:
+            opening = await self._claim_resume(spec, run_ctx, None, reason)
+            if opening is None:
+                return
             # Read control only after the claim: the claim is what makes this caller the one actor
             # on the run, so an answer read before it could belong to somebody else's turn.
             ruling, pending = await self._route(run_ctx.id, summary.status)
@@ -417,8 +417,8 @@ class Runtime:
                     yield event
                 return
             history = await self._history(run_ctx)
-        except asyncio.CancelledError:
-            await self._abandon_claim(spec, run_ctx)
+        except (Exception, asyncio.CancelledError) as exc:
+            await self._abandon_claim(spec, run_ctx, exc, "after the resume claim")
             raise
         stream = executor.execute(spec, opened.input, history, run_ctx)
         async with aclosing(self._play(opening, stream, spec, run_ctx, executor, reports)) as resumed:
@@ -501,9 +501,15 @@ class Runtime:
         session_id, opened = started
         spec, _ = self._resolve(opened.invocable)
         run_ctx, _ = self._bind(replace(ctx, run_id=run_id, session_id=session_id), spec)
-        if await self._claim_resume(spec, run_ctx, None, reason) is None:
-            return False
-        await self._terminate(spec, run_ctx, reason)
+        try:
+            if await self._claim_resume(spec, run_ctx, None, reason) is None:
+                return False
+            await self._terminate(spec, run_ctx, reason)
+        except (Exception, asyncio.CancelledError) as exc:
+            # ``reason`` through: this is the one abandonment an operator asked for, and the
+            # ``control.requested`` that would have carried their text is the write that failed.
+            await self._abandon_claim(spec, run_ctx, exc, "after the resume claim", reason)
+            raise
         return True
 
     async def _terminate(self, spec: InvocableSpec, ctx: RunContext, reason: str | None) -> list[Event]:
@@ -522,20 +528,40 @@ class Runtime:
             await self._record(RunCancelled(reason=reason), spec, ctx),
         ]
 
-    async def _abandon_claim(self, spec: InvocableSpec, ctx: RunContext) -> None:
-        """Close a run whose resume claim committed and whose play never started.
+    async def _abandon_claim(
+        self, spec: InvocableSpec, ctx: RunContext, exc: BaseException, span: str, asked: str | None = None
+    ) -> None:
+        """Close a run whose claim committed and whose play never started.
 
-        The claim flips the run to ``RUNNING`` before there is anything to yield, and every await
-        from there to :meth:`_play` is one a cancellation can land on  -  leaving a run the log says
-        is live with nobody playing it and its session held for a whole staleness window. Recorded
-        rather than shielded, because status is folded from the log: a log saying a run is live
-        while nothing plays it is a log that lies.
+        Every exit from the claim to :meth:`_play` strands it as a run the log says is live with nobody playing
+        it, its session held for a whole staleness window. Not only a cancellation: a ``ControlPort`` can fail
+        while the event store this writes to is healthy (#470). Recorded rather than shielded, because status is
+        folded from the log: a log saying a run is live while nothing plays it lies. Guarded on ``RUNNING``
+        because the same span also serves a pending cancel, whose terminal event is already written (#391).
 
-        Guarded on ``RUNNING`` because the same span also serves a pending cancel, and that path
-        has already written this run's terminal event (#391).
+        Args:
+            span: which claim was stranded, for the reason this writes.
+            asked: an operator's own reason, when the stranded span was serving their cancel.
         """
-        if await self._store.run_status(ctx) is RunStatus.RUNNING:
-            await self._close_cancelled(spec, ctx, "cancelled after the resume claim")
+        # The type name only, the story ``_failed`` tells for a run that died in its engine:
+        # ``run.cancelled`` reads as a cancellation, so anything else has to say what it was.
+        if isinstance(exc, asyncio.CancelledError):
+            stranded = f"cancelled {span}"
+        else:
+            stranded = f"abandoned {span}: {type(exc).__name__}"
+        reason = stranded if asked is None else f"{stranded}, cancel requested: {asked}"
+        try:
+            status = await self._store.run_status(ctx)
+            if status is RunStatus.RUNNING:
+                await self._close_cancelled(spec, ctx, reason)
+            elif status is None:
+                logger.debug("run %s has no events: its claim never committed, so nothing was written", ctx.run_id)
+            else:
+                logger.debug("run %s is %s, not RUNNING; its terminal event is already written", ctx.run_id, status)
+        except (StoreError, RunStateError):
+            # The caller's own failure is the one worth raising, and this read or write goes to the
+            # store that just failed for it, or to a log another writer sealed under it (#680).
+            logger.exception("could not close run %s whose claim never reached its play", ctx.run_id)
 
     async def _play(
         self,
@@ -568,8 +594,11 @@ class Runtime:
                     async for payload in payloads:
                         async for report in self._drain(reports, spec, ctx):
                             yield report
-                        yield await self._record(payload, spec, ctx)
+                        event = await self._record(payload, spec, ctx)
+                        # Before the yield, which is where a consumer's walkaway lands: read
+                        # after it, ``last`` still names the payload before this one (#471).
                         last = payload.kind
+                        yield event
                         if last in TERMINAL_KINDS:
                             # Terminal means terminal: stop reading so nothing can follow it
                             # into the log. An engine yielding more after this gets it
@@ -578,6 +607,9 @@ class Runtime:
         except GeneratorExit:
             # Nobody is listening any more, so there is no event to yield  -  but an unclosed
             # run in the log is indistinguishable from one still in flight.
+            if last in TERMINAL_KINDS:
+                logger.debug("run %s was let go after %r, which already closed it", ctx.run_id, last)
+                raise
             logger.info("run %s abandoned by its consumer after %r", ctx.run_id, last)
             await self._record(RunCancelled(reason="consumer stopped reading"), spec, ctx)
             raise
@@ -586,6 +618,9 @@ class Runtime:
             # cancels the task streaming the response rather than closing the generator. This
             # arm exists because ``CancelledError`` is a BaseException, so the one below never
             # saw it and the run stayed open in the log forever.
+            if last in TERMINAL_KINDS:
+                logger.debug("run %s was cancelled after %r, which already closed it", ctx.run_id, last)
+                raise
             logger.info("run %s cancelled after %r", ctx.run_id, last)
             await self._close_cancelled(spec, ctx, "consumer cancelled")
             raise
@@ -811,8 +846,14 @@ class Runtime:
             retryable=False,
         )
         abandoned = replace(ctx, run_id=tail.run_id, session_id=tail.session_id)
-        event = (await self._store.append([payload], abandoned, tail.origin))[0]
-        await self._fan_out(event)
+        try:
+            event = (await self._store.append([payload], abandoned, tail.origin))[0]
+        except RunStateError:
+            # It was alive after all and sealed its own log while this was written, so the
+            # takeover was wrong about it (#471). Not raised on: the lease prune below still applies.
+            logger.debug("run %s ended itself as this takeover closed it; nothing was written", tail.run_id)
+        else:
+            await self._fan_out(event)
         if self._lease is not None:
             # The dead worker's expired row has done its job and nothing else prunes it. Not
             # required for correctness  -  the run is terminal now, so no claim ever consults it
@@ -859,7 +900,13 @@ class Runtime:
             return
         session_id, opened = started
         closing = replace(ctx, session_id=session_id)
-        event = (await self._store.append([RunCancelled(reason=reason)], closing, opened.invocable))[0]
+        try:
+            event = (await self._store.append([RunCancelled(reason=reason)], closing, opened.invocable))[0]
+        except RunStateError:
+            # The same benign half one turn later: the run's own terminal event was suspended
+            # inside the store when the read above saw RUNNING, and committed first (#471).
+            logger.debug("run %s closed itself while this cancel was in flight; nothing was written", run_id)
+            return
         await self._fan_out(event, self._attributed(run_id))
 
     async def _claim_resume(

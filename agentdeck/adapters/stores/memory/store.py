@@ -6,7 +6,7 @@ import asyncio
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from agentdeck.adapters.stores import _refuse_if_cancelled
+from agentdeck.adapters.stores import _refuse_if_sealed
 from agentdeck.core.events import Event
 from agentdeck.core.ports import EventStorePort, RunSummary, SessionClaim
 from agentdeck.core.status import LIFECYCLE_KINDS, STATES, RunStatus, can_resume, status_of
@@ -51,7 +51,8 @@ class MemoryEventStore(EventStorePort):
     async def append(self, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
         # The fold and ``_stamp`` are plain dict work with no suspension point between them, as in
         # ``claim_resume``, so the refusal and the write are one step.
-        _refuse_if_cancelled(status_of(self._runs.get((ctx.namespace, ctx.run_id), [])), ctx)
+        status = status_of(self._runs.get((ctx.namespace, ctx.run_id), []))
+        _refuse_if_sealed(status, ctx)
         events = self._stamp(payloads, ctx, origin)
         # Fidelity, not correctness (issue #87): every real store suspends here (SQLite's own
         # `to_thread`), so a caller whose liveness secretly depends on that turn is caught by
