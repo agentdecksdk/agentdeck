@@ -27,3 +27,17 @@ updates:
       actions-minor-and-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+
+  # The two npm projects: docs-site's build and the AGUI conformance fixture's pinned client.
+  # Neither ships to a user, and `npm ci`'s own audit went unread into a captured pipe (#650),
+  # so this is where an npm advisory becomes something somebody sees.
+  - package-ecosystem: "npm"
+    directories:
+      - "/docs-site"
+      - "/tests/bindings/agui_client"
+    schedule:
+      interval: "weekly"
+    groups:
+      npm-minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]

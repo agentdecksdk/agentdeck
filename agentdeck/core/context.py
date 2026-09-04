@@ -364,6 +364,7 @@ class WorkflowCtx[T](ToolCtx[T]):
             child = ctx.invoke(research, topic=subject)                    # the same call, held
             if child.can.pause:
                 await child.pause()
+                await child.resume()
             result = await child
         """
         return self._invoking(self._run, target, *args, **kwargs)
