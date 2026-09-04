@@ -8,8 +8,36 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+## [6.0.3] - 2026-09-04
+
 ### Fixed
 
+- **`ctx.reporter` writes each report to the log when it fires** (#487). A report used to wait in
+  a 64-deep buffer the runtime drained at the engine's next payload, so one made inside a long
+  tool call surfaced only when that call ended, one made after the engine's last payload was
+  never written at all, and a call reporting more than 64 times lost the reports nearest its end.
+  Every report is now appended as it is made. `MAX_PENDING_REPORTS` is gone with the buffer and
+  nothing replaces it: how many reports a run may make is the log's business, and a report made
+  after the run completed or was cancelled is refused by the store (#471) rather than discarded
+  on a guess. Whichever event ends a run  -  its own terminal payload, or the `run.failed` written
+  for an engine that raised or one that just stopped  -  now waits for the reports the run already
+  fired, so no report is lost to its own run ending. That wait is one store write per pending report: a run that fires
+  thousands of reports takes thousands of writes to close, and its completion arrives that much
+  later. The old 64-deep buffer capped the wait by dropping reports instead, which was the bug.
+  A store that refuses a report still costs the report, never the run, and a sealed log is said
+  once rather than once per report behind it. A report made after the run
+  wrote its own `run.failed` can still land behind it, because a takeover's `run.failed`
+  deliberately seals nothing (ADR-D11 §5); #685 owns that. A consumer streaming
+  `runtime.run(...)` directly still sees reports at the engine's next payload, and an async body
+  that reports and returns without ever awaiting still has its append land after its own call:
+  both are #487's second half.
+- **A claim that never reaches the run's play is closed at every site that takes one, however the
+  span is left** (#470). A resume or answer whose claim committed and then met a failing
+  `ControlPort`, a failing store read, or a cancellation used to leave a run the log says is
+  `RUNNING` with nobody playing it, holding its session until the staleness window passed.
+  `Runtime.signal(CANCEL)` against a suspended run had no cover at all, so a caller whose own
+  task was cancelled mid-`Run.cancel()` wedged the very run it asked to stop. All four claim
+  sites now record `run.cancelled` and free the session.
 - **A run that completed no longer reads back as cancelled** (#471). A cancel could land behind
   that run's own `run.completed` and leave `run.status()` reporting `CANCELLED` for a run that
   finished its work: written by `Deck.aclose` giving up on it, by a session takeover, or by the
@@ -2770,7 +2798,8 @@ documentation platform and its CI.
   `runtime/tools.py`, `PluginRegistry.pick`, `skill_runtime` LLM/batch
   helpers; deps typer, rich, prompt-toolkit.
 
-[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.2...HEAD
+[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.3...HEAD
+[6.0.3]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.2...v6.0.3
 [6.0.2]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.1...v6.0.2
 [6.0.1]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.0...v6.0.1
 [6.0.0]: https://github.com/agentdecksdk/agentdeck/compare/v5.2.1...v6.0.0

@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Sequence
 
     from agentdeck.core.content import Input
+    from agentdeck.core.control import ControlSignal
     from agentdeck.core.events import KnownPayload
 
 TS = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
@@ -1127,6 +1128,336 @@ async def test_a_consumer_that_stops_reading_a_served_cancel_still_gets_both_clo
     assert check_terminal(logged) is None
 
 
+class _ClaimThenFail(MemoryEventStore):
+    """Commits the opening claim and then fails the call that made it: the partial write a real
+    store hands back when the row landed and the response did not. One failure only, so the
+    abandonment it strands is written through this same store.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.failed = False
+
+    async def claim_start(
+        self,
+        opening: RunStarted,
+        ctx: RunContext,
+        origin: str,
+        stale_after: timedelta,
+        *,
+        dead: frozenset[str] = frozenset(),
+    ) -> tuple[SessionClaim, Event | None]:
+        claimed = await super().claim_start(opening, ctx, origin, stale_after, dead=dead)
+        if not self.failed:
+            self.failed = True
+            raise StoreError("the connection dropped after the append committed")
+        return claimed
+
+
+async def test_a_store_failure_during_the_opening_claim_closes_the_run_and_frees_the_session() -> None:
+    """#470 on :meth:`Runtime.run`: the cover over this claim used to be ``except CancelledError``,
+    so a store that committed the ``run.started`` and then failed left a run the log says is live
+    with nobody playing it, session held for a whole staleness window.
+    """
+    spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
+    store = _ClaimThenFail()
+    runtime = Runtime([StubExecutor()], store, {spec.name: spec})
+
+    async with asyncio.timeout(WEDGE_TIMEOUT):
+        with pytest.raises(StoreError):
+            await _collect(runtime)
+
+        stored = await store.read_session(CTX)
+        assert [event.kind for event in stored] == ["run.started", "run.cancelled"]
+        assert check_terminal(stored) is None
+        # Nothing cancelled this run, and the reason an operator reads says so.
+        assert stored[-1].payload.reason == "abandoned during the claim: StoreError"
+
+        assert (await _collect(runtime))[-1].kind == "run.completed"
+
+
+async def test_a_store_that_fails_the_abandonment_too_still_raises_the_callers_own_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Broadening the cover means bookkeeping now runs on a store that is itself failing, and the
+    exception worth raising is the caller's. The run stays open for the next turn to find stale,
+    which is what :meth:`_claim_session` already does for a takeover it could not close.
+    """
+
+    class _NothingWorks(_ClaimThenFail):
+        async def read_run(self, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
+            raise StoreError("the log is unreachable")
+
+    spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
+    store = _NothingWorks()
+    runtime = Runtime([StubExecutor()], store, {spec.name: spec})
+
+    with (
+        caplog.at_level(logging.ERROR, logger="agentdeck.runtime.service"),
+        pytest.raises(StoreError, match="the connection dropped after the append committed"),
+    ):
+        await _collect(runtime)
+
+    assert "whose claim never reached its play" in caplog.text
+    assert [event.kind for event in await store.read_session(CTX)] == ["run.started"]
+
+
+async def test_a_log_sealed_under_the_abandonment_still_raises_the_callers_own_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The sibling refusal, from the race the store's own seal exists for: another worker's
+    terminal event lands between this abandonment's status read and its append, so the append is
+    refused with ``RunStateError`` rather than ``StoreError`` (#471 seals ``COMPLETED`` too).
+    Same rule as above, and the winner's terminal event is the one that stands.
+    """
+
+    class _SealedUnderTheWrite(_ClaimThenFail):
+        async def run_status(self, ctx: RunContext) -> RunStatus | None:
+            status = await super().run_status(ctx)
+            if status is RunStatus.RUNNING:
+                await super().append([DONE], ctx, "Greeter")  # the other worker finishes the run
+            return status
+
+    spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
+    store = _SealedUnderTheWrite()
+    runtime = Runtime([StubExecutor()], store, {spec.name: spec})
+
+    with (
+        caplog.at_level(logging.ERROR, logger="agentdeck.runtime.service"),
+        pytest.raises(StoreError, match="the connection dropped after the append committed"),
+    ):
+        await _collect(runtime)
+
+    assert "whose claim never reached its play" in caplog.text
+    assert "already completed; nothing can be appended" in caplog.text
+    logged = await store.read_session(CTX)
+    assert [event.kind for event in logged] == ["run.started", "run.completed"]
+    assert check_terminal(logged) is None
+
+
+class _ClaimThenFailTheRead(MemoryEventStore):
+    """Commits a resume claim and then fails the history read that follows it: the window
+    ``_ClaimThenStall`` cancels in, left by an exception instead. One failure only, so the
+    abandonment it strands is written and read back through this same store.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.claimed = False
+
+    async def claim_resume(self, resumed: RunResumed, ctx: RunContext, origin: str) -> Event | None:
+        event = await super().claim_resume(resumed, ctx, origin)
+        if event is not None:
+            self.claimed = True
+        return event
+
+    async def read_session(self, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
+        if self.claimed:
+            self.claimed = False
+            raise StoreError("the log is unreachable")
+        return await super().read_session(ctx, offset, limit)
+
+
+async def test_a_store_failure_after_the_answer_claim_closes_the_run_and_frees_the_session() -> None:
+    """#470 on :meth:`Runtime.resume`: the same span #391 covered against a cancellation, left by
+    a ``StoreError`` from the history read instead. The claim is durable either way.
+    """
+    spec = stub_spec(
+        "Approver",
+        RunInterrupted(interrupt_id="i1", reason="human", payload={}, thread_id="t1"),
+        DONE,
+        kind=InvocableKind.WORKFLOW,
+    )
+    store = _ClaimThenFailTheRead()
+    runtime = Runtime([StubExecutor()], store, {spec.name: spec})
+    parked = [
+        event async for event in runtime.run("Approver", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
+    ]
+    run_id = parked[0].run_id
+
+    async with asyncio.timeout(WEDGE_TIMEOUT):
+        with pytest.raises(StoreError):
+            async for _ in runtime.resume(
+                "Approver", "approved", run_id=run_id, session_id=CTX.session_id, namespace=CTX.namespace
+            ):
+                pass
+
+        logged = await store.read_run(replace(CTX, run_id=run_id))
+        assert [event.kind for event in logged] == ["run.started", "run.interrupted", "run.resumed", "run.cancelled"]
+        assert check_terminal(logged) is None
+        assert logged[-1].payload.reason == "abandoned after the resume claim: StoreError"
+
+        next_turn = [
+            event async for event in runtime.run("Approver", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
+        ]
+        assert next_turn[0].kind == "run.started"
+
+
+class _ControlUnreachable(MemoryControlPort):
+    """Fails every control read once ``armed``, which is what #470 calls the sharp case: this
+    backend can be down while the event store an abandonment goes to is healthy. Armed only after
+    a run has parked, so the gate polls this port normally while that run is playing.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.armed = False
+
+    async def poll(self, id: str) -> ControlSignal | None:
+        if self.armed:
+            raise StoreError("the control rows are unreachable")
+        return await super().poll(id)
+
+
+async def test_a_control_port_failure_after_the_resume_claim_closes_the_run_and_frees_the_session() -> None:
+    """#470's sharp case, on :meth:`Runtime.resume_run`: the claim is durable, the control read
+    that follows it fails, and the event store that owes this run a terminal event is healthy the
+    whole time. ``except CancelledError`` could never catch this one.
+    """
+    spec = stub_spec("Chatty", RunPaused(reason="operator"))
+    store = MemoryEventStore()
+    control = _ControlUnreachable()
+    runtime = Runtime([StubExecutor()], store, {spec.name: spec}, control=control)
+    paused = [event async for event in runtime.run("Chatty", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)]
+    run_id = paused[0].run_id
+    control.armed = True
+
+    async with asyncio.timeout(WEDGE_TIMEOUT):
+        with pytest.raises(StoreError):
+            async for _ in runtime.resume_run(run_id, namespace=CTX.namespace):
+                pass
+
+        logged = await store.read_run(replace(CTX, run_id=run_id))
+        assert [event.kind for event in logged] == ["run.started", "run.paused", "run.resumed", "run.cancelled"]
+        assert check_terminal(logged) is None
+        assert logged[-1].payload.reason == "abandoned after the resume claim: StoreError"
+
+        control.armed = False
+        next_turn = [
+            event async for event in runtime.run("Chatty", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
+        ]
+        assert next_turn[0].kind == "run.started"
+
+
+class _TerminateThenStall(MemoryEventStore):
+    """Commits a resume claim and then hangs on the first append after it, which for
+    :meth:`Runtime.signal` is the ``control.requested`` half of the cancel it serves in place.
+    Self-disarming, so the abandonment written next lands.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.claimed = False
+        self.stalling = asyncio.Event()
+
+    async def claim_resume(self, resumed: RunResumed, ctx: RunContext, origin: str) -> Event | None:
+        event = await super().claim_resume(resumed, ctx, origin)
+        if event is not None:
+            self.claimed = True
+        return event
+
+    async def append(self, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
+        if self.claimed:
+            self.claimed = False
+            self.stalling.set()
+            await asyncio.Event().wait()  # a cancellation is the only way out, which is the point
+        return await super().append(payloads, ctx, origin)
+
+
+async def test_a_cancellation_while_a_suspended_run_is_being_cancelled_still_closes_it() -> None:
+    """#470's third site, which had no cover at all: :meth:`Runtime.signal` claims a suspended run
+    and terminates it in place, so a caller whose own task is cancelled mid-``Run.cancel()`` used
+    to wedge the very run it asked to stop.
+    """
+    spec = stub_spec(
+        "Approver",
+        RunInterrupted(interrupt_id="i1", reason="human", payload={}, thread_id="t1"),
+        DONE,
+        kind=InvocableKind.WORKFLOW,
+    )
+    store = _TerminateThenStall()
+    runtime = Runtime([StubExecutor()], store, {spec.name: spec}, control=MemoryControlPort())
+    parked = [
+        event async for event in runtime.run("Approver", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
+    ]
+    run_id = parked[0].run_id
+
+    cancelling = asyncio.create_task(
+        runtime.signal(run_id, Signal.CANCEL, "the user closed the tab", namespace=CTX.namespace)
+    )
+    async with asyncio.timeout(WEDGE_TIMEOUT):
+        await store.stalling.wait()
+        cancelling.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await cancelling
+
+        logged = await store.read_run(replace(CTX, run_id=run_id))
+        # No ``control.requested``: the append that would have written it is the one that stalled.
+        assert [event.kind for event in logged] == ["run.started", "run.interrupted", "run.resumed", "run.cancelled"]
+        assert check_terminal(logged) is None
+        # The operator asked for this cancel and gave a reason; the append that would have
+        # carried it as ``control.requested`` is the one that stalled, so the closer carries it.
+        assert (
+            logged[-1].payload.reason == "cancelled after the resume claim, cancel requested: the user closed the tab"
+        )
+
+        next_turn = [
+            event async for event in runtime.run("Approver", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
+        ]
+        assert next_turn[0].kind == "run.started"
+
+
+class _TerminateThenFail(MemoryEventStore):
+    """Commits a resume claim and then refuses the first append behind it, the window
+    ``_TerminateThenStall`` hangs in left by an exception instead. One failure only, so the
+    abandonment it strands is written and read back through this same store.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.claimed = False
+
+    async def claim_resume(self, resumed: RunResumed, ctx: RunContext, origin: str) -> Event | None:
+        event = await super().claim_resume(resumed, ctx, origin)
+        if event is not None:
+            self.claimed = True
+        return event
+
+    async def append(self, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
+        if self.claimed:
+            self.claimed = False
+            raise StoreError("the log went away after the claim")
+        return await super().append(payloads, ctx, origin)
+
+
+async def test_a_store_failure_while_a_suspended_run_is_being_cancelled_still_closes_it() -> None:
+    """The other way out of #470's third site, and the other suspended status it claims: a store
+    that takes the claim and then refuses the ``control.requested`` behind it strands the run
+    exactly as a cancellation there does, so the site needs the cover for both.
+    """
+    spec = stub_spec("Chatty", RunPaused(reason="operator"))
+    store = _TerminateThenFail()
+    runtime = Runtime([StubExecutor()], store, {spec.name: spec}, control=MemoryControlPort())
+    paused = [event async for event in runtime.run("Chatty", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)]
+    run_id = paused[0].run_id
+
+    async with asyncio.timeout(WEDGE_TIMEOUT):
+        with pytest.raises(StoreError, match="the log went away after the claim"):
+            await runtime.signal(run_id, Signal.CANCEL, "the user closed the tab", namespace=CTX.namespace)
+
+        logged = await store.read_run(replace(CTX, run_id=run_id))
+        assert [event.kind for event in logged] == ["run.started", "run.paused", "run.resumed", "run.cancelled"]
+        assert check_terminal(logged) is None
+        assert logged[-1].payload.reason == (
+            "abandoned after the resume claim: StoreError, cancel requested: the user closed the tab"
+        )
+
+        next_turn = [
+            event async for event in runtime.run("Chatty", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
+        ]
+        assert next_turn[0].kind == "run.started"
+
+
 async def test_close_cancelled_says_which_status_it_found_when_the_run_closed_itself(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -1327,8 +1658,8 @@ class _Reporting(StubExecutor):
         self, spec: InvocableSpec, input: Input, history: Sequence[Event], ctx: RunContext
     ) -> AsyncGenerator[KnownPayload, None]:
         # An answered play reports before its first payload, since a resumed script may have
-        # only one left; a fresh one reports between two, which is where the drain's ordering
-        # is worth asserting.
+        # only one left; a fresh one reports between two, which is where the ordering against
+        # the engine's own payloads is worth asserting.
         if continuation_of(history, ctx.run_id).play is Play.ANSWER:
             ctx.reporter.info("Searching GitHub")
             ctx.reporter.report("issues_reviewed", current=2, total=4)
@@ -1372,8 +1703,8 @@ async def test_a_run_that_reports_gets_its_reports_in_the_stream_in_order() -> N
 
 
 async def test_a_report_made_during_the_last_thing_a_run_did_lands_before_the_terminal_event() -> None:
-    """Nothing may follow a terminal event into the log, so a report races it or loses: it goes
-    in front of ``run.completed``, never after."""
+    """A report made before the run's last payload does not race the event that seals the log:
+    that event waits for it, so it is in front of ``run.completed`` and never lost to it."""
     spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
     store = MemoryEventStore()
     runtime = Runtime([_Reporting(before=1)], store, {spec.name: spec})
@@ -1404,9 +1735,9 @@ async def test_a_reporting_run_still_folds_to_the_status_its_lifecycle_says() ->
     assert [summary.run_id for summary in await store.list_runs(CTX, status=RunStatus.COMPLETED)] == [run_id]
 
 
-async def test_two_concurrent_runs_never_drain_each_others_reports() -> None:
-    """One buffer per run, bound by the Runtime: a report belongs to the run that made it, which
-    is exactly the isolation a Runtime-wide buffer would silently lose."""
+async def test_two_concurrent_runs_never_take_each_others_reports() -> None:
+    """One writer per run, bound by the Runtime: a report belongs to the run that made it, which
+    is exactly the isolation a Runtime-wide writer would silently lose."""
     entered = asyncio.Event()
     release = asyncio.Event()
 

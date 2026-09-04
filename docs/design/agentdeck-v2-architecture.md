@@ -378,12 +378,18 @@ progress flow *out* through the reporter  -  and neither can be threaded any oth
 tool six frames inside an engine cannot yield an event and must not import a Runtime. Both
 default to doing nothing, so a `RunContext` built outside a run stays a value object: the
 reporter validates its arguments and drops the result. `Runtime.run`/`resume` bind both, and the
-reporter's buffer is per run and returned to the run, never held on the Runtime, so two
-concurrent runs cannot drain into each other. The bargain runs both ways: the emitter never
-awaits the store, and the Runtime drops a report the store refuses rather than failing the run
-over it  -  an advisory event is not worth a run. What that costs is stated on `Reporter`: reports
-are drained at the engine's next payload, so one made inside a single long tool call surfaces
-when the call ends and not while it runs. The alternative considered and rejected was a `ContextVar`  -  no threading at
+reporter's writer is per run and bound to the run, never held on the Runtime, so two
+concurrent runs cannot report into each other's logs. The bargain runs both ways: the
+emitter never awaits the store, and the Runtime drops a report the store refuses rather
+than failing the run over it  -  an advisory event is not worth a run.
+
+*(Amended 2026-09-04, issue #487.)* A report is appended when it is made, not held for the
+engine's next payload, so one made inside a long tool call is in the log while that call
+runs. Nothing bounds how many a run may make; the store does, by refusing an append to a
+log its own `run.completed` or `run.cancelled` already sealed (#471). The event that seals
+it waits for the reports the run already made, so a run cannot outrun its own reporting;
+what a consumer reading the Runtime's generator sees is still handed to it at the next
+payload. The alternative considered and rejected was a `ContextVar`  -  no threading at
 all, but a context var set inside an async generator leaks into the task that resumes it, so two
 runs iterated from one task would report into each other's logs, and a report is tenant-scoped
 data.
