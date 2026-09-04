@@ -225,11 +225,6 @@ class Runtime:
         One turn per session at a time: opening the run is a conditional append that fails if
         the session already has one in flight, so a second concurrent turn raises
         ``SessionBusyError`` instead of running against a conversation that is still changing.
-        A delegated run is not a turn on the session its invoker holds  -  it never claims one,
-        keeps its own history and its own engine memory  -  but its events say which conversation
-        they came out of, so a consumer bucketing by session no longer loses them to a
-        process-wide session-less bucket (:meth:`_attributed`, #491).
-
         The engine's exception, if any, reaches the caller  -  but ``run.failed`` is recorded
         first, so the log tells the whole story even when nobody was listening. Every exit
         closes the run in the log: a consumer that walks away gets ``run.cancelled``, whether it
@@ -1037,10 +1032,6 @@ class Runtime:
     def delegate(self, run_id: str, parent_run_id: str | None, invocable: str, session_id: str | None = None) -> None:
         """Place ``run_id`` in the delegation tree, refusing it if that puts the tree past a bound.
 
-        ``session_id`` is the conversation this run is being played on, and a child ignores it in
-        favour of the one above: the invoker's conversation is the answer for every level under
-        it, and a child is handed no session of its own to pass down.
-
         Called wherever a run is played, so a child answered or resumed in a later segment is
         still known to be one: the first call has the edge from its invoker, the rest read it back
         off the ``run.started`` the first one wrote. A run already placed is left alone  -  a second
@@ -1166,18 +1157,12 @@ class Runtime:
 
     async def _fan_out(self, event: Event, session: str | None = None) -> Event:
         """Sinks get a copy of the stream and no say in it: never called inline, never fatal.
-        Returns the event as emitted, which is what the caller yields.
+        Returns the event as emitted  -  with ``session`` stamped on it, if this run has one to
+        inherit (:meth:`_attributed`)  -  which is what the caller yields.
 
         Each sink gets a queue put rather than an ``emit``, and a full queue costs one loop
         turn before it starts dropping  -  so the run is never waiting on a sink, only ever on
         the loop it already shares with one.
-
-        ``session`` is a delegated run's attribution, stamped here rather than written: a store
-        handed it would file the child under the conversation, and the conversation's log *is*
-        its transcript and the set its claim scans  -  so the child would be prompted with the
-        conversation, would put its own words in the next turn's prompt, and would be refused
-        for the very run that invoked it. Attribution has no representation in the log that is
-        not participation, so it lives on the event as emitted (#491).
         """
         emitted = event if session is None else event.model_copy(update={"session_id": session})
         for dispatch in self._sinks:
@@ -1185,9 +1170,13 @@ class Runtime:
         return emitted
 
     def _attributed(self, run_id: str) -> str | None:
-        """The conversation a delegated run's events name, or ``None`` for a run that is nobody's
-        child  -  which already carries its own session, and for a top-level run with no session
-        is the honest answer.
+        """The conversation a delegated run's events name  -  ``None`` for a run that is nobody's
+        child, which already carries its own session on every envelope the store writes.
+
+        Stamped as the event goes out rather than written, because a child written under the
+        conversation would be *in* it: that log is the transcript its executor is played with
+        and the set its claim scans, so the child would be prompted with the conversation and
+        refused for the very run that invoked it (#491).
         """
         placed = self._tree.get(run_id)
         return placed.session if placed is not None and placed.parent is not None else None
