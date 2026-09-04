@@ -16,7 +16,7 @@ export function Announcement({
   children: ReactNode
 }) {
   return (
-    <Banner id={`agentdeck-${id}`}>
+    <Banner id={`agentdeck-${id}`} className="ad-banner">
       <a className="ad-announce" href={href}>
         <Spark />
         <span className="ad-announce__claim">{children}</span>

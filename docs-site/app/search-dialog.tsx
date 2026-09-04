@@ -92,6 +92,9 @@ export default function PagefindSearchDialog(props: SharedProps) {
   const [query, setQuery] = useState('')
   const [items, setItems] = useState<ReactSortedResult[] | null>(null)
   const [loading, setLoading] = useState(false)
+  // `npm run dev` never runs `postbuild`, so `/_pagefind/pagefind.js` 404s there: distinct from a
+  // real query with zero matches, and worth telling the developer apart from "no results".
+  const [noIndex, setNoIndex] = useState(false)
 
   useEffect(() => {
     if (!query) {
@@ -101,8 +104,16 @@ export default function PagefindSearchDialog(props: SharedProps) {
     let live = true
     setLoading(true)
     results(query)
-      .then(found => live && setItems(found))
-      .catch(() => live && setItems([]))
+      .then(found => {
+        if (!live) return
+        setNoIndex(false)
+        setItems(found)
+      })
+      .catch(() => {
+        if (!live) return
+        setNoIndex(true)
+        setItems([])
+      })
       .finally(() => live && setLoading(false))
     return () => {
       live = false
@@ -117,7 +128,18 @@ export default function PagefindSearchDialog(props: SharedProps) {
           <SearchDialogIcon />
           <SearchDialogInput placeholder="Search docs" />
         </SearchDialogHeader>
-        <SearchDialogList items={items} />
+        <SearchDialogList
+          items={items}
+          Empty={() =>
+            noIndex ? (
+              <div className="py-12 text-center text-sm text-fd-muted-foreground">
+                No search index in dev. Run `npm run build` to generate one.
+              </div>
+            ) : (
+              <div className="py-12 text-center text-sm text-fd-muted-foreground">No results found</div>
+            )
+          }
+        />
       </SearchDialogContent>
     </SearchDialog>
   )

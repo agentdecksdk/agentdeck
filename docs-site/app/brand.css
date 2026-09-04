@@ -1,4 +1,4 @@
-/* AgentDeck brand palette, applied over nextra-theme-docs */
+/* AgentDeck brand palette, applied over fumadocs-ui */
 
 :root {
   --brand-blue: #2563ff;   /* Agent Blue - primary brand color */
@@ -13,17 +13,16 @@
   --brand-border-light: #e5e9f2;
   --brand-border-dark: #1e293b;
 
-  --nextra-primary-hue: 222.9;
-  --nextra-primary-saturation: 100%;
-  --nextra-primary-lightness: 57.3%;
-  --nextra-bg: 250 251 254;
+  /* fumadocs-ui's own tokens: the sidebar's and TOC's active-state classes already read
+     these (`data-[active=true]:bg-fd-primary`, `:text-fd-primary`), so one override here
+     recolors both instead of hand-rolling either. */
+  --color-fd-primary: var(--brand-blue);
+  --color-fd-primary-foreground: #fff;
 }
 
 .dark {
-  --nextra-primary-hue: 221.1;
-  --nextra-primary-saturation: 100%;
-  --nextra-primary-lightness: 78.8%;
-  --nextra-bg: 11 18 32;
+  --color-fd-primary: var(--brand-frost);
+  --color-fd-primary-foreground: var(--brand-night);
 }
 
 body {
@@ -48,122 +47,38 @@ main :is(h1, h2, h3, h4) {
   color: #f8fafc;
 }
 
-/* Navbar. The height is a variable Nextra reads for every offset it computes (the nav's own
-   inline height, the sidebar's top, the scroll-margin on headings), so one value moves all of it. */
-:root {
-  --nextra-navbar-height: 60px;
-}
+/* `#nd-sidebar`, `#nd-subnav`: fumadocs-ui's internal DOM ids, not a public API. A
+   fumadocs-ui upgrade can rename or restructure them; re-check every selector below against
+   the built DOM when bumping that dependency. */
 
-.nextra-navbar-blur {
-  background: color-mix(in srgb, var(--brand-canvas) 85%, transparent);
-  border-bottom: 1px solid var(--brand-border-light);
-  backdrop-filter: blur(12px);
-}
-
-.dark .nextra-navbar-blur {
-  background: color-mix(in srgb, var(--brand-night) 85%, transparent);
-  border-bottom: 1px solid var(--brand-border-dark);
-}
-
-.nextra-navbar .agentdeck-mark {
+.agentdeck-mark {
   color: var(--brand-blue);
 }
 
-.nextra-navbar a[href="/"] strong {
-  font-size: 1.0625rem;
-}
-
-/* One row, one height. Nextra's bar mixes a 34px search field, a 24px icon and whatever a child
-   brings; at 52px tall that reads as three sizes rather than one set of actions. */
-.nextra-navbar nav {
-  gap: 0.5rem;
-}
-
-.nextra-navbar nav div:has(> input) {
-  width: 240px;
-}
-
-.nextra-navbar nav input {
-  height: 30px;
-  border-radius: 7px;
-  border: 1px solid var(--brand-border-light);
-  background: transparent;
-  font-size: 0.8125rem;
-}
-
-.dark .nextra-navbar nav input {
-  border-color: var(--brand-border-dark);
-}
-
-/* The project icon after the assistant, so the bar ends on the quieter of the two. */
-.nextra-navbar nav > a:not(:first-child) {
-  color: var(--brand-cool-gray);
-  order: 3;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-}
-
-.nextra-navbar nav > a:not(:first-child) svg {
-  width: 18px;
-  height: 18px;
-}
-
-.nextra-navbar nav > a:not(:first-child):hover {
-  color: var(--brand-blue);
-}
-
-.dark .nextra-navbar nav > a:not(:first-child):hover {
+.dark .agentdeck-mark {
   color: var(--brand-frost);
 }
 
-.nextra-navbar nav > .ask-launch {
-  order: 2;
+#nd-sidebar a[href="/"] strong,
+#nd-subnav a[href="/"] strong {
+  font-size: 1.0625rem;
 }
 
-.dark .nextra-navbar .agentdeck-mark {
+#nd-sidebar a[aria-label="GitHub"]:hover {
+  color: var(--brand-blue);
+}
+
+.dark #nd-sidebar a[aria-label="GitHub"]:hover {
   color: var(--brand-frost);
 }
 
 /* Sidebar Navigation with AgentDeck Spark Grammar */
-.nextra-sidebar-container {
-  border-right: 1px solid var(--brand-border-light);
+#nd-sidebar {
+  border-inline-end-color: var(--brand-border-light);
 }
 
-.dark .nextra-sidebar-container {
-  border-right: 1px solid var(--brand-border-dark);
-}
-
-.nextra-sidebar-container a[aria-current="page"],
-.nextra-sidebar-container a[data-active="true"] {
-  background-color: var(--brand-ice) !important;
-  color: var(--brand-blue) !important;
-  font-weight: 600;
-  border-left: 2px solid var(--brand-blue);
-  border-radius: 0 4px 4px 0;
-  position: relative;
-}
-
-.nextra-sidebar-container a[aria-current="page"]::before,
-.nextra-sidebar-container a[data-active="true"]::before {
-  content: '◆';
-  font-size: 0.65rem;
-  margin-right: 0.45rem;
-  color: var(--brand-blue);
-}
-
-.dark .nextra-sidebar-container a[aria-current="page"],
-.dark .nextra-sidebar-container a[data-active="true"] {
-  background-color: var(--brand-slate) !important;
-  color: var(--brand-frost) !important;
-  border-left: 2px solid var(--brand-frost);
-}
-
-.dark .nextra-sidebar-container a[aria-current="page"]::before,
-.dark .nextra-sidebar-container a[data-active="true"]::before {
-  color: var(--brand-frost);
+.dark #nd-sidebar {
+  border-inline-end-color: var(--brand-border-dark);
 }
 
 /* Branded Callouts */
@@ -862,18 +777,20 @@ code {
 
 /* Announcement banner: one static line on the card blue, with the stylized A repeated behind it
    at low opacity. The watermark is a pseudo-element rather than a fill on the asset, so its
-   weight is tunable here without a second copy of the geometry. */
-.nextra-banner {
+   weight is tunable here without a second copy of the geometry.
+   Text is pure white, not an off-white: 4.88:1 against the fill's lightest point (both themes),
+   AA but not AAA - 7:1 needs darkening the fill past a recognizable brand blue. */
+.ad-banner {
   position: relative;
   background: var(--brand-blue) !important;
-  color: #f5f8ff !important;
+  color: #fff !important;
 }
 
-.dark .nextra-banner {
+.dark .ad-banner {
   background: linear-gradient(90deg, #1d4fd8, var(--brand-blue)) !important;
 }
 
-.nextra-banner::before {
+.ad-banner::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -934,7 +851,9 @@ code {
   gap: 0.3rem;
   flex: none;
   font-weight: 500;
-  opacity: 0.92;
+  /* Not opacity: at 0.92 the CTA measured 4.37:1 against the fill's lightest stop, below AA
+     while the claim text next to it holds 4.88:1. Full-opacity white keeps both at 4.88:1; the
+     weight difference (500 vs. the claim's 600) still reads as the quieter of the two. */
   white-space: nowrap;
 }
 
@@ -953,7 +872,7 @@ code {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .nextra-banner::before {
+  .ad-banner::before {
     animation: none;
   }
 }
@@ -972,24 +891,11 @@ code {
   display: none;
 }
 
-/* Nextra's back-to-top button, the one control in the table of contents: it renders
-   `aria-hidden` and disabled until you have scrolled, so it reads as a dead label most of the
-   time, and every browser already has the gesture. */
-.nextra-toc button[type='button'] {
-  display: none;
-}
-
 /* ------------------------------------------------------------ docs component language
 
    The theme's defaults read as "a documentation framework": uniform vertical rhythm, a border on
    every surface, neutral grey for the active state. What follows is the same structure with the
    brand's own proportions and one accent colour doing the work borders were doing. */
-
-:root {
-  /* The sidebar and the table of contents are fixed at 256px each, so the extra width all goes to
-     the article: about 11% more line, which the tables were paying for. */
-  --nextra-content-width: 96rem;
-}
 
 main h1 {
   font-size: 2.5rem;
@@ -1098,47 +1004,6 @@ main :not(pre) > code {
 
 .dark main :not(pre) > code {
   background: color-mix(in srgb, var(--brand-frost) 12%, transparent);
-}
-
-/* The active page, in the brand's blue with an accent on the edge rather than a grey block. */
-.nextra-sidebar a.x\:bg-primary-100 {
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--brand-blue) 9%, transparent) !important;
-  box-shadow: inset 2px 0 0 var(--brand-blue);
-  color: var(--brand-blue) !important;
-  font-weight: 600;
-}
-
-.dark .nextra-sidebar a.x\:bg-primary-100 {
-  background: color-mix(in srgb, var(--brand-frost) 12%, transparent) !important;
-  box-shadow: inset 2px 0 0 var(--brand-frost);
-  color: var(--brand-frost) !important;
-}
-
-/* The table of contents gets the rail it was missing: one hairline down the list, and the section
-   you are in marked on it. */
-.nextra-toc ul {
-  border-inline-start: 1px solid var(--brand-border-light);
-}
-
-.dark .nextra-toc ul {
-  border-inline-start-color: var(--brand-border-dark);
-}
-
-.nextra-toc ul a {
-  margin-inline-start: -1px;
-  padding-inline-start: 0.85rem;
-  border-inline-start: 2px solid transparent;
-}
-
-.nextra-toc ul a.is-reading {
-  border-inline-start-color: var(--brand-blue);
-  color: var(--brand-blue) !important;
-}
-
-.dark .nextra-toc ul a.is-reading {
-  border-inline-start-color: var(--brand-frost);
-  color: var(--brand-frost) !important;
 }
 
 /* Troubleshooting entries: a list with dividers when closed, one tinted surface when open. The
