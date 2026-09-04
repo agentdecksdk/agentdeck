@@ -1205,14 +1205,18 @@ async def test_a_store_that_fails_the_abandonment_too_still_raises_the_callers_o
 async def test_a_log_sealed_under_the_abandonment_still_raises_the_callers_own_failure(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """The sibling refusal, and the one another process can hand this write: the stores' shared
-    guard raises ``RunStateError`` when somebody sealed the run between the status read and this
-    append (#680 seals more of them). Same rule as above, so the arm has to catch both.
+    """The sibling refusal, from the race the store's own seal exists for: another worker's
+    terminal event lands between this abandonment's status read and its append, so the append is
+    refused with ``RunStateError`` rather than ``StoreError`` (#471 seals ``COMPLETED`` too).
+    Same rule as above, and the winner's terminal event is the one that stands.
     """
 
     class _SealedUnderTheWrite(_ClaimThenFail):
-        async def append(self, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
-            raise RunStateError(f"run {ctx.run_id!r} was cancelled; nothing can be appended to it any more")
+        async def run_status(self, ctx: RunContext) -> RunStatus | None:
+            status = await super().run_status(ctx)
+            if status is RunStatus.RUNNING:
+                await super().append([DONE], ctx, "Greeter")  # the other worker finishes the run
+            return status
 
     spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
     store = _SealedUnderTheWrite()
@@ -1225,7 +1229,10 @@ async def test_a_log_sealed_under_the_abandonment_still_raises_the_callers_own_f
         await _collect(runtime)
 
     assert "whose claim never reached its play" in caplog.text
-    assert [event.kind for event in await store.read_session(CTX)] == ["run.started"]
+    assert "already completed; nothing can be appended" in caplog.text
+    logged = await store.read_session(CTX)
+    assert [event.kind for event in logged] == ["run.started", "run.completed"]
+    assert check_terminal(logged) is None
 
 
 class _ClaimThenFailTheRead(MemoryEventStore):
