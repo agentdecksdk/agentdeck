@@ -851,7 +851,9 @@ code {
   gap: 0.3rem;
   flex: none;
   font-weight: 500;
-  opacity: 0.92;
+  /* Not opacity: at 0.92 the CTA measured 4.37:1 against the fill's lightest stop, below AA
+     while the claim text next to it holds 4.88:1. Full-opacity white keeps both at 4.88:1; the
+     weight difference (500 vs. the claim's 600) still reads as the quieter of the two. */
   white-space: nowrap;
 }
 
