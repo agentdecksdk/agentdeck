@@ -76,13 +76,17 @@ result = await deck.run(
 
 The model has to accept images: `ollama/qwen3.5:9b` and `openai/gpt-4o` do, `gpt-4.1-mini` does not.
 
-Inline blocks are capped at 1 MB decoded, and anything larger needs a `ResourceBlock`, which points
+Inline blocks are capped at 8 MB decoded, and anything larger needs a `ResourceBlock`, which points
 at bytes held elsewhere instead of carrying them. `AudioBlock` and `DataBlock` cover audio and
 structured JSON; the [block reference](/reference/deck) has the full table and the per-engine
 limits.
 
 An image cannot reach the model through a tool's return value, because tool results are text.
 Content blocks on the way in are the only path.
+
+Blocks come back out too: a completed run's `output` carries the artifacts it produced  -  an
+`ImageGenerationTool` image, a rich tool's image or file  -  ahead of its final text. See
+[what a completed run carries back](/reference/deck#what-a-completed-run-carries-back).
 
 ## Use SDK-native options
 

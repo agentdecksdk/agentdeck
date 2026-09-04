@@ -13,7 +13,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from agentdeck.core.content import DataBlock, TextBlock, answer_of
+from agentdeck.core.content import DataBlock, answer_of, coerce_input
 from agentdeck.core.context import WorkflowCtx
 from agentdeck.core.control import ControlSignalled
 from agentdeck.core.events import RunCompleted, Usage
@@ -301,12 +301,12 @@ def _as_output(result: Any) -> Input:
 
     A value, so a data block  -  a string included, because what a workflow returns is its result
     and not a message to a person. Content a body built itself is the one exception, and passes
-    through as the blocks it already is.
+    through as the blocks it already is: every block type, since a body that assembled an image
+    knew what it was returning, and wrapping one in a ``DataBlock`` raised on the way out (#636).
     """
     if isinstance(result, list) and result:
-        blocks: Input = [block for block in result if isinstance(block, TextBlock | DataBlock)]
-        if len(blocks) == len(result):
-            return blocks
+        with suppress(InputError):
+            return coerce_input(result)
     return [DataBlock(data=result)]
 
 

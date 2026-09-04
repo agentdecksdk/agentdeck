@@ -1,34 +1,10 @@
 """The openai-agents engine: ``Executor`` over ``agents.Runner``.
 
-``spec.native`` is the pre-built ``agents.Agent`` (handoffs and tools included)  -  this
-adapter only runs it and translates its stream, per ``core/ports/engine.py``. Execution
-state (the SDK session) is engine-private (ADR-D5): the session, not the log, is what
-feeds the model. The log passed in as ``history`` is read for exactly one purpose  -  the
-turn-start reconciliation in ``reconcile.py``, which repairs a session left behind by a
-crash between the log write and the session write.
-
-Input is multimodal (``_to_sdk_input`` maps ``TextBlock``/``ImageBlock``/``AudioBlock``/
-``DataBlock`` onto the SDK's own canonical parts); output is not. Nothing in this run loop
-produces an image or audio block  -  ``_run_completed`` only ever builds
-``TextBlock``/``DataBlock``  -  so an agent can *see* a photo or a voice note and never *return*
-one. Audio is chat-completions only: at the pinned ``openai-agents==0.17.0``/``openai==2.32.0``,
-the Responses API's content list has no audio member, so an ``AudioBlock`` under
-``use_responses=True`` raises rather than reaching the endpoint and coming back as an opaque 400.
-
-A ``DataBlock`` renders as its own ``input_text`` part (``reconcile.render_data_block``:
-``json.dumps(block.data, ensure_ascii=False)``, nothing wrapped around it  -  see ``_part_of``).
-Each block is already a separate entry in the SDK's content list, so the boundary between it and
-a neighbouring ``TextBlock`` is the API's own, not a delimiter this adapter invents  -  there is no
-paired open/close token embedded data could spoof to escape early, the way a hand-rolled
-``<context>...</context>`` preamble can be broken by a value that contains ``</context>``.
-``ResourceBlock`` still raises: a URI is a pointer, not content, and rendering just the pointer
-would let a caller believe the model saw the bytes at that address when it never fetched them.
-
-The renderer lives in ``reconcile.py``, not here: a ``DataBlock`` now produces the same
-``{"type": "input_text", "text": ...}`` shape a real ``TextBlock`` does, so the SDK session
-stores it indistinguishably from one  -  and ``reconcile``'s log-side transcript has to render it
-identically, or a turn that carried a ``DataBlock`` would look like a permanent divergence on
-every later turn. One function, called from both sides, is what keeps that from drifting.
+``spec.native`` is the pre-built ``agents.Agent`` (handoffs and tools included): this adapter only runs it and
+translates its stream, per ``core/ports/engine.py``. Execution state (the SDK session) is engine-private
+(ADR-D5); the ``history`` passed in is read only for the turn-start reconciliation in ``reconcile.py``. Both
+directions are multimodal: ``_to_sdk_input`` maps blocks onto the SDK's own canonical parts (``_part_of`` names
+the two it refuses and why), and ``_run_completed`` leads with the artifacts ``run_artifacts`` found (#636).
 """
 
 from __future__ import annotations
@@ -46,7 +22,7 @@ from pydantic import BaseModel
 from agentdeck.adapters.executors.openai_agents.reconcile import reconcile, render_data_block
 from agentdeck.adapters.executors.openai_agents.runconfig import RunSettings, build_run_config
 from agentdeck.adapters.executors.openai_agents.sessions import ExecutionStore
-from agentdeck.adapters.executors.openai_agents.translate import translate
+from agentdeck.adapters.executors.openai_agents.translate import run_artifacts, translate
 from agentdeck.core.content import AudioBlock, DataBlock, ImageBlock, ResourceBlock, TextBlock, coerce_input
 from agentdeck.core.control import ControlSignalled
 from agentdeck.core.events import RunCompleted, Usage, UsageReported
@@ -301,10 +277,11 @@ def _audio_format(media_type: str) -> str:
 
 
 def _run_completed(result: RunResultStreaming) -> RunCompleted:
+    """Artifacts first, final output last: a channel projecting this result sends the image and
+    captions it, which is the order ``new_items`` already recorded them in (#636)."""
     output = result.final_output
-    if isinstance(output, str):
-        return RunCompleted(output=coerce_input(output), usage=_usage_of(result))
-    return RunCompleted(output=[DataBlock(data=_structured(output))], usage=_usage_of(result))
+    final = coerce_input(output) if isinstance(output, str) else [DataBlock(data=_structured(output))]
+    return RunCompleted(output=[*run_artifacts(result.new_items), *final], usage=_usage_of(result))
 
 
 def _structured(output: Any) -> Any:

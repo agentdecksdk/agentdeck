@@ -9,11 +9,13 @@ makes it Python rather than a state machine wearing Python's syntax.
 from __future__ import annotations
 
 import asyncio
+import base64
 from typing import Any
 
 import pytest
 
 from agentdeck import Deck, ToolCtx, WorkflowCtx, tool, workflow
+from agentdeck.core.content import ContentBlock, DataBlock, ImageBlock, ResourceBlock, TextBlock
 from agentdeck.core.control import CONTROL_POLL_INTERVAL
 from agentdeck.core.status import RunStatus
 from agentdeck.errors import ConfigError, InputError, NotFoundError
@@ -46,6 +48,23 @@ async def boom(ctx: WorkflowCtx) -> None:
     raise ZeroDivisionError("the body raised")
 
 
+_RECEIPT_BLOCKS: list[ContentBlock] = [
+    TextBlock(text="Here is the receipt"),
+    ImageBlock(media_type="image/png", data_b64=base64.b64encode(b"not really a png").decode()),
+    ResourceBlock(uri="https://example.test/receipt.pdf", media_type="application/pdf"),
+]
+
+
+@workflow
+async def receipt(ctx: WorkflowCtx) -> list[ContentBlock]:
+    return list(_RECEIPT_BLOCKS)
+
+
+@workflow
+async def wrapped(ctx: WorkflowCtx) -> list[ContentBlock]:
+    return [DataBlock(data={"total": 12})]
+
+
 # --- what it returns, and how its input reaches it ---------------------------------------
 
 
@@ -59,6 +78,24 @@ async def test_one_parameter_takes_the_input_whole() -> None:
     A body that declares one argument must not have a dict silently spread across it."""
     async with Deck(workflows=[whole]) as deck:
         assert await deck.run("whole", {"b": 2, "a": 1}) == ["a", "b"]
+
+
+async def test_a_body_that_returns_blocks_gets_every_one_of_them_back() -> None:
+    """#636: the mixed media a body assembled is the run's result, unchanged and in order  -  an
+    ``ImageBlock`` used to crash the run on the way out, wrapped in a ``DataBlock`` that could
+    not hold it."""
+    async with Deck(workflows=[receipt]) as deck:
+        assert await deck.run("receipt", None) == _RECEIPT_BLOCKS
+        # The handle reads its own ``run.completed`` back, so it has to agree with the call above.
+        assert await (await deck.runs.start("receipt", None)) == _RECEIPT_BLOCKS
+
+
+async def test_one_data_block_is_still_the_wrapped_return_value_not_a_block_list() -> None:
+    """The one ambiguity the block passthrough accepts: a body returning exactly one
+    ``DataBlock`` is indistinguishable from the executor wrapping a plain value in one, so it
+    reads as the value it carries."""
+    async with Deck(workflows=[wrapped]) as deck:
+        assert await deck.run("wrapped", None) == {"total": 12}
 
 
 async def test_several_parameters_bind_by_name() -> None:
