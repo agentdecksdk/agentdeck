@@ -18,8 +18,8 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   nothing replaces it: how many reports a run may make is the log's business, and a report made
   after the run completed or was cancelled is refused by the store (#471) rather than discarded
   on a guess. Whichever event ends a run  -  its own terminal payload, or the `run.failed` written
-  for an engine that raised  -  now waits for the reports the run already fired, so no report is
-  lost to its own run ending. That wait is one store write per pending report: a run that fires
+  for an engine that raised or one that just stopped  -  now waits for the reports the run already
+  fired, so no report is lost to its own run ending. That wait is one store write per pending report: a run that fires
   thousands of reports takes thousands of writes to close, and its completion arrives that much
   later. The old 64-deep buffer capped the wait by dropping reports instead, which was the bug.
   A store that refuses a report still costs the report, never the run, and a sealed log is said
