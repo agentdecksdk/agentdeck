@@ -85,8 +85,9 @@ body runs on a worker thread with no await point to suspend on, so it raises `Co
 ### Reporting progress
 
 Four methods, each becomes a `report` event ([reference](/reference/events#reporting)) on the run's
-log. Advisory: reporting never changes run status, and outside a wired run (no buffer attached)
-each method still validates and drops silently rather than raising inside your tool.
+log, written as the call is made rather than when it returns. Advisory: reporting never changes
+run status, and outside a wired run each method still validates and drops silently rather than
+raising inside your tool. A report made after the run ended is refused by the log and dropped.
 
 | Method | For |
 |---|---|

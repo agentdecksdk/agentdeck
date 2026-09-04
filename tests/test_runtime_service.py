@@ -1658,8 +1658,8 @@ class _Reporting(StubExecutor):
         self, spec: InvocableSpec, input: Input, history: Sequence[Event], ctx: RunContext
     ) -> AsyncGenerator[KnownPayload, None]:
         # An answered play reports before its first payload, since a resumed script may have
-        # only one left; a fresh one reports between two, which is where the drain's ordering
-        # is worth asserting.
+        # only one left; a fresh one reports between two, which is where the ordering against
+        # the engine's own payloads is worth asserting.
         if continuation_of(history, ctx.run_id).play is Play.ANSWER:
             ctx.reporter.info("Searching GitHub")
             ctx.reporter.report("issues_reviewed", current=2, total=4)
@@ -1703,8 +1703,8 @@ async def test_a_run_that_reports_gets_its_reports_in_the_stream_in_order() -> N
 
 
 async def test_a_report_made_during_the_last_thing_a_run_did_lands_before_the_terminal_event() -> None:
-    """Nothing may follow a terminal event into the log, so a report races it or loses: it goes
-    in front of ``run.completed``, never after."""
+    """A report made before the run's last payload does not race the event that seals the log:
+    that event waits for it, so it is in front of ``run.completed`` and never lost to it."""
     spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
     store = MemoryEventStore()
     runtime = Runtime([_Reporting(before=1)], store, {spec.name: spec})
@@ -1735,9 +1735,9 @@ async def test_a_reporting_run_still_folds_to_the_status_its_lifecycle_says() ->
     assert [summary.run_id for summary in await store.list_runs(CTX, status=RunStatus.COMPLETED)] == [run_id]
 
 
-async def test_two_concurrent_runs_never_drain_each_others_reports() -> None:
-    """One buffer per run, bound by the Runtime: a report belongs to the run that made it, which
-    is exactly the isolation a Runtime-wide buffer would silently lose."""
+async def test_two_concurrent_runs_never_take_each_others_reports() -> None:
+    """One writer per run, bound by the Runtime: a report belongs to the run that made it, which
+    is exactly the isolation a Runtime-wide writer would silently lose."""
     entered = asyncio.Event()
     release = asyncio.Event()
 

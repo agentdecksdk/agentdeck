@@ -4,53 +4,41 @@ The mirror image of :class:`~agentdeck.core.control.Gate`  -  control in on ``Ru
 updates out the same way. A tool six frames inside an engine cannot yield an event and must not
 know a Runtime exists, so it hands the report to the context it has.
 
-Buffered, not delivered: the Runtime drains a bounded buffer at its next event, so an emitter is
-never charged for a store append and a refused write never surfaces as an exception inside
-somebody's tool. What it costs is timeliness, stated on :class:`Reporter`.
+Written when made, never awaited: the Runtime binds a writer that schedules the append, so an
+emitter is never charged for a store append and a refused write never surfaces as an exception
+inside somebody's tool. What that still costs is stated on :class:`Reporter`.
 """
 
 from __future__ import annotations
 
-import logging
-import threading
 from typing import TYPE_CHECKING
 
 from agentdeck.core.events import Reported
 
 if TYPE_CHECKING:
-    from collections import deque
+    from collections.abc import Callable
 
     from agentdeck.core.base import JsonData
-    from agentdeck.core.events import KnownPayload
-
-logger = logging.getLogger(__name__)
-
-# Deep enough for an honest burst: a run reporting more than this between two events of its own
-# is describing itself faster than it is doing anything. Bounded because an invocable's own code
-# fills it, which the platform does not get to trust with memory.
-MAX_PENDING_REPORTS = 64
 
 
 class Reporter:
     """One run's out-of-band report channel: three levels of prose, plus named records.
 
-    Always synchronous  -  every method only enqueues into a thread-safe buffer, whether called
-    from the event loop or a worker thread. Delivery out of the buffer may cross threads or a
-    network; that never reaches this API. With no buffer  -  the default  -  each method still
-    validates and then drops the result, so an emitter learns its numbers are nonsense even
-    outside a wired run.
+    Always synchronous  -  every method hands the payload to ``write`` and returns, whether called
+    from the event loop or a worker thread. Persisting it may cross threads or a network; that
+    never reaches this API. With no writer  -  the default  -  each method still validates and then
+    drops the result, so an emitter learns its numbers are nonsense even outside a wired run.
     """
 
-    # ponytail: drained between payloads, not concurrently with them  -  a report emitted during one
-    # long tool call surfaces when that call ends, and one emitted after the engine's last payload
-    # is dropped. Lift it by racing the engine's stream against this buffer in its own task, when a
-    # consumer needs the label *during* a single call rather than merely between calls.
+    # ponytail: written when made, but a consumer reading the Runtime's generator still sees it at
+    # the engine's next payload, and an async body that reports and returns without awaiting gets
+    # its append after its own call ended. Lift both by racing the engine's stream against a report
+    # queue in its own task (#487 item 2), when a consumer needs the label *during* one call.
 
-    __slots__ = ("_lock", "_pending")
+    __slots__ = ("_write",)
 
-    def __init__(self, pending: deque[KnownPayload] | None = None) -> None:
-        self._pending = pending
-        self._lock = threading.Lock()
+    def __init__(self, write: Callable[[Reported], None] | None = None) -> None:
+        self._write = write
 
     def info(self, message: str, **fields: JsonData) -> None:
         """Report what the run is doing now, for a person to read. ``message`` must not be empty."""
@@ -71,14 +59,6 @@ class Reporter:
         that knows nothing about it still has something to show."""
         self._offer(Reported(level="record", message=name, fields=fields))
 
-    def _offer(self, payload: KnownPayload) -> None:
-        if self._pending is None:
-            return
-        with self._lock:
-            if len(self._pending) >= MAX_PENDING_REPORTS:
-                # Newest dropped, not oldest: a sequence missing its front looks like it started at 40.
-                logger.warning(
-                    "dropping %s: %d reports are already waiting to be recorded", payload.kind, len(self._pending)
-                )
-                return
-            self._pending.append(payload)
+    def _offer(self, payload: Reported) -> None:
+        if self._write is not None:
+            self._write(payload)
