@@ -17,7 +17,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         )
       }}
       links={[
-        { type: 'custom', on: 'nav', secondary: true, children: <JackPanel validSlugs={pageSlugs()} /> },
+        { type: 'custom', secondary: true, children: <JackPanel validSlugs={pageSlugs()} /> },
         {
           type: 'icon',
           label: 'GitHub',
