@@ -1,24 +1,10 @@
 """Bringing the SDK session back in line with the event log after a crash between the
 two writes (ADR-D5: the log records the intent, the session is the engine's working memory).
 
-A turn writes the log first and the session second, so a process that dies in between
-leaves the log holding a message the session never got  -  a question the model would
-otherwise never see, or an answer it would think it never gave. On the next turn this
-compares the two message-level transcripts and appends whatever the session is missing.
-
-Message level means content and order, nothing more, and that has a lasting cost: the log
-stores tool results truncated and never stores reasoning items, so a repaired session holds
-plain text where an intact one held paired tool-call/tool-result items and reasoning, and it
-keeps holding it for the rest of that conversation. The model can then see an answer with no
-evidence of the tool call behind it. Accepted deliberately  -  the alternative is a turn the
-model cannot see at all.
-
-Two things are never replayed. The input of a run cancelled before it produced anything:
-``run.started`` says a turn was asked for, not that the engine took it, so replaying it would
-land in front of the question the user is about to retry. And anything at all into a session
-that has gone somewhere the log's prefix does not cover: that session is the authority on
-execution, a wrong guess about its tail is worse than a gap, and the disagreement is reported
-instead.
+A turn writes the log first and the session second, so a process that dies in between leaves
+the log holding a message the session never got, which the next turn appends. Comparison is
+message level, so a repaired session holds plain text where an intact one held tool-call
+pairs and reasoning, for good  -  accepted, since a turn the model cannot see is worse.
 """
 
 from __future__ import annotations
@@ -71,28 +57,44 @@ async def reconcile(session: Session, history: Sequence[Event]) -> Custom | None
     # it reaches  -  two servers on one session are stopped at the door by #83's session claim.
     async with _lock_for(session.session_id):
         stored = _session_transcript(await session.get_items())
-        shared = min(len(stored), len(logged))
-        if stored[:shared] != logged[:shared]:
-            at = next(index for index in range(shared) if stored[index] != logged[index])
+        accounted, missing = _missing_tail(stored, logged)
+        if missing is None:
             logger.warning(
                 "session %s disagrees with its log from message %d (%d session messages, %d logged): replaying nothing",
                 session.session_id,
-                at,
+                accounted,
                 len(stored),
                 len(logged),
             )
             return Custom(
                 name=DIVERGED,
-                data={"agreed_through": at, "session_messages": len(stored), "logged_messages": len(logged)},
+                data={"agreed_through": accounted, "session_messages": len(stored), "logged_messages": len(logged)},
             )
-        missing = logged[len(stored) :]
         if not missing:
-            # Equal, or the session is ahead: an abandoned turn the engine had in fact started
-            # leaves an input in the session the log skips, and there is nothing to add for it.
             return None
         logger.info("replaying %d logged message(s) the session is missing into %s", len(missing), session.session_id)
         await session.add_items([_as_item(role, text) for role, text in missing])
     return None
+
+
+def _missing_tail(stored: Sequence[Message], logged: Sequence[Message]) -> tuple[int, list[Message] | None]:
+    """How many logged messages ``stored`` accounts for, and the tail it has not got  -  ``None``
+    for that tail when the two disagree about more than one.
+
+    ``stored`` is walked once, consuming each logged message it meets in order, so extras
+    sitting *between* them still account for the log (#490). A tail is owed only where the walk
+    ran out of ``stored`` rather than out of agreement: a session with messages still to offer
+    went somewhere the log does not describe, and its own tail is the authority.
+    """
+    accounted = 0
+    last = -1
+    for index, message in enumerate(stored):
+        if accounted < len(logged) and message == logged[accounted]:
+            accounted += 1
+            last = index
+    if accounted == len(logged) or last == len(stored) - 1:
+        return accounted, list(logged[accounted:])
+    return accounted, None
 
 
 def _lock_for(session_id: str) -> asyncio.Lock:

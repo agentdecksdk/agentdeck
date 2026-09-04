@@ -16,6 +16,13 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   surface keyed by the session sees it, but its input is an orchestration argument and never
   reaches the model as something the user said. "Enrich, then answer" on one session is now the
   one obvious path, with no derived `<session>|step` id to invent.
+- **A session holding more messages than its log no longer loses crash repair** (#490). Session
+  and log are compared by walking the log's messages through the session in order, so extra
+  messages sitting between them are the session being ahead rather than a disagreement. Sessions
+  an earlier release had already repaired from a workflow's input reported
+  `openai_agents.session_diverged` on every turn and silently skipped the repair the comparison
+  exists for; they now heal on the next turn with no reset. The one message such a session
+  already holds twice stays: the SDK session is the authority on what the model was shown.
 
 ## [6.0.1] - 2026-09-04
 

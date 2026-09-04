@@ -39,12 +39,14 @@ Both runs share `session_id="conversation-1"`, so the second run's model call ca
 run's messages along with its own. Every run gets a session either way: leave `session_id` out and
 it is scoped to that run's own `run.id`, so nothing carries into the next call.
 
-## Only an agent turn is a turn
+## What a session carries
 
 A session carries two things, and they are separate: the **event stream** every run on it
-appears in, and the **message history** the model is handed. A workflow, tool or skill run
-joins the first without joining the second. Its input is an orchestration argument, not
-something a person said, so it never reaches a later model call as a user message.
+appears in, and the **message history** the model is handed. Joining the first is not joining
+the second. Only a turn the conversation itself asked an agent for contributes to the message
+history: a workflow, tool or skill run passed the same `session_id` is on the stream, and its
+input stays out of the transcript, because an orchestration argument is not something a person
+said.
 
 That is what makes "enrich, then answer" one conversation:
 

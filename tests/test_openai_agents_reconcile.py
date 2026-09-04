@@ -15,9 +15,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from agents import SQLiteSession
+
 from agentdeck.adapters.executors.openai_agents.reconcile import _item_text, _text_of, reconcile, render_data_block
 from agentdeck.core.content import DataBlock, ImageBlock, TextBlock
-from agentdeck.core.events import Event, RunStarted
+from agentdeck.core.events import Event, MessageCompleted, RunStarted
 
 TS = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -48,6 +50,24 @@ def _started(input: list[Any], seq: int = 0) -> Event:
         origin="Greeter",
         ts=TS,
         payload=RunStarted(invocable="Greeter", kind_of_invocable="agent", input=input),
+    )
+
+
+def _turn(role: str, text: str, run_id: str, seq: int) -> Event:
+    payload = (
+        RunStarted(invocable="Greeter", kind_of_invocable="agent", input=[TextBlock(text=text)])
+        if role == "user"
+        else MessageCompleted(message_id=f"msg_{seq}", text=text)
+    )
+    return Event(
+        kind=payload.kind,
+        seq=seq,
+        run_id=run_id,
+        session_id="sess_1",
+        namespace="acme",
+        origin="Greeter",
+        ts=TS,
+        payload=payload,
     )
 
 
@@ -113,3 +133,32 @@ async def test_reconcile_sees_no_divergence_for_a_turn_carrying_a_data_block():
 
     assert result is None
     assert session.added == []  # already in agreement, nothing to repair
+
+
+async def test_a_session_holding_more_than_its_log_keeps_its_crash_repair():
+    """The upgrade path #490 leaves behind, on a real ``SQLiteSession`` rather than a fake:
+    before the fix, ``reconcile`` replayed a workflow's input into the session, so that session
+    now holds a message the transcript no longer counts. Length alone read that as a permanent
+    disagreement and turned crash repair off for the rest of the conversation. Everything the
+    log knows still being there, in order, is what makes it a session merely *ahead*.
+    """
+    said = "Hi, I run a studio in Ornit"
+    session = SQLiteSession("acme:sess_1")
+    # What an older release's repair left: the workflow's input, then the live turn's own.
+    await session.add_items(
+        [
+            {"role": "user", "content": said},
+            {"role": "user", "content": said},
+            {"role": "assistant", "content": "hi"},
+        ]
+    )
+    log = [_turn("user", said, "run_a", 0), _turn("assistant", "hi", "run_a", 1)]
+
+    assert await reconcile(session, log) is None
+    assert await reconcile(session, log) is None, "and every turn after it, not just the first"
+
+    # The gap this module exists for, on that same session: still found, still repaired.
+    log.append(_turn("user", "and a second studio", "run_b", 2))
+
+    assert await reconcile(session, log) is None
+    assert (await session.get_items())[-1] == {"role": "user", "content": "and a second studio"}
