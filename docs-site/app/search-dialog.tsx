@@ -41,19 +41,22 @@ interface Pagefind {
 }
 
 let pagefind: Promise<Pagefind> | undefined
+let attempt = 0
 
 function loadPagefind(): Promise<Pagefind> {
   // Built by `postbuild`, so it exists only in the export and must not be resolved at build time.
-  pagefind ??= (import(/* webpackIgnore: true */ addBasePath('/_pagefind/pagefind.js')) as Promise<Pagefind>)
+  // A failed specifier stays failed in the document's module map, so a retry needs a URL the map
+  // has not seen: without the counter one lost fetch leaves search dead until the next page load.
+  const url = addBasePath(`/_pagefind/pagefind.js${attempt ? `?retry=${attempt}` : ''}`)
+  pagefind ??= (import(/* webpackIgnore: true */ url) as Promise<Pagefind>)
     // `baseUrl: '/'` keeps results as site-relative paths; `next/link` adds the base path itself.
     .then(async module => {
       await module.options({ baseUrl: '/' })
       return module
     })
-    // Forget a failure, or one lost fetch of `pagefind.js` would keep the rejection cached and
-    // leave search dead for the rest of the session instead of retrying on the next keystroke.
     .catch(failure => {
       pagefind = undefined
+      attempt += 1
       throw failure
     })
   return pagefind
