@@ -8,6 +8,8 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+## [6.0.1] - 2026-09-04
+
 ### Changed
 
 - **A completed run reports the artifacts it produced** (#636). `run.completed`'s
@@ -2730,7 +2732,8 @@ documentation platform and its CI.
   `runtime/tools.py`, `PluginRegistry.pick`, `skill_runtime` LLM/batch
   helpers; deps typer, rich, prompt-toolkit.
 
-[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.0...HEAD
+[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.1...HEAD
+[6.0.1]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.0...v6.0.1
 [6.0.0]: https://github.com/agentdecksdk/agentdeck/compare/v5.2.1...v6.0.0
 [5.2.1]: https://github.com/agentdecksdk/agentdeck/compare/v5.2.0...v5.2.1
 [5.2.0]: https://github.com/agentdecksdk/agentdeck/compare/v5.1.0...v5.2.0
