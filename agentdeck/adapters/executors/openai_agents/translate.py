@@ -13,7 +13,9 @@ import hashlib
 import json
 import logging
 import re
+from base64 import b64encode
 from typing import TYPE_CHECKING, Any
+from urllib.parse import unquote_to_bytes
 
 from agents.items import ToolCallItem, ToolCallOutputItem
 from agents.tool import ToolOutputFileContent, ToolOutputImage
@@ -34,7 +36,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
 
 logger = logging.getLogger(__name__)
-_DATA_URL = re.compile(r"data:([^;,]+);base64,(.+)", re.DOTALL)
+_DATA_URL = re.compile(r"data:([^;,]+)((?:;[^;,]+)*),(.*)", re.DOTALL)
 
 
 def translate(event: Any, tool_names: dict[str, str], tool_failures: dict[str, str]) -> KnownPayload | None:
@@ -172,8 +174,15 @@ def _image_url(url: str) -> Iterator[ContentBlock]:
     handed on as a megabyte-long ``uri``."""
     if not url.startswith("data:"):
         yield ResourceBlock(uri=url)
-    elif match := _DATA_URL.match(url):
-        yield from _inline_image(match[1], match[2])
+        return
+    match = _DATA_URL.match(url)
+    if match is None:
+        logger.warning("dropped an image artifact from the run result: its data: URL is malformed")
+        return
+    media_type, parameters, payload = match.groups()
+    # Percent-encoding is the other half of RFC 2397, and an SVG tool result arrives that way.
+    data_b64 = payload if ";base64" in parameters else b64encode(unquote_to_bytes(payload)).decode()
+    yield from _inline_image(media_type, data_b64)
 
 
 def _inline_image(media_type: str, data_b64: str) -> Iterator[ImageBlock]:

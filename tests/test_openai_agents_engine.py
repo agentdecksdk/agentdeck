@@ -481,6 +481,27 @@ def test_a_tool_image_data_url_becomes_an_inline_block_with_the_url_s_own_media_
     assert run_artifacts([_tool_output(output)]) == [ImageBlock(media_type="image/webp", data_b64=_PNG_B64)]
 
 
+def test_a_data_url_carrying_parameters_before_the_encoding_still_decodes():
+    output = ToolOutputImage(image_url=f"data:image/png;charset=utf-8;base64,{_PNG_B64}")
+    assert run_artifacts([_tool_output(output)]) == [ImageBlock(media_type="image/png", data_b64=_PNG_B64)]
+
+
+def test_a_percent_encoded_data_url_is_re_encoded_rather_than_dropped():
+    """RFC 2397's other half: an SVG tool result arrives percent-encoded, not base64, and an
+    artifact this can read is one it must not lose."""
+    output = ToolOutputImage(image_url="data:image/svg+xml,%3Csvg%2F%3E")
+    assert run_artifacts([_tool_output(output)]) == [
+        ImageBlock(media_type="image/svg+xml", data_b64=base64.b64encode(b"<svg/>").decode())
+    ]
+
+
+def test_a_malformed_data_url_is_dropped_and_says_so(caplog):
+    output = ToolOutputImage(image_url="data:whatever")
+    with caplog.at_level(logging.WARNING):
+        assert run_artifacts([_tool_output(output)]) == []
+    assert "malformed" in caplog.text
+
+
 def test_a_tool_image_http_url_stays_a_pointer():
     output = ToolOutputImage(image_url="https://example.test/chart.png")
     assert run_artifacts([_tool_output(output)]) == [ResourceBlock(uri="https://example.test/chart.png")]
