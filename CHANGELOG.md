@@ -8,6 +8,16 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A claim that never reaches the run's play is closed at every site that takes one, however the
+  span is left** (#470). A resume or answer whose claim committed and then met a failing
+  `ControlPort`, a failing store read, or a cancellation used to leave a run the log says is
+  `RUNNING` with nobody playing it, holding its session until the staleness window passed.
+  `Runtime.signal(CANCEL)` against a suspended run had no cover at all, so a caller whose own
+  task was cancelled mid-`Run.cancel()` wedged the very run it asked to stop. All four claim
+  sites now record `run.cancelled` and free the session.
+
 ## [6.0.2] - 2026-09-04
 
 ### Fixed
