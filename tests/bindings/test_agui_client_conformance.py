@@ -88,7 +88,16 @@ def _run_scenario(url: str, scenario: str) -> dict[str, Any]:
 def npm_install() -> None:
     if shutil.which("node") is None or shutil.which("npm") is None:
         pytest.skip("node/npm not on PATH")
-    subprocess.run(["npm", "ci"], cwd=_AGUI_CLIENT_DIR, capture_output=True, text=True, timeout=_TIMEOUT, check=True)
+    # --no-audit: the audit request hangs past _TIMEOUT even with the registry reachable, and
+    # installing 14 pinned deps for a conformance run does not need an advisory lookup.
+    subprocess.run(
+        ["npm", "ci", "--no-audit"],
+        cwd=_AGUI_CLIENT_DIR,
+        capture_output=True,
+        text=True,
+        timeout=_TIMEOUT,
+        check=True,
+    )
 
 
 async def test_the_official_client_completes_a_text_turn(npm_install: None) -> None:
