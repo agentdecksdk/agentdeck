@@ -10,12 +10,13 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ### Fixed
 
-- **A `ctx.invoke` child run is attributed to its parent's conversation** (#491). Its events now
-  carry the parent's `session_id`, so an `Observer` or a session read shows the child's
-  `run.started` / `usage.reported` / `run.completed` under the conversation instead of losing them
-  to a process-wide session-less bucket. Attribution only: the child still claims no session, is
-  still played with its own history, and still contributes nothing to the conversation's
-  transcript.
+- **A `ctx.invoke` child run's events reach an `Observer` under its parent's session** (#491). A
+  sink bucketing by conversation now sees the child's `run.started` / `usage.reported` /
+  `run.completed` under it, instead of losing them to a process-wide session-less bucket shared
+  with every other conversation's children. Live sinks only, and attribution only: the child's
+  stored rows stay session-less, so it still claims no session, is still played with its own
+  history, and still contributes nothing to the conversation's transcript. Read a stored child
+  back through `run.started.parent_run_id`.
 
 ## [6.0.1] - 2026-09-04
 

@@ -547,3 +547,63 @@ async def test_an_answered_childs_later_events_are_attributed_too() -> None:
 
     assert None not in buckets.seen
     assert "run.resumed" in buckets.seen["s-1"]
+
+
+async def test_a_child_answered_by_a_worker_that_never_played_its_parent_is_still_attributed() -> None:
+    """The attribution is inherited from the live tree, which a worker that only ever saw the
+    child does not have  -  the deployment the postgres and redis stores exist for. Clearing the
+    tree is that worker: the session has to come back off the parent's own opening instead."""
+    buckets = _Buckets()
+    ids: list[str] = []
+
+    @workflow
+    async def impatient(ctx: WorkflowCtx) -> str:
+        child = ctx.invoke("asker", "ready?")
+        ids.append(child.id)
+        return str(await child)
+
+    async with Deck(workflows=[asker, impatient], observers=[buckets]) as deck:
+        run = await deck.runs.start("impatient", None, session_id="s-1")
+        with pytest.raises(RunSuspendedError):
+            await run
+
+        child = await _child(deck, ids[0])
+        deck._runtime._tree.clear()
+        await child.answer("yes")
+        assert await child == "ready?:yes"
+
+    assert None not in buckets.seen
+    assert "run.resumed" in buckets.seen["s-1"]
+
+
+async def test_a_child_closed_from_outside_is_attributed_as_it_is_closed() -> None:
+    """``close_cancelled`` writes straight to the store, for a run whose own task is still alive,
+    rather than through ``_record``  -  so the attribution has to be read there too, or the one
+    event that says what became of the child is the one a consumer loses."""
+    buckets = _Buckets()
+    ids: list[str] = []
+
+    @workflow
+    async def stalling(ctx: WorkflowCtx) -> str:
+        await asyncio.sleep(30)
+        return "never"
+
+    @workflow
+    async def abandoning(ctx: WorkflowCtx) -> str:
+        child = ctx.invoke(stalling)
+        ids.append(child.id)
+        return str(await child)
+
+    async with Deck(workflows=[stalling, abandoning], observers=[buckets]) as deck:
+        await deck.runs.start("abandoning", None, session_id="s-1")
+        # `ctx.invoke` runs inside the body's own task, which has not had a turn yet.
+        for _ in range(200):
+            if ids:
+                break
+            await asyncio.sleep(0.01)
+        child = await _child(deck, ids[0])
+        await _settles(child, RunStatus.RUNNING)
+        await deck._runtime.close_cancelled(child.id, "abandoned by the closing deck")
+
+    assert None not in buckets.seen
+    assert "run.cancelled" in buckets.seen["s-1"]

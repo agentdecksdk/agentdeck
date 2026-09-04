@@ -324,7 +324,7 @@ class Runtime:
         opened = next((event.payload for event in events if isinstance(event.payload, RunStarted)), None)
         if opened is None:
             return
-        self.delegate(ctx.run_id, opened.parent_run_id, spec.name, ctx.session_id)
+        self.delegate(ctx.run_id, opened.parent_run_id, spec.name, await self._inherited(opened, ctx, ctx.session_id))
         if (why := _refuses(events, value)) is not None:
             # Recorded, then raised, and both before the claim: the run is still waiting, so the
             # answerer can send a real one  -  and the log keeps the fact that somebody tried.
@@ -402,7 +402,7 @@ class Runtime:
         session_id, opened = started
         spec, executor = self._resolve(opened.invocable)
         run_ctx, reports = self._bind(replace(ctx, run_id=run_id, session_id=session_id), spec)
-        self.delegate(run_id, opened.parent_run_id, spec.name, session_id)
+        self.delegate(run_id, opened.parent_run_id, spec.name, await self._inherited(opened, ctx, session_id))
         opening = await self._claim_resume(spec, run_ctx, None, reason)
         if opening is None:
             return
@@ -756,7 +756,8 @@ class Runtime:
                 # whole window. The abandoned run stays open instead, and the next turn  -  which
                 # finds it just as stale  -  closes it then.
                 logger.exception("could not close abandoned run %s; leaving it for the next turn", tail.run_id)
-        return await self._fan_out(event, self._attributed(ctx.run_id))
+        await self._fan_out(event, self._attributed(ctx.run_id))
+        return event
 
     async def _session_busy_message(self, ctx: RunContext, held_by: str | None) -> str:
         """What ``SessionBusyError`` says, which depends on why the holder is still open.
@@ -887,7 +888,8 @@ class Runtime:
         event = await self._store.claim_resume(resumed, ctx, spec.name)
         if event is None:
             return None
-        return await self._fan_out(event, self._attributed(ctx.run_id))
+        await self._fan_out(event, self._attributed(ctx.run_id))
+        return event
 
     async def pending(self, *, namespace: str | None = None) -> list[PendingRun]:
         """Every run currently ``WAITING_ANSWER`` in this namespace.
@@ -1153,12 +1155,13 @@ class Runtime:
         # total: the terminal event is the one a consumer most needs attributed.
         session = self._attributed(ctx.run_id)
         event = (await self._store.append([self._rolling_up(payload, ctx)], ctx, spec.name))[0]
-        return await self._fan_out(event, session)
+        await self._fan_out(event, session)
+        return event
 
-    async def _fan_out(self, event: Event, session: str | None = None) -> Event:
-        """Sinks get a copy of the stream and no say in it: never called inline, never fatal.
-        Returns the event as emitted  -  with ``session`` stamped on it, if this run has one to
-        inherit (:meth:`_attributed`)  -  which is what the caller yields.
+    async def _fan_out(self, event: Event, session: str | None = None) -> None:
+        """Sinks get a copy of the stream and no say in it: never called inline, never fatal  -
+        with ``session`` stamped on that copy when the run has one to inherit
+        (:meth:`_attributed`), which is the one place a sink's envelope differs from the log's.
 
         Each sink gets a queue put rather than an ``emit``, and a full queue costs one loop
         turn before it starts dropping  -  so the run is never waiting on a sink, only ever on
@@ -1167,7 +1170,20 @@ class Runtime:
         emitted = event if session is None else event.model_copy(update={"session_id": session})
         for dispatch in self._sinks:
             await dispatch.submit(emitted)
-        return emitted
+
+    async def _inherited(self, opening: RunStarted, ctx: RunContext, session_id: str | None) -> str | None:
+        """The session a run being played belongs to: ``session_id``, its own, unless it is a
+        child  -  then its invoker's, read off that run's opening.
+
+        The read is for the worker that never played the parent and so has no tree entry to
+        inherit from: a second process answering a child, which is the deployment a shared store
+        exists for. One this worker *is* playing already carries the answer in the tree, which
+        :meth:`delegate` prefers over anything passed here.
+        """
+        if opening.parent_run_id is None or opening.parent_run_id in self._tree:
+            return session_id
+        above = await self._opening_of(opening.parent_run_id, ctx)
+        return None if above is None else above[0]
 
     def _attributed(self, run_id: str) -> str | None:
         """The conversation a delegated run's events name  -  ``None`` for a run that is nobody's
