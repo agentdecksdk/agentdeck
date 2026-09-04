@@ -10,6 +10,13 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ### Fixed
 
+- **A `ctx.invoke` child run's events reach an `Observer` under its parent's session** (#491). A
+  sink bucketing by conversation now sees the child's `run.started` / `usage.reported` /
+  `run.completed` under it, instead of losing them to a process-wide session-less bucket shared
+  with every other conversation's children. Live sinks only, and attribution only: the child's
+  stored rows stay session-less, so it still claims no session, is still played with its own
+  history, and still contributes nothing to the conversation's transcript. Read a stored child
+  back through `run.started.parent_run_id`.
 - **A workflow sharing a conversation's `session_id` no longer duplicates its input into the
   agent's next prompt** (#490). Only an agent turn is a conversational turn: a workflow or tool
   run passed the same `session_id` joins that conversation's event stream, so an operator

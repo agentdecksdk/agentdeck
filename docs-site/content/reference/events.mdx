@@ -33,6 +33,13 @@ Every event carries the same envelope, whatever its kind:
 `seq` and `ts` are assigned by the store, not the producer, so ordering is the store's to
 guarantee rather than a caller's to get right.
 
+A `ctx.invoke` child run has no session of its own, so its stored `session_id` is null. An
+`Observer` gets that one field rewritten to the session the child's invoker was started on, so a
+live consumer can bucket the child under the conversation. Every read of the log returns the
+null  -  `Run.events()`, `deck.stream()` and `GET /runs/{run_id}/events` all replay stored rows  -  so
+correlate a stored child through `run.started.parent_run_id`, following it up until a run that
+has a session, since a nested child's invoker is session-less too.
+
 `v` is `{major: 4, minor: 0}`. A reader refuses any other major outright rather than guessing at a
 wire shape it was never taught, so a log written by another major is read with the release that
 wrote it or replayed into a new store. There is no migration.
@@ -43,7 +50,7 @@ Each of these sets the run's status. See [Lifecycle & Control](/runs-and-control
 
 | Kind | Payload | Notes |
 |---|---|---|
-| `run.started` | `invocable`, `kind_of_invocable`, `input` | Opens the run |
+| `run.started` | `invocable`, `kind_of_invocable`, `input`, `parent_run_id` | Opens the run. `parent_run_id` is set on a `ctx.invoke` child and names the run that invoked it |
 | `run.completed` | `output`, `usage` | Terminal. `usage` is the authoritative total |
 | `run.failed` | `error_code`, `message`, `retryable` | Terminal. `error_code` is closed, so branch on it rather than parsing the message |
 | `run.paused` | `reason` | Not terminal, and not waiting on an answer |
