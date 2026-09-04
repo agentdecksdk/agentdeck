@@ -25,12 +25,14 @@ from pydantic import (
 
 from agentdeck.core.base import CoreModel, JsonData
 
-INLINE_BYTES_CAP = 1024 * 1024
-"""1 MB decoded, enforced on every inline block (:class:`ImageBlock`, :class:`AudioBlock`).
+INLINE_BYTES_CAP = 8 * 1024 * 1024
+"""8 MB decoded, enforced on every inline block (:class:`ImageBlock`, :class:`AudioBlock`).
 
 Base64 in an event lands in an append-only log and replays down every SSE connection for the
-life of that run, so a documented-only limit is a limit that ships violated. Deliberately low:
-raising the cap later is compatible, lowering it is not."""
+life of that run, so a documented-only limit is a limit that ships violated. Sized for one
+generated image (a 1024x1024 PNG from ``ImageGenerationTool`` runs past the 1 MB this started
+at, and a run result that cannot hold its own image is the bug #636 fixes); raising the cap
+again is compatible, lowering it is not."""
 
 
 def _capped_inline(value: str) -> str:
