@@ -8,6 +8,31 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+## [6.0.1] - 2026-09-04
+
+### Changed
+
+- **A completed run reports the artifacts it produced** (#636). `run.completed`'s
+  `output: list[ContentBlock]` now leads with the media the run made  -  a hosted
+  `ImageGenerationTool` image, a rich tool's image or file  -  and closes with the final text or
+  structured block, so a channel can send the image and caption it from one result instead of
+  reassembling it from executor events. Nothing else from the transcript is promoted, and a
+  text-only run is byte for byte what it was. The inline cap on `ImageBlock`/`AudioBlock` moves
+  from 1 MB to 8 MB decoded, because a generated PNG does not fit under 1 MB.
+
+### Fixed
+
+- **A `@workflow` returning content blocks crashed its own run** (#636). Anything other than a
+  `TextBlock` or `DataBlock` was wrapped in a `DataBlock` that could not hold it; a body may now
+  return any list of blocks and `run` hands back exactly those blocks.
+
+- **`ctx.invoke`'s return shape was undocumented.** `await ctx.invoke(<agent>)` resolves to a
+  `TurnResult` (value at `.output`), `await ctx.invoke(<tool|workflow>)` resolves to the body's
+  return value directly, and `ctx.parallel(...)` resolves to a list of each handle's own result,
+  never to handles. `build-your-deck/workflows` now states all three, and
+  `WorkflowCtx.invoke`'s docstring no longer claims the body's return value unconditionally
+  (#489).
+
 ## [6.0.0] - 2026-09-03
 
 ### Added
@@ -2707,7 +2732,8 @@ documentation platform and its CI.
   `runtime/tools.py`, `PluginRegistry.pick`, `skill_runtime` LLM/batch
   helpers; deps typer, rich, prompt-toolkit.
 
-[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.0...HEAD
+[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.1...HEAD
+[6.0.1]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.0...v6.0.1
 [6.0.0]: https://github.com/agentdecksdk/agentdeck/compare/v5.2.1...v6.0.0
 [5.2.1]: https://github.com/agentdecksdk/agentdeck/compare/v5.2.0...v5.2.1
 [5.2.0]: https://github.com/agentdecksdk/agentdeck/compare/v5.1.0...v5.2.0

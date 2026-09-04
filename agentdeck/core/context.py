@@ -353,27 +353,19 @@ class WorkflowCtx[T](ToolCtx[T]):
     def invoke(self, target: Any, *args: Any, **kwargs: Any) -> Any:
         """Start ``target`` as a child run and hand back its ``Run``, without waiting for it.
 
-        ``target`` is a catalog name, a ``@tool``/``@workflow``, or an :class:`AgentInstance`  -
-        anything this deck holds  -  and ``*args``/``**kwargs`` bind to that target's own signature
-        exactly as calling it would. Anything else waits for the invocation resolver, so there is
-        one rule and no special case.
+        ``target`` is a catalog name, a ``@tool``/``@workflow``, or an :class:`AgentInstance`, with
+        ``*args``/``**kwargs`` binding to its own signature exactly as calling it would. Awaiting the handle
+        gives a ``TurnResult`` for an agent target, the body's own return value for a
+        ``@tool``/``@workflow`` one; a child stuck on its own question raises ``RunSuspendedError``. See
+        ``build-your-deck/workflows`` for the child's lifecycle and :meth:`parallel`.
 
             result = await ctx.invoke(load_customer, ticket.customer_id)   # the short path
 
             child = ctx.invoke(research, topic=subject)                    # the same call, held
             if child.can.pause:
                 await child.pause()
+                await child.resume()
             result = await child
-
-        The child is a run in its own right: its own id, its own log, its own ``can.*`` and
-        lifecycle methods. It runs in its own deck-owned task from this call, whether or not the
-        handle is ever awaited, and awaiting it is what gives back the body's return value.
-
-        A child that stops on a question of its own is not this body's to wait out: ``await
-        child`` raises ``RunSuspendedError`` naming it rather than blocking on somebody eventually
-        answering. It stays ``WAITING_ANSWER`` and answerable  -  through ``deck.runs.get(child.id)``
-        from outside, and through :meth:`parallel`, which leaves a waiting child alone when it
-        gives the rest up.
         """
         return self._invoking(self._run, target, *args, **kwargs)
 

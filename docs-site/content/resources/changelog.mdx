@@ -14,141 +14,40 @@ description: What changed in each release of AgentDeck, and what to do about it 
 Rendered from the repository's own `CHANGELOG.md`, so this page cannot drift from it. Entries
 are written for someone using the package: what changed, and what to do about it.
 
-The current release is **v6.0.0**. Earlier releases are listed at the bottom.
+The current release is **v6.0.1**. Earlier releases are listed at the bottom.
 
-## v6.0.0
+## v6.0.1
 
-*Released 2026-09-03.*
-
-### Added
-
-- **The protocol SPI is frozen at v1** (#554): `DeckGateway`, `Binding`/`BindingInfo`,
-  `GatewayError`/`GatewayFailureCode`, `HttpEndpoint`/`StdioEndpoint`, and `Exposure`
-  (`deck.serve`/`deck.asgi`/`deck.expose`) are stable. A plugin author builds against them without
-  an SPI major bump until one of those types breaks; a new capability name or a new binding is not
-  a version bump (`docs/design/protocols/spi.md`).
-- **`agentdeck.bindings`, the protocol SPI** (#545): `DeckGateway` (`targets()`,
-  `capabilities`, `start`/`get_run`/`list_runs`), `GatewayError`/`GatewayFailureCode`, `Binding`,
-  `BindingInfo`, `HttpEndpoint`/`StdioEndpoint`. No concrete binding ships yet; this is the
-  contract the first one (#548) builds against.
-- **`Deck.expose(*bindings) -> Exposure`** (#546): validates duplicate HTTP paths, more than one
-  stdio binding, a repeated binding name, an unsupported `spi_version`, and a missing prerequisite
-  binding, all before anything opens. `exposure.asgi()` mounts every
-  `HttpEndpoint` on one Starlette app with the lifecycle bound to its lifespan;
-  `exposure.serve(host=, port=)` runs standalone, closing the Deck only if it opened it. A failed
-  `start()` on binding N stops N..1 in reverse, N included, and raises. `Deck.is_open` is new too.
-
-- **`Native.http()`, the AgentDeck protocol** (#548): `from agentdeck.bindings import
-  Native`, then `deck.serve(Native.http())`. Ten routes over `DeckGateway` and public `Run`
-  methods (targets, start, get/list runs, an SSE tail with `Last-Event-ID`/`from_seq` reconnect,
-  cancel/pause/resume, pending/answer), frames as `Event.model_dump_json()` verbatim, and a
-  versioned wire spec at `docs/design/protocols/native-wire.md`. The implementation lives under
-  `agentdeck/adapters/bindings/native/`; `adapters` is not a user import path.
-- **`RunStatus` is exported from `agentdeck`.** `deck.runs.list(status=...)` takes one and every
-  Native run summary reports one, so a caller reading runs needs the type.
-- **`InputError`** (#579): a public `AgentdeckError` for content or an answer the caller supplied
-  that AgentDeck cannot take, raised by `coerce_input` and by an answer outside an ask's own
-  `options`. A binding maps it to its own bad-request code (Native: 422); an unrelated
-  `TypeError`/`ValueError` from a store or an executor stays internal. Catch `InputError` (or
-  `AgentdeckError`) where you caught `TypeError` or `ValueError` from those calls before.
-- **`AGUI.http()`, the AG-UI protocol binding** (#595/#596, slices AGUI-0 through AGUI-3):
-  `pip install agentdeck-sdk[agui]`, then `from agentdeck.bindings import AGUI` and
-  `deck.serve(AGUI.http("/agui"), port=8000)` for the whole catalog, or `AGUI.http(
-  "/support", target="Support")` pinned. Official `ag-ui-protocol` models and `EventEncoder` over HTTP/SSE:
-  target routing via `forwardedProps.agentdeck.target`, text/reasoning/backend-tool projection,
-  HITL ask/resume through the official `RunFinishedInterruptOutcome`/`resume` shapes, multimodal
-  input, and a client disconnect mapped to `Run.cancel()`. Frontend tools, shared state, and
-  steering are refused by name until their AgentDeck primitives exist
-  (`docs/design/protocols/agui.md`).
-
-- **A terminal chat example needing no API key** (`examples/chat-in-the-terminal/`): one
-  `@workflow` asking the questions, driven by `agentdeck chat`. The first example that runs with
-  no credentials at all.
-- **`Terminal.stdio()`, the first surface** (#549): `from agentdeck.bindings import
-  Terminal`, then `deck.serve(Terminal.stdio(target="Research"))`. One session per process over
-  stdin and stdout: prompts, streams the run's text back, renders a numbered prompt for
-  `ctx.ask` and re-asks on a refused answer, and cancels an in-flight run on Ctrl-C.
-  `agentdeck chat [TARGET]` runs it, where `TARGET` is any agent or workflow in the deck and may
-  be omitted when the deck holds exactly one.
-- **A run event stream example** (#396, `examples/run-events-stream/`): iterates
-  `deck.stream(...)` and prints every event kind and payload in order. Scripts the model with
-  `agentdeck.testing`, so it needs no API key and prints one fixed output.
-- **`Deck.serve(*bindings, host=, port=)` and `Deck.asgi(*bindings)`** (#606): the front door,
-  one-line delegations to `expose(*bindings).serve()`/`.asgi()`. `agentdeck.bindings` now
-  lazily exports `Native` and `Terminal` too, so `from agentdeck.bindings import Native, Terminal`
-  works without importing either module until named. `expose()` is the lower-level call, returning
-  the `Exposure` object itself.
-
-### Removed
-
-- **The v1 HTTP wire is gone** (#550): `agentdeck/serve.py`, all of `agentdeck/surfaces/`, the
-  `agentdeck-serve` console script, `Deck.asgi()` and the byte-for-byte goldens under
-  `tests/golden/`. A Deck no longer serves itself: expose a binding.
-
-  ```python
-  # before
-  app = Deck.from_project().asgi()          # agentdeck-serve
-  # after
-  app = Deck.from_project().asgi(Native.http())
-  ```
-
-  The v1 routes (`/agents/{name}/chat`, `/v2/invocables/{name}/chat`, `/health`) are replaced by
-  the [native wire](https://github.com/agentdecksdk/agentdeck/blob/main/docs/design/protocols/native-wire.md):
-  `POST /runs`, `GET /runs/{run_id}/events`, `GET /targets`. The `[serve]` extra now installs
-  starlette rather than fastapi, which nothing in `agentdeck/` imports any more.
+*Released 2026-09-04.*
 
 ### Changed
 
-- **`Deck.serve()` is synchronous and blocking** (#623), breaking versus the unreleased #606
-  shape: it owns the event loop (`asyncio.run` internally) instead of returning a coroutine, so
-  it runs from plain application code with no `asyncio.run(deck.serve(...))` of your own. The
-  previous coroutine is now `Deck.serve_async()`, for a caller already running inside asyncio.
-  Ctrl-C stops the server and returns quietly, matching `uvicorn.run`; `serve_async()` leaves its
-  own `KeyboardInterrupt` handling to the caller. `agentdeck chat` calls `deck.serve(...)`
-  directly. `Deck.asgi()` is unchanged.
-- **`DeckGateway.start` drops `context`** (#599): no binding ever passed one, and a served run
-  has no live Python execution context to hand it. `DeckGateway` no longer stores or directly
-  exposes the `Deck` it was built from.
-- **`agentdeck.errors` is the one import path for the error taxonomy.** `AgentdeckError`,
-  `ConfigError`, `ContextTypeError`, `NotFoundError`, `SessionBusyError`, `SkillError` and
-  `StoreError` are no longer exported from `agentdeck` itself: `from agentdeck.errors import
-  AgentdeckError` for a catch-all. `agentdeck.errors` has always carried the complete set.
-- **`Event` is exported from `agentdeck`.** `run.events()` yields them, so a caller that reads a
-  run needs the type; it was already documented as a public import for binding authors.
-
-  The root keeps the everyday vocabulary, a feature namespace keeps its own, and no public name
-  lives at two paths (`docs/engineering/architecture.md` 3).
-- **`InterruptReason` drops `"approval"`** (#468): nothing ever produced it  -  `RunInterrupted`
-  is built in one place with `reason="human"` hardcoded, and refusal always came from
-  `payload["options"]`, never from `reason`. `PendingRun.reason`'s docstring now states that rule
-  instead of an approval check that didn't exist.
+- **A completed run reports the artifacts it produced** (#636). `run.completed`'s
+  `output: list[ContentBlock]` now leads with the media the run made  -  a hosted
+  `ImageGenerationTool` image, a rich tool's image or file  -  and closes with the final text or
+  structured block, so a channel can send the image and caption it from one result instead of
+  reassembling it from executor events. Nothing else from the transcript is promoted, and a
+  text-only run is byte for byte what it was. The inline cap on `ImageBlock`/`AudioBlock` moves
+  from 1 MB to 8 MB decoded, because a generated PNG does not fit under 1 MB.
 
 ### Fixed
 
-- **A `@tool` is never a top-level target** (#488): a `.agentdeck/workflows/<name>/workflow.py`
-  exporting a `@tool` alongside its `@workflow` (e.g. so `ctx.invoke` can reach it) used to
-  sweep the tool into `deck.workflows` too, as a runnable entry it never was. `deck.workflows`,
-  `deck.run`/`.stream`, `Runs.start` and `GET /targets` no longer show or accept it by name (a
-  direct `deck.run("the_tool", ...)` now raises `InputError`, 422 over HTTP); `ctx.invoke`
-  from inside a workflow keeps working. A workflow bundle contributing no `@workflow` at all
-  still names what it found ("workflow bundle 'x' exports no workflow; found tool 'y'").
-  **Breaking:** a code-first `Deck(workflows=[a_tool])` naming no `@workflow` that could
-  `ctx.invoke` it now raises `ConfigError` at construction instead of silently becoming a
-  runnable-by-name entry.
-- **A workflow's own `InputError` after `run.started` reaches every wire as itself** (#621):
-  `RunFailed.error_code` gains `"invalid_input"`, and its `message` carries the exception's own
-  caller-safe text instead of being stripped to `"InputError in engine ..."`. Every other
-  exception's shape is unchanged.
-- **`Deck.__aenter__` rolls back a late failure** (#572): a failure after observers started  -  building the runtime, connecting MCP servers  -  used to leave every started observer open and the process claim held, blocking a second `Deck(...)` in the same process. It now closes what it started and releases the claim before re-raising, same as an observer-start failure already did.
-- **A workflow's input mapping that doesn't match its declared parameters raises `InputError`,
-  not `ConfigError`** (#583). It is caller-supplied content the target can't take, not a
-  configuration fault. A same-process caller now catches `InputError` instead of `ConfigError`;
-  `_map_failure` already maps `InputError` to `INVALID_INPUT`.
+- **A `@workflow` returning content blocks crashed its own run** (#636). Anything other than a
+  `TextBlock` or `DataBlock` was wrapped in a `DataBlock` that could not hold it; a body may now
+  return any list of blocks and `run` hands back exactly those blocks.
+
+- **`ctx.invoke`'s return shape was undocumented.** `await ctx.invoke(<agent>)` resolves to a
+  `TurnResult` (value at `.output`), `await ctx.invoke(<tool|workflow>)` resolves to the body's
+  return value directly, and `ctx.parallel(...)` resolves to a list of each handle's own result,
+  never to handles. `build-your-deck/workflows` now states all three, and
+  `WorkflowCtx.invoke`'s docstring no longer claims the body's return value unconditionally
+  (#489).
 
 ## Earlier releases
 
 | Version | Date | Notes |
 |---|---|---|
+| [v6.0.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.0) | 2026-09-03 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.0) |
 | [v5.2.1](https://github.com/agentdecksdk/agentdeck/releases/tag/v5.2.1) | 2026-08-29 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v5.2.1) |
 | [v5.2.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v5.2.0) | 2026-08-29 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v5.2.0) |
 | [v5.1.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v5.1.0) | 2026-08-28 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v5.1.0) |

@@ -94,8 +94,12 @@ including the coverage question. An unanswered question fails the stage.
 
 - Compact the PR body: it describes the change as it now stands, not the rounds that produced it.
   Delete abandoned design and justifications the code no longer needs.
-- CONSTRAINT: `make check` 100% green before `gh pr ready`. Consequence: `gh pr ready` on a red
-  `make check` puts a red required check on the PR and it cannot merge.
+- CONSTRAINT: run `export PR_BODY="$(gh pr view <n> --json body -q .body)" && make check`, 100%
+  green, before `gh pr ready`. Two consequences: a red `make check` shipped by `gh pr ready` puts a
+  red required check on the PR and it cannot merge; and without the export,
+  `scripts/check_docs_impact.py` reads an empty body, reports affected pages as unreviewed (or the
+  author never sees the list), so CI's required "Check affected documentation" goes red on a gate
+  believed clean (#602, #607, #617).
 - No attribution trailers anywhere.
 
 ## Answering a review

@@ -18,13 +18,14 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0",
+    "@types/node": "^26.4.0",
     "@types/react": "^19.0.0",
     "agentation": "^3.0.2",
     "pagefind": "^1.5.2",
     "typescript": "^5.9.0"
   },
   "overrides": {
-    "zod": "4.3.5"
+    "zod": "4.3.5",
+    "@xmldom/xmldom": "0.9.12"
   }
 }

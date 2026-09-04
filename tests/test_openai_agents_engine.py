@@ -4,7 +4,8 @@ Issue #61: it must not enable the SDK's default trace exporter on a keyless/fake
 unless explicitly opted in via ``AGENTDECK_OPENAI_AGENTS_TRACING_ENABLED``. Issue #101: an
 ``output_type`` agent's validated result travels as a ``DataBlock`` on ``run.completed``
 instead of failing the run. Issue #226: a ``DataBlock`` on *input* renders as JSON text instead
-of being refused; ``ResourceBlock`` still is.
+of being refused; ``ResourceBlock`` still is. Issue #636: the artifacts a finished run left in
+``new_items`` lead its ``run.completed`` output, and its final output closes it.
 
 Patches ``Runner.run_streamed`` itself (rather than driving a real fake model through a
 full run) so the assertion is exactly on what the engine hands the SDK and what it makes of
@@ -13,23 +14,31 @@ the result, regardless of how the stream plays out.
 
 from __future__ import annotations
 
+import base64
 import dataclasses
 import json
+import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 import pytest
 from agents import Agent, RunConfig
+from agents.items import MessageOutputItem, ToolCallItem, ToolCallOutputItem
 from agents.models.chatcmpl_converter import Converter
 from agents.models.interface import Model
+from agents.tool import ToolOutputFileContent, ToolOutputImage, ToolOutputText
 from openai import AuthenticationError
+from openai.types.responses import ResponseOutputMessage, ResponseOutputText
+from openai.types.responses.response_output_item import ImageGenerationCall
 from pydantic import BaseModel, ConfigDict
 
 from agentdeck.adapters.executors.openai_agents import ExecutionStore, OpenAIAgentsExecutor
 from agentdeck.adapters.executors.openai_agents import executor as executor_module
 from agentdeck.adapters.executors.openai_agents.executor import _to_sdk_input
+from agentdeck.adapters.executors.openai_agents.translate import run_artifacts
 from agentdeck.core.content import (
+    INLINE_BYTES_CAP,
     AudioBlock,
     DataBlock,
     ImageBlock,
@@ -42,6 +51,9 @@ from agentdeck.core.context import RunContext
 from agentdeck.core.events import RunCompleted, Usage
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.errors import ConfigError
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 class _NeverCalledModel(Model):
@@ -59,8 +71,9 @@ class _NeverCalledModel(Model):
 class _FakeStreamResult:
     """Stands in for ``RunResultStreaming``: an immediately-empty event stream."""
 
-    def __init__(self, final_output: Any = "ok") -> None:
+    def __init__(self, final_output: Any = "ok", new_items: Sequence[Any] = ()) -> None:
         self.final_output = final_output
+        self.new_items = new_items
         self.context_wrapper = type("ContextWrapper", (), {"usage": None})()
 
     async def stream_events(self) -> Any:
@@ -159,11 +172,11 @@ class _Decision:
     approved: bool
 
 
-async def _terminal(monkeypatch: pytest.MonkeyPatch, final_output: Any) -> RunCompleted:
+async def _terminal(monkeypatch: pytest.MonkeyPatch, final_output: Any, new_items: Sequence[Any] = ()) -> RunCompleted:
     class _FakeRunner:
         @staticmethod
         def run_streamed(*_args: Any, **_kwargs: Any) -> _FakeStreamResult:
-            return _FakeStreamResult(final_output)
+            return _FakeStreamResult(final_output, new_items)
 
     monkeypatch.setattr(executor_module, "Runner", _FakeRunner)
     engine = OpenAIAgentsExecutor(ExecutionStore())
@@ -419,3 +432,142 @@ async def test_execute_raises_for_audio_under_responses_before_touching_the_sdk(
     with pytest.raises(ConfigError, match="Responses API"):
         async for _ in engine.execute(_spec(), [AudioBlock(media_type="audio/wav", data_b64="AAAA")], [], _ctx()):
             pass
+
+
+# --- #636: the artifacts a finished run produced, ahead of its final output -----------------
+
+_ARTIFACT_AGENT = Agent(name="Artifacts", model=_NeverCalledModel())
+"""Module level on purpose: ``RunItemBase`` keeps its agent by weak reference, so an item built
+from a local one loses it before the assertion runs."""
+
+_PNG_B64 = base64.b64encode(b"pretend png bytes").decode()
+_OVER_CAP_B64 = base64.b64encode(b"\0" * (INLINE_BYTES_CAP + 1)).decode()
+
+
+def _image_call(status: str, result: str | None) -> ToolCallItem:
+    raw = ImageGenerationCall(id="ig-1", result=result, status=status, type="image_generation_call")
+    return ToolCallItem(agent=_ARTIFACT_AGENT, raw_item=raw)
+
+
+def _tool_output(output: Any) -> ToolCallOutputItem:
+    raw = {"call_id": "call-1", "output": "sent", "type": "function_call_output"}
+    return ToolCallOutputItem(agent=_ARTIFACT_AGENT, raw_item=raw, output=output)
+
+
+def _message(text: str) -> MessageOutputItem:
+    raw = ResponseOutputMessage(
+        id="msg-1",
+        content=[ResponseOutputText(text=text, type="output_text", annotations=[])],
+        role="assistant",
+        status="completed",
+        type="message",
+    )
+    return MessageOutputItem(agent=_ARTIFACT_AGENT, raw_item=raw)
+
+
+def test_a_completed_image_generation_call_becomes_an_image_block():
+    assert run_artifacts([_image_call("completed", _PNG_B64)]) == [
+        ImageBlock(media_type="image/png", data_b64=_PNG_B64)
+    ]
+
+
+@pytest.mark.parametrize("call", [_image_call("in_progress", None), _image_call("failed", None)])
+def test_an_image_generation_call_without_a_result_produces_nothing(call):
+    assert run_artifacts([call]) == []
+
+
+def test_a_tool_image_data_url_becomes_an_inline_block_with_the_url_s_own_media_type():
+    output = ToolOutputImage(image_url=f"data:image/webp;base64,{_PNG_B64}")
+    assert run_artifacts([_tool_output(output)]) == [ImageBlock(media_type="image/webp", data_b64=_PNG_B64)]
+
+
+def test_a_data_url_carrying_parameters_before_the_encoding_still_decodes():
+    output = ToolOutputImage(image_url=f"data:image/png;charset=utf-8;base64,{_PNG_B64}")
+    assert run_artifacts([_tool_output(output)]) == [ImageBlock(media_type="image/png", data_b64=_PNG_B64)]
+
+
+def test_a_percent_encoded_data_url_is_re_encoded_rather_than_dropped():
+    """RFC 2397's other half: an SVG tool result arrives percent-encoded, not base64, and an
+    artifact this can read is one it must not lose."""
+    output = ToolOutputImage(image_url="data:image/svg+xml,%3Csvg%2F%3E")
+    assert run_artifacts([_tool_output(output)]) == [
+        ImageBlock(media_type="image/svg+xml", data_b64=base64.b64encode(b"<svg/>").decode())
+    ]
+
+
+def test_a_malformed_data_url_is_dropped_and_says_so(caplog):
+    output = ToolOutputImage(image_url="data:whatever")
+    with caplog.at_level(logging.WARNING):
+        assert run_artifacts([_tool_output(output)]) == []
+    assert "malformed" in caplog.text
+
+
+def test_a_tool_image_http_url_stays_a_pointer():
+    output = ToolOutputImage(image_url="https://example.test/chart.png")
+    assert run_artifacts([_tool_output(output)]) == [ResourceBlock(uri="https://example.test/chart.png")]
+
+
+def test_a_tool_file_url_becomes_a_resource_block():
+    output = ToolOutputFileContent(file_url="https://example.test/report.pdf")
+    assert run_artifacts([_tool_output(output)]) == [ResourceBlock(uri="https://example.test/report.pdf")]
+
+
+@pytest.mark.parametrize(
+    "output",
+    [ToolOutputImage(file_id="file-1"), ToolOutputFileContent(file_id="file-1"), ToolOutputFileContent(file_data="AA")],
+)
+def test_a_tool_output_with_no_dereferenceable_uri_is_skipped(output):
+    """A provider file id points at nothing this run's reader can fetch, and inline file bytes
+    have no block to land in; both are dropped rather than guessed at."""
+    assert run_artifacts([_tool_output(output)]) == []
+
+
+def test_a_list_of_tool_outputs_contributes_each_of_its_media_in_order():
+    output = [
+        ToolOutputImage(image_url=f"data:image/png;base64,{_PNG_B64}"),
+        ToolOutputText(text="ignored: text is not an artifact"),
+        ToolOutputFileContent(file_url="https://example.test/report.pdf"),
+    ]
+    assert run_artifacts([_tool_output(output)]) == [
+        ImageBlock(media_type="image/png", data_b64=_PNG_B64),
+        ResourceBlock(uri="https://example.test/report.pdf"),
+    ]
+
+
+def test_an_artifact_over_the_inline_cap_is_dropped_and_the_rest_of_the_result_survives(caplog):
+    """The run has already finished; raising here would fail it at its terminal event."""
+    items = [_image_call("completed", _OVER_CAP_B64), _tool_output(ToolOutputImage(image_url="https://e.test/a.png"))]
+    with caplog.at_level(logging.WARNING):
+        assert run_artifacts(items) == [ResourceBlock(uri="https://e.test/a.png")]
+    assert str(INLINE_BYTES_CAP + 1) in caplog.text
+    assert str(INLINE_BYTES_CAP) in caplog.text
+
+
+def test_an_unknown_item_type_leaves_an_otherwise_valid_run_alone():
+    assert run_artifacts([_message("hello"), object()]) == []
+
+
+async def test_a_plain_text_run_still_produces_exactly_its_final_text_block(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``MessageOutputItem`` is deliberately unmapped: ``final_output`` already is that text."""
+    terminal = await _terminal(monkeypatch, "ok", [_message("ok")])
+    assert terminal.output == [TextBlock(text="ok")]
+
+
+async def test_artifacts_lead_the_result_and_the_final_output_closes_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A channel projecting this sends the image, then captions it."""
+    items = [_image_call("completed", _PNG_B64), _message("Here is the image.")]
+    terminal = await _terminal(monkeypatch, "Here is the image.", items)
+    assert terminal.output == [
+        ImageBlock(media_type="image/png", data_b64=_PNG_B64),
+        TextBlock(text="Here is the image."),
+    ]
+
+
+async def test_a_structured_result_keeps_its_artifacts_and_its_data_block(monkeypatch: pytest.MonkeyPatch) -> None:
+    terminal = await _terminal(monkeypatch, _Slot(day="tuesday", hour=9), [_image_call("completed", _PNG_B64)])
+    assert terminal.output == [
+        ImageBlock(media_type="image/png", data_b64=_PNG_B64),
+        DataBlock(data={"day": "tuesday", "hour": 9}),
+    ]
