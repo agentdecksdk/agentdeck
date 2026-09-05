@@ -101,11 +101,28 @@ def test_duplicate_page_mapping_is_rejected() -> None:
         validate_mappings((mapping, mapping))
 
 
-def test_cli_fails_when_an_affected_page_was_not_updated(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cli_fails_when_an_affected_page_was_not_updated(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     mapping = PageMapping("docs-site/content/reference/run.mdx", ("agentdeck/core/*.py",))
     monkeypatch.setattr(docs_impact, "load_mappings", lambda: (mapping,))
     monkeypatch.setattr(docs_impact, "changed_files", lambda base, head: ("agentdeck/core/invocable.py",))
     monkeypatch.delenv("PR_BODY", raising=False)
+
+    assert docs_impact.main([]) == 1
+    err = capsys.readouterr().err
+    # The verbatim line to paste, not just the page name (#719: naming pages alone cost a review round).
+    assert "- [x] Unchanged pages reviewed: reference/run.mdx" in err
+    assert "gh run rerun" in err
+
+
+def test_an_acknowledgement_with_no_page_list_still_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    mapping = PageMapping("docs-site/content/reference/run.mdx", ("agentdeck/core/*.py",))
+    monkeypatch.setattr(docs_impact, "load_mappings", lambda: (mapping,))
+    monkeypatch.setattr(docs_impact, "changed_files", lambda base, head: ("agentdeck/core/invocable.py",))
+    # The words are there, but no pages named: the accepting `\s*` must not turn this into a match.
+    monkeypatch.setenv("PR_BODY", "- [x] Unchanged pages reviewed:\n")
 
     assert docs_impact.main([]) == 1
 
@@ -116,6 +133,27 @@ def test_naming_the_affected_page_acknowledges_it(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(docs_impact, "changed_files", lambda base, head: ("agentdeck/core/invocable.py",))
     # A real GitHub body, CRLF and all: the last name carries a trailing \r out of the match.
     monkeypatch.setenv("PR_BODY", "## Design\r\n\r\n- [x] Unchanged pages reviewed: reference/run.mdx\r\n")
+
+    assert docs_impact.main([]) == 0
+
+
+def test_a_non_whitespace_prefix_is_not_an_indent() -> None:
+    # `^\s*` accepts indentation, not any prefix: a quote marker or stray text must not count.
+    assert docs_impact.ACKNOWLEDGEMENT.search("> - [x] Unchanged pages reviewed: foo.mdx") is None
+
+
+def test_an_empty_page_list_does_not_match_at_all() -> None:
+    # `(?P<pages>.+)` requires at least one page, asserted at the regex itself: downstream
+    # page.strip() filtering would otherwise mask a loosened `.*` from ever being noticed.
+    assert docs_impact.ACKNOWLEDGEMENT.search("- [x] Unchanged pages reviewed:\n") is None
+
+
+def test_an_indented_acknowledgement_is_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
+    mapping = PageMapping("docs-site/content/reference/run.mdx", ("agentdeck/core/*.py",))
+    monkeypatch.setattr(docs_impact, "load_mappings", lambda: (mapping,))
+    monkeypatch.setattr(docs_impact, "changed_files", lambda base, head: ("agentdeck/core/invocable.py",))
+    # A list-continuation indent, which Markdown renders identically to column 0 (#719).
+    monkeypatch.setenv("PR_BODY", "  - [x] Unchanged pages reviewed: reference/run.mdx")
 
     assert docs_impact.main([]) == 0
 

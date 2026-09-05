@@ -16,7 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 CONTENT_PREFIX = "docs-site/content/"
 CONTENT_ROOT = REPO_ROOT / "docs-site" / "content"
 DOCS_SOURCES = re.compile(r"^\{/\* docs_sources:\n(?P<sources>(?:  - .+\n)+)\*/\}", re.MULTILINE)
-ACKNOWLEDGEMENT = re.compile(r"^- \[[xX]\] Unchanged pages reviewed: *(?P<pages>.+)$", re.MULTILINE)
+ACKNOWLEDGEMENT = re.compile(r"^\s*- \[[xX]\] Unchanged pages reviewed: *(?P<pages>.+)$", re.MULTILINE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,6 +208,11 @@ def main(argv: list[str] | None = None) -> int:
     reviewed = ", ".join(page_key(mapping.path) for mapping in missing)
     print(
         f"Update each affected page, or name it in the PR body: `- [x] Unchanged pages reviewed: {reviewed}`",
+        file=sys.stderr,
+    )
+    print(
+        "A `gh run rerun` reuses the PR body from the event that triggered it; edit the body, "
+        "then push or re-edit the PR to get a fresh check.",
         file=sys.stderr,
     )
     for mapping in missing:
