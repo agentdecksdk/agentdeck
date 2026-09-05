@@ -60,7 +60,7 @@ coverage:       ## per-module coverage: audit input for #71/#131, not part of `m
 golden:         ## re-record the event-schema snapshots: deliberate, never automatic
 	AGENTDECK_GOLDEN_UPDATE=1 .venv/bin/pytest tests/core -q
 
-docs-reference: ## regenerate the five generated docs-site files from the code
+docs-reference: ## regenerate the six generated docs-site files from the code
 	.venv/bin/python scripts/generate_docs_reference.py
 
 docs-impact: ## report which documentation pages this branch's source changes affect
