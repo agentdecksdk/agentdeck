@@ -13,13 +13,6 @@
   --brand-border-light: #e5e9f2;
   --brand-border-dark: #1e293b;
 
-  /* fumadocs-ui centres a fixed-width layout and gives the leftover to two flexible gutter
-     columns. The sidebar spans its own column plus that gutter and pins the nav to the inside
-     edge, so on a wide screen the surplus becomes dead space inside the sidebar: 183px of it at
-     1920. Widening the layout spends that space instead. The prose does not stretch with it,
-     because `article` is capped at 900px and centred in the column. */
-  --fd-layout-width: calc(100vw - 2rem);
-
   /* The brand card. Defined here rather than under `.landing` so docs pages get the same
      surface: a code block on a guide is the same object as a code block on the home page. */
   --rail: var(--brand-border-light);
