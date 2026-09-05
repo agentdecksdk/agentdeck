@@ -5,6 +5,8 @@ description: The decisions behind Jack, and the alternatives each one beat.
 
 {/* docs_sources:
   - "examples/jack/**"
+  - "agentdeck/deck.py"
+  - "agentdeck/adapters/bindings/**"
 */}
 
 # Implementation notes
@@ -57,12 +59,14 @@ Explicit composition has neither problem. Both front doors are described in [Dec
 
 ## Its own route, not `Deck.asgi()`
 
-AgentDeck packages an HTTP surface and Jack writes his own, for two structural reasons:
+AgentDeck packages an HTTP surface as [bindings](/bindings/serve): `deck.serve()` / `deck.expose()`
+take a `Binding` and open a standalone server or an ASGI app. Jack writes his own route instead,
+for two structural reasons:
 
 | | |
 |---|---|
-| **Context cannot cross HTTP** | A run started through `asgi()` carries `context=None`. There is no wire form for a live Python object, and both tools need the `DocsCorpus`. |
-| **The chat wire is frozen** | Its body is exactly `{"session_id", "message"}`, pinned byte-for-byte by `tests/golden/`. The page a reader is on has nowhere to go in it. |
+| **Context cannot cross HTTP** | A run started through a binding carries `context=None`. There is no wire form for a live Python object, and both tools need the `DocsCorpus`. |
+| **`Native.http()` speaks a different wire** | It's AgentDeck's generic protocol  -  `POST /runs`, `GET /runs/{id}/events`, and the rest  -  not a single `POST /ask` with a chat body. Adopting it still means translating between Jack's own request and the protocol's, which is the layer this route exists to avoid. |
 
 The result is about forty lines over `deck.stream()`, streaming canonical events with no
 translation layer.
