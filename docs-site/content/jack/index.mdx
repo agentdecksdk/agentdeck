@@ -30,7 +30,7 @@ Question
 
 That shape is the whole application, and the code says the same thing:
 
-```python
+```python no-test reason="condensed from jack/agent.py and jack/corpus.py; DocsCorpus and instructions are defined there, not repeated here"
 from agentdeck import Agent, ToolCtx, Deck, tool
 
 @tool
@@ -101,7 +101,7 @@ The allowlist drops other event kinds without reshaping the canonical events it 
 
 The route is a few lines over `deck.stream()`, and the wire is the event log itself:
 
-```python
+```python no-test reason="excerpt from jack/server.py's route body; AGENT, question, corpus and session_id are in scope there, not here"
 async for event in deck.stream(AGENT, question, context=corpus, session_id=session_id):
     if event.kind in PUBLIC_KINDS:
         yield f"data: {event.model_dump_json()}\n\n"
@@ -118,6 +118,6 @@ when he makes one, and the run resolves when it completes.
 
 ## Source
 
-- [`examples/jack`](https://github.com/agentdecksdk/agentdeck/tree/dev/examples/jack)  -  the agent, its tools, the corpus and the route
+- [`examples/jack`](https://github.com/agentdecksdk/agentdeck/tree/main/examples/jack)  -  the agent, its tools, the corpus and the route
 - [Implementation notes](/jack/notes)  -  the decisions behind this build, and the alternatives they beat
 - [Examples](/examples)  -  smaller runnable projects, each exercising a single idea

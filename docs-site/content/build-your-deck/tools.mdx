@@ -86,8 +86,7 @@ A tool already decorated with `function_tool` from the OpenAI Agents SDK (`agent
 `tools=` and passed through untouched. That passthrough has three consequences:
 
 - It cannot take a `ToolCtx` parameter. The decorator puts every parameter into the schema the
-  model sees, and a context has none, so it raises `PydanticSchemaGenerationError` at the
-  decorator line.
+  model sees, and a context has none, so it raises `ConfigError` at the decorator line.
 - It keeps whatever `failure_error_function` it was given, so its exceptions never reach
   `tool.call.completed.error`.
 - It is engine-native and carries no portability guarantee.
@@ -112,15 +111,12 @@ async def lookup_shift(date: str) -> str:
 If a tool raises instead, `agentdeck` records the call as `tool.call.completed` with the exception
 type and message on its `error` field, and hands the model the Agents SDK's standard tool-error
 string. The run is not failed, so it can still complete: `Deck.run()` returns the model's final
-answer, the non-streamed HTTP route returns `200 {"output": ...}`, and the streamed HTTP route ends
-with `done` if the model completes.
+answer, and a client watching the run's events sees it end in `run.completed`.
 
 An exception that escapes the SDK runner is a different outcome, and a pre-decorated
 `function_tool` whose own failure handling re-raises is the way to get one. Then the log records
-`run.failed` with `error_code="engine_error"`, `Deck.run()` raises the exception, `Deck.stream()`
-yields `run.failed` and then raises, the non-streamed HTTP route returns
-`500 {"detail": "internal error"}`, and the streamed HTTP route sends an `error` event with the
-exception type.
+`run.failed` with `error_code="engine_error"`, `Deck.run()` raises the exception, and `Deck.stream()`
+yields `run.failed` and then raises.
 
 ## Tools do not carry images
 

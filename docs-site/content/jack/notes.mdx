@@ -95,12 +95,8 @@ only known values survive, and the delimiter is stripped from any reader selecti
 model chooses to say with that text is not guarded, and no delimiter makes it so.
 
 The full accounting is in the
-[example's README](https://github.com/agentdecksdk/agentdeck/tree/dev/examples/jack#readme).
+[example's README](https://github.com/agentdecksdk/agentdeck/tree/main/examples/jack#readme).
 
-<Contribute
-  issue={353}
-  difficulty="medium"
-  scope="guide"
-  need="These notes stop at the process boundary: nothing here says how a Deck becomes a supervised service, what a health check must actually check, or what shutdown owes aclose()."
-  because="Everything up to uvicorn is documented and everything after it is not, which is the largest gap in the docs today."
-/>
+These notes stop at the process boundary. For how a Deck becomes a supervised service, what a
+health check must actually check, and what shutdown owes `aclose()`, see
+[Deployment](/operate/deployment).

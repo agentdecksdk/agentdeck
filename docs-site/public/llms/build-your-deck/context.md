@@ -1,0 +1,106 @@
+# Context
+
+`ToolCtx[T]` and `WorkflowCtx[T]` give a `@tool` or `@workflow` typed, request-scoped access to
+your own application state: a database client, a config object, whatever the run needs. AgentDeck
+never inspects the value, it holds it by reference and hands it to whichever callable declared it.
+
+## Declare it, pass it, use it
+
+Declare the type once on `Deck(context=...)`. Pass the object once per run, on
+`deck.run(context=...)`. A callable reaches it through `ctx.data`.
+
+```python run
+import asyncio
+
+from agentdeck import Agent, Deck, ToolCtx, tool
+
+
+class Billing:
+    def status(self, order_id: str) -> str:
+        return f"{order_id}: shipped"
+
+
+@tool
+async def order_status(order_id: str, billing: ToolCtx[Billing]) -> str:
+    """Look up the shipping status of an order."""
+    return billing.data.status(order_id)
+
+
+agent = Agent(name="support", instructions="Help with order questions.", tools=[order_status])
+deck = Deck(agents=[agent], context=Billing)
+
+
+async def main() -> None:
+    async with deck:
+        result = await deck.run("support", "hi", context=Billing())
+        print(result.output)
+
+
+asyncio.run(main())
+```
+
+A context parameter is injected by the runtime and is absent from the schema the model sees, which
+is why a tool that declares one cannot be pre-decorated with the Agents SDK's `function_tool`: that
+decorator puts every parameter into the schema, and a context has none, so it raises
+`ConfigError` at the decorator line.
+
+`billing.data` is the exact `Billing()` instance passed to `context=`, not a copy. `Deck.build`
+checks every `ToolCtx[...]`/`WorkflowCtx[...]` parameter in the catalog against the declared type
+before any run starts, so a mismatched context fails at build time, not mid-run. See
+[Deck: declaring the context type](/reference/deck#declaring-the-context-type) for the full
+compatibility rules.
+
+## What each context can do
+
+A `@tool` takes `ToolCtx` and is a leaf capability. A `@workflow` takes `WorkflowCtx`, which is
+`ToolCtx` plus orchestration. Declaring the wrong one is a `build()` error: a tool that could ask a
+person or start another run would no longer be a leaf.
+
+| Capability | `ToolCtx` (`@tool`) | `WorkflowCtx` (`@workflow`) |
+|---|---|---|
+| `ctx.data`, the context object | yes | yes |
+| `ctx.agent`, `ctx.run_id`, `ctx.session_id` | yes | yes |
+| `ctx.reporter`, report progress out of band | yes | yes |
+| `await ctx.safepoint()`, offer a pause/cancel point | yes, async body only | yes |
+| `await ctx.ask(question, options=...)`, suspend for an answer | no | yes |
+| `ctx.invoke(target, ...)`, `await ctx.parallel(...)`, start child runs | no | yes |
+| `ctx.agents.create()`, `ctx.agents.fork()`, mint an agent not in the catalog | no | yes |
+
+`ctx.reporter` is always synchronous (`ctx.reporter.info(...)`, no `await`), on a sync `@tool`'s
+worker thread exactly as on the event loop. Only `ctx.safepoint()` distinguishes the two: a sync
+body runs on a worker thread with no await point to suspend on, so it raises `ConfigError` there.
+
+### Reporting progress
+
+Four methods, each becomes a `report` event ([reference](/reference/events#reporting)) on the run's
+log, written as the call is made rather than when it returns. Advisory: reporting never changes
+run status, and outside a wired run each method still validates and drops silently rather than
+raising inside your tool. A report made after the run
+completed or was cancelled is refused by the log and dropped; after a `run.failed` it can still
+land, since a failure does not seal the log.
+
+| Method | For |
+|---|---|
+| `ctx.reporter.info(message, **fields)` | progress a person reads |
+| `ctx.reporter.warning(message, **fields)` | a fallback taken, a source unavailable |
+| `ctx.reporter.error(message, **fields)` | something the run could not do; does not fail the run |
+| `ctx.reporter.report(name, **fields)` | a named, structured fact for a consumer that filters |
+
+```python
+@tool
+async def refresh_cache(source: str, cache: ToolCtx[Cache]) -> str:
+    """Refresh one cache entry."""
+    cache.reporter.info("refreshing", source=source)
+    return cache.data.refresh(source)
+```
+
+## Where it does not reach
+
+A context is a live Python object, never serialized, and it cannot cross the HTTP surface. See
+[Where a context does not reach](/reference/deck#where-a-context-does-not-reach) for the full list.
+
+## Related
+
+- [Workflows](/build-your-deck/workflows) - `ctx.ask()` and `ctx.safepoint()` in practice
+- [Deck](/reference/deck) - `context=` construction and every compatibility rule
+- [Runs](/runs-and-control/runs) - starting and rehydrating the runs a context rides on

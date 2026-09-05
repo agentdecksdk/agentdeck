@@ -1,17 +1,26 @@
 import type { Metadata, Viewport } from 'next'
 import { Inter, Poppins } from 'next/font/google'
-import { RootProvider } from 'fumadocs-ui/provider/next'
 import { Agentation } from 'agentation'
-import { Announcement } from './announcement'
-import PagefindSearchDialog from './search-dialog'
+import { Announcement } from '@/components/site/announcement'
+import { SiteProviders } from '@/components/site/providers'
 import type { ReactNode } from 'react'
-import { CURRENT_VERSION } from './generated-version'
-import { SITE } from './site'
-import './global.css'
-import './brand.css'
-import './landing.css'
-import './hero.css'
-import './jack.css'
+import { CURRENT_VERSION } from '@/lib/version'
+import { SITE } from '@/lib/site'
+import '@/styles/global.css'
+import '@/styles/base.css'
+import '@/styles/docs.css'
+import '@/components/site/header.css'
+import '@/components/site/announcement.css'
+import '@/components/site/footer.css'
+import '@/components/docs/callout.css'
+import '@/components/docs/contribute.css'
+import '@/components/docs/diagram.css'
+import '@/components/docs/page-feedback.css'
+import '@/components/docs/toc.css'
+import '@/components/landing/install-line.css'
+import '@/components/landing/landing.css'
+import '@/components/landing/hero.css'
+import '@/components/jack/jack.css'
 
 // Self-hosted at build time  -  the static export makes no external font request.
 const body = Inter({ subsets: ['latin'], variable: '--font-body', display: 'swap' })
@@ -88,15 +97,12 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             })
           }}
         />
-        <RootProvider search={{ SearchDialog: PagefindSearchDialog }}>
+        <SiteProviders>
           <Announcement id="v6-launch" href="/meet-agentdeck/whats-new-6">
             AgentDeck 6.0 is here: serve one deck over HTTP, AG-UI or the terminal.
           </Announcement>
           {children}
-          <footer className="site-footer">
-            AgentDeck SDK v{CURRENT_VERSION} · Compose. Observe. Ship.
-          </footer>
-        </RootProvider>
+        </SiteProviders>
         {/* Annotate the running site in the browser; the overlay talks to the agent over the
             agentation MCP server. Dead code in a production build, where NODE_ENV is inlined. */}
         {process.env.NODE_ENV === 'development' && <Agentation />}

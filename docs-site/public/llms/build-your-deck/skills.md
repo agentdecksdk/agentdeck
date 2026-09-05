@@ -1,0 +1,53 @@
+# Skills
+
+A skill is prose an agent loads only when it decides it needs it: a `SKILL.md` file the model
+reads on demand, instead of a paragraph folded permanently into `instructions`.
+
+```python
+from agentdeck import Agent
+
+triage = Agent(
+    name="Triage",
+    instructions="Route support tickets. Load the refund-policy skill before approving a refund.",
+    skills=["refund-policy"],
+)
+```
+
+`skills=[...]` names skills by directory, resolved against the `Deck`'s skill roots at
+`build()`. A name the catalog does not hold fails there, naming the agent and what is available.
+
+## `SKILL.md`
+
+```text
+.agentdeck/
+└── skills/
+    └── refund-policy/
+        └── SKILL.md
+```
+
+```markdown
+---
+name: refund-policy
+description: How to evaluate a refund request - use before approving or denying one.
+---
+
+Approve refunds under $50 without escalation. Anything over $50 needs a supervisor tag.
+Never approve a refund for an order older than 90 days.
+```
+
+The directory name is the skill's name; `name:` in the frontmatter must match it if given, and
+`description:` is required. Both missing or mismatched fail `Deck.build()` naming the bundle.
+Only `description` reaches the agent's own instructions up front; the model calls
+`load_skill("refund-policy")` to read the body, which is why a skill is not a tool call the model
+can fake its way past.
+
+`Deck.from_project()` scans `./.agentdeck/skills/` automatically. Building a `Deck` directly
+instead, point `skills=` at the same directory (or several, or a `Skills(...)` object):
+
+```python
+from agentdeck import Deck
+
+deck = Deck(agents=[triage], skills="./.agentdeck/skills")
+```
+
+See [Agent with a Skill](/examples/agent-with-a-skill) for a full running example, tools and all.

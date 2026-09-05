@@ -2,16 +2,9 @@ import type { MDXComponents } from 'mdx/types'
 import defaultComponents from 'fumadocs-ui/mdx'
 import { Callout } from 'fumadocs-ui/components/callout'
 import { Steps } from 'fumadocs-ui/components/steps'
-import { MentalModel } from './app/diagram'
-import { BrandCallout } from './app/callout'
-import { Contribute } from './app/contribute'
-import {
-  SparkMarker,
-  DeckSurface,
-  AgentDeckCodeBlock,
-  RunTimeline,
-  StepRail
-} from './app/design-system'
+import { MentalModel } from '@/components/docs/diagram'
+import { BrandCallout } from '@/components/docs/callout'
+import { Contribute } from '@/components/docs/contribute'
 import {
   Hero,
   Snippet,
@@ -19,9 +12,10 @@ import {
   Model,
   MeetJack,
   FinalCTA
-} from './app/landing-components'
+} from '@/components/landing/blocks'
 
-// `Cards` and `Tabs` were exported and never used by any of the 44 pages.
+// `Cards` and `Tabs` were exported and never used by any of the 44 pages, and neither were
+// the five design-system primitives that used to sit here.
 export function getMDXComponents(components: MDXComponents = {}): MDXComponents {
   return {
     ...defaultComponents,
@@ -30,11 +24,6 @@ export function getMDXComponents(components: MDXComponents = {}): MDXComponents 
     MentalModel,
     BrandCallout,
     Contribute,
-    SparkMarker,
-    DeckSurface,
-    AgentDeckCodeBlock,
-    RunTimeline,
-    StepRail,
     Hero,
     Snippet,
     Foundation,

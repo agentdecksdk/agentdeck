@@ -1,8 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { MetadataRoute } from 'next'
-import { SITE } from './site'
-import { source } from './source'
+import { SITE } from '@/lib/site'
+import { source } from '@/lib/source'
 
 // `output: 'export'` builds every route ahead of time, and a route handler has to opt in
 // explicitly or the build refuses rather than guessing. Nothing here reads a request.

@@ -1,0 +1,111 @@
+# Events Reference
+
+One ordered log per run. Every managed invocation appends to it, whatever started the run, and
+status is folded from it rather than stored beside it.
+
+## The envelope
+
+Every event carries the same envelope, whatever its kind:
+
+| Field | Meaning |
+|---|---|
+| `v` | Schema version |
+| `kind` | One of the kinds below |
+| `seq` | Position in this run's log, monotonic from 0 |
+| `run_id` | The run this belongs to |
+| `session_id` | The session, when the run has one |
+| `namespace` | The run's namespace label |
+| `origin` | Which invocable emitted it |
+| `ts` | When the store recorded it |
+| `payload` | The kind-specific body, below |
+
+`seq` and `ts` are assigned by the store, not the producer, so ordering is the store's to
+guarantee rather than a caller's to get right.
+
+A `ctx.invoke` child run has no session of its own, so its stored `session_id` is null. An
+`Observer` gets that one field rewritten to the session the child's invoker was started on, so a
+live consumer can bucket the child under the conversation. Every read of the log returns the
+null  -  `Run.events()`, `deck.stream()` and `GET /runs/{run_id}/events` all replay stored rows  -  so
+correlate a stored child through `run.started.parent_run_id`, following it up until a run that
+has a session, since a nested child's invoker is session-less too.
+
+`v` is `{major: 4, minor: 2}`. A reader refuses any other major outright rather than guessing at a
+wire shape it was never taught, so a log written by another major is read with the release that
+wrote it or replayed into a new store. There is no migration.
+
+## Lifecycle
+
+Each of these sets the run's status. See [Lifecycle & Control](/runs-and-control/lifecycle-and-control).
+
+| Kind | Payload | Notes |
+|---|---|---|
+| `run.started` | `invocable`, `kind_of_invocable`, `input`, `parent_run_id` | Opens the run. `parent_run_id` is set on a `ctx.invoke` child and names the run that invoked it |
+| `run.completed` | `output`, `usage` | Terminal. `usage` is the authoritative total |
+| `run.failed` | `error_code`, `message`, `retryable` | Terminal. `error_code` is closed, so branch on it rather than parsing the message |
+| `run.paused` | `reason` | Not terminal, and not waiting on an answer |
+| `run.resumed` | `reason`, `value` | Same `run_id`, `seq` keeps counting |
+| `run.cancelled` | `reason` | Terminal |
+| `run.interrupted` | `interrupt_id`, `reason`, `payload`, `thread_id`, `expected_resume` | Waiting on an answer. Not terminal |
+
+## Control
+
+| Kind | Payload | Notes |
+|---|---|---|
+| `control.requested` | `verb`, `reason` | The signal was recorded, not that the run has acted on it |
+| `control.observed` | `verb`, `safe_point` | The run reached a safe point and is acting on it |
+
+## Content
+
+| Kind | Payload | Notes |
+|---|---|---|
+| `text.delta` | `message_id`, `text` | One streamed fragment |
+| `thought.delta` | `message_id`, `text` | Reasoning fragment, a separate channel |
+| `message.completed` | `message_id`, `text` | The record. Deltas are streaming UX |
+| `artifact.created` | `artifact_id`, `media_type`, `uri`, `size` | A reference to bytes stored elsewhere |
+
+## Agents
+
+| Kind | Payload | Notes |
+|---|---|---|
+| `agent.changed` | `previous_agent`, `next_agent` | The active agent changed, after a handoff completed. Never emitted for one requested but failed or refused |
+
+## Tools and nodes
+
+| Kind | Payload | Notes |
+|---|---|---|
+| `tool.call.started` | `call_id`, `tool`, `args` | Paired with the completion by `call_id` |
+| `tool.call.completed` | `call_id`, `tool`, `result_preview`, `result_size`, `result_sha256`, `artifact_id`, `error` | A capped preview plus size and hash, never the result itself |
+
+## Reporting
+
+Advisory. These describe progress; they never change status.
+
+| Kind | Payload | Notes |
+|---|---|---|
+| `report` | `level`, `message`, `fields` | What the running code said about itself: `info`, `warning` and `error` are prose a person reads, `record` is a named fact a consumer filters |
+| `usage.reported` | `model`, `usage` | One model call. The total on `run.completed` wins |
+
+## Other
+
+| Kind | Payload | Notes |
+|---|---|---|
+| `input.appended` | `input`, `source` | Mid-turn steering |
+| `answer.refused` | `reason` | An answer that was not one of the options the run asked for. The run is still `waiting_answer`, and the next answer can still land |
+| `custom` | `name`, `data` | Engine-specific. `name` must be namespaced |
+
+## Reading them
+
+```python
+async for event in run.events(from_seq=0, follow=True):
+    print(event.seq, event.kind)
+```
+
+An unknown kind is carried rather than rejected, so a reader written today does not break against
+a log written by a newer release of the same schema major.
+
+```python
+from agentdeck.core.events import KNOWN_KINDS, TERMINAL_KINDS
+```
+
+`KNOWN_KINDS` is the set above. `TERMINAL_KINDS` is `run.completed`, `run.failed` and
+`run.cancelled`: seeing one of those means no further events will arrive for that run.

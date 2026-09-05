@@ -1,0 +1,115 @@
+# Migration Guides
+
+## v5 to v6.0.0
+
+See [What's new in 6.0](/meet-agentdeck/whats-new-6) for the model behind this release. v6.0.0
+replaces the v1 HTTP wire with bindings: a Deck is served over one or more of them, never itself.
+`agentdeck chat` is unchanged.
+
+| break | before (v5) | after (v6.0.0) |
+|---|---|---|
+| v1 routes gone | `POST /agents/{name}/chat` | `POST /runs`, then `GET /runs/{run_id}/events` |
+| `agentdeck-serve` gone; `deck.serve(...)` is the new front door | `agentdeck-serve` | `deck.serve(Native.http("/api"), port=8000)` |
+| `Deck.asgi()` needs a binding | `Deck.from_project().asgi()` | `Deck.from_project().asgi(Native.http())` |
+| the error taxonomy moved off the root package | `from agentdeck import ConfigError` | `from agentdeck.errors import ConfigError` |
+| `InputError` replaces raw `TypeError`/`ValueError` for caller input | `except (TypeError, ValueError)` | `except InputError` |
+| `InterruptReason` drops `"approval"` | `pending.reason == "approval"` | `pending.reason == "human"`; refusal comes from `payload["options"]`, which `Run.answer` already enforces |
+
+## v4 to v5.0.0
+
+v5.0.0 is a breaking release: a v5 build cannot read an event log v4 wrote, and several public
+names moved. There is no compatibility shim for any of these. Read every section before
+upgrading a running deployment.
+
+### Event log: v5 refuses a v4 log
+
+The envelope's schema version bumped from `major=3` to `major=4`. SQLite and Postgres refuse a
+4.x log outright, before parsing a single event:
+
+| Store | On a 4.x log |
+|---|---|
+| SQLite | `Deck` opening it raises `StoreError` |
+| Postgres | Same: `StoreError` |
+| Redis | No such check. Its keys were shaped differently under 4.x; do not point a v5 process at 4.x Redis data |
+
+```python illustrative reason="requires a project pointed at a 4.x SQLite event log"
+from agentdeck import Deck
+from agentdeck.errors import StoreError
+
+try:
+    async with Deck.from_project() as deck:
+        pass
+except StoreError as exc:
+    print(exc)
+```
+
+The message names exactly why:
+
+```
+the event log at '<path>' was written by agentdeck 4.x (its 'events' table still has the
+'log_key' column 5.0 replaced with 'session_id'). agentdeck 5.0 does not migrate a 4.x log:
+replay it into a new store, or reopen it with the 4.x version that wrote it.
+```
+
+Underneath that guard is a second, unconditional one: `Event` itself refuses any schema major
+but its own, so even a hand-rolled reader cannot mix the two.
+
+**What to do:** drain a 4.x deployment (let every open run finish under v4) before pointing a v5
+process at its store, or keep the v4 build around to read that log. There is no migration path
+and no store that reads across the boundary.
+
+### `EnginePort` is `Executor`, and `start`/`resume` become one `execute`
+
+| v4 | v5 |
+|---|---|
+| `EnginePort` (in `agentdeck.core.ports`) | `Executor` |
+| `agentdeck/adapters/engines/` | `agentdeck/adapters/executors/` |
+| `InvocableSpec.engine` | `InvocableSpec.executor` |
+| `EnginePort.start(...)` and `EnginePort.resume(...)`, two methods | `Executor.execute(...)`, one method |
+
+This is a restructuring, not a rename. `execute` takes the same `history` a resumed run always
+carried, and reads off it whether this play is fresh, a replayed pause, or an answered interrupt;
+there is no separate `resume` left to implement. `Executor.aclose()` is new and optional (default:
+no-op) for an executor that holds something to release when the deck closes.
+
+**What to do:** fold a custom `EnginePort.start`/`resume` pair into one `Executor.execute`. Wire
+values are unchanged: an executor is still selected by the name it always used (`"native"`,
+`"openai-agents"`, `"stub"`), and `run.failed` still carries `error_code="engine_error"`.
+
+### LangGraph is removed, not deprecated
+
+`agentdeck/adapters/engines/langgraph/` and the `langgraph` dependency are gone. There is no
+drop-in replacement.
+
+**What to do:** rewrite a LangGraph-backed workflow as a native
+[`@workflow`](/build-your-deck/workflows), which needs no engine at all.
+
+### `EventSinkPort` is `Observer`
+
+```python run
+from agentdeck import Observer
+from agentdeck.observers import ConsoleObserver, FileObserver, LangfuseObserver
+
+print(Observer.__name__, ConsoleObserver.__name__, FileObserver.__name__, LangfuseObserver.__name__)
+```
+
+| v4 | v5 |
+|---|---|
+| `EventSinkPort` | `Observer` |
+| `agentdeck.observers.Langfuse` | `agentdeck.observers.LangfuseObserver` |
+
+`ConsoleObserver` and `FileObserver` are new in v5, alongside the rename.
+
+**What to do:** rename `Langfuse(...)` to `LangfuseObserver(...)` wherever it is constructed, and
+`EventSinkPort` to `Observer` in any custom implementation.
+
+### Runtime settings: no `config.yaml`
+
+v4 read settings from environment variables, a project `.env`, and a shared `config.yaml`
+(resolved via `AGENTDECK_CONFIG_PATH` → cwd → a packaged default). v5 removes the YAML source
+entirely: every setting comes from a process environment variable or the project's `.env`, and
+nothing else.
+
+**What to do:** move every key a `config.yaml` held into `AGENTDECK_*` environment variables (see
+the full list on the [Settings reference](/reference/settings)), and delete the file. A
+`config.yaml` left behind is not read.
