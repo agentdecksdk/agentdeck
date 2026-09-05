@@ -3,17 +3,15 @@
 @import './tokens.css';
 @import 'fumadocs-ui/css/preset.css';
 
-/* `fumadocs-ui/css/lib/base.css` declares `@variant layout` against `#nd-docs-layout`,
-   `#nd-notebook-layout` and friends, and every fumadocs slot still mounted sets its own track
-   width *upward* through it: `md:layout:[--fd-sidebar-width:268px]`,
-   `xl:layout:[--fd-toc-width:268px]`. Custom properties inherit down, not up, so our own
-   container collapses the sidebar and the table of contents to 0px without this.
+/* `fumadocs-ui/css/lib/base.css` declares `@variant layout` against its own layout ids, and the
+   slots still mounted set their track width *upward* through it:
+   `md:layout:[--fd-sidebar-width:268px]`, `xl:layout:[--fd-toc-width:268px]`. Custom properties
+   inherit down, not up, so our own container collapses the sidebar and the table of contents to
+   0px without this. Retargeting it at `.ad-shell` is what puts those tracks back.
 
    It has to live here rather than in `base.css`: a variant only applies where the utilities are
    generated, and this file is the Tailwind entry point. Last registration wins. */
 @variant layout {
-  #nd-docs-layout:has(&),
-  #nd-notebook-layout:has(&),
   .ad-shell:has(&) {
     @slot;
   }
