@@ -60,14 +60,15 @@ main :is(h1, h2, h3, h4) {
   color: #f8fafc;
 }
 
-/* `#nd-sidebar`, `#nd-subnav`, `#nd-notebook-layout`: fumadocs-ui's internal DOM ids, not a
-   public API. A fumadocs-ui upgrade can rename or restructure them; re-check every selector
-   below against the built DOM when bumping that dependency. */
+/* `#nd-sidebar` and `#nd-subnav`: fumadocs-ui's internal DOM ids, not a public API. A fumadocs-ui
+   upgrade can rename or restructure them; re-check every selector below against the built DOM
+   when bumping that dependency. Each one leaves as its slot is taken over.
+ */
 
 /* Collapsing the sidebar does animate the grid track, but over ~90ms, so it reads as a snap
    rather than a movement. Slower and decelerating, so the eye follows the panel out. Scoped to
    the track: fumadocs-ui's `transition: all` animates every track on any resize. */
-#nd-notebook-layout {
+.ad-shell {
   transition-property: grid-template-columns;
   transition-duration: 420ms;
   transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
@@ -159,7 +160,7 @@ main :is(h1, h2, h3, h4) {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #nd-notebook-layout,
+  .ad-shell,
   #nd-sidebar {
     transition-duration: 0ms;
   }

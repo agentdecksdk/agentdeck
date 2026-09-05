@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { DocsLayout } from 'fumadocs-ui/layouts/notebook'
 import { Badge } from '@/components/ui/badge'
+import { DocsShell } from '@/components/docs/shell'
 import { SidebarFooter } from '@/components/docs/sidebar-footer'
 import { JackPanel } from '@/components/jack/panel'
 import { Mark } from '@/components/site/mark'
@@ -11,6 +12,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   return (
     <DocsLayout
       tree={source.getPageTree()}
+      slots={{ container: DocsShell }}
       /* v6.0.3 put the theme control at the foot of the sidebar, not in the bar, and the bar's
          right end was search, the assistant, then the repo link. */
       themeSwitch={{ enabled: false }}
