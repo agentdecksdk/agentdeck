@@ -19,9 +19,17 @@ This tracks what is still open.
 
 - [ ] Stage 3 second half: split `brand.css` (started, agent hit the session limit before writing; orphan base.css/docs.css removed) into `styles/{base,docs,utilities}.css` plus colocated component sheets
 - [ ] Stages 8-9: own the page and TOC, then drop `DocsLayout`
-- [ ] Stages 10-11: own the MDX layer and typography, own the providers, drop `preset.css` and `RootProvider`
-- [ ] Stage 13: remove `fumadocs-ui` from `package.json`
-- [ ] Stage 12 (Jack on assistant-ui over AG-UI) deferred to v6.0.5
+- [ ] Stage 11: own the providers, drop `RootProvider`
+
+Deferred to v6.0.5:
+
+- [ ] Stage 10 (own the MDX layer, drop `preset.css`). The four remaining imports (`mdx`, `callout`,
+      `steps`, `banner`) are content components with no `#nd-` coupling, and `tokens.css` already
+      re-points all 18 `--color-fd-*`. The cost is re-authoring `.prose` for 44 pages, the only stage
+      that regresses every page
+- [ ] Stage 13 (remove `fumadocs-ui` from `package.json`): blocked on 10, since `preset.css` still
+      supplies `animate-fd-*`, `fd-scroll-container` and `fd-steps` to retained components
+- [ ] Stage 12 (Jack on assistant-ui over AG-UI)
 - [ ] ## Page Feedback: /resources/migration-guides/
 **Viewport:** 390×844
 
