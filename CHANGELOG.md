@@ -10,6 +10,10 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ### Fixed
 
+- **`scripts/check_docs_impact.py` accepts an indented docs-impact acknowledgement** (#719). The
+  checklist line was anchored at column 0, so a Markdown list-continuation indent (identical when
+  rendered) failed silently, listing every affected page as unacknowledged. Leading whitespace is
+  now accepted, and the failure output now also names the `gh run rerun` / stale `PR_BODY` gotcha.
 - **`scripts/release_bump.py issues` finds a squash-merged release's milestone issues again**
   (#699). It looked for `Merge pull request #N` commits, a shape this repo's squash-merge
   workflow never produces, so it silently milestoned nothing; it now resolves each commit's
