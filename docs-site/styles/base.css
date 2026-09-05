@@ -34,48 +34,6 @@
 code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
-.cta-primary {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.7rem 1.4rem;
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: #ffffff !important;
-  background-color: var(--brand-blue);
-  border-radius: 5px;
-  text-decoration: none !important;
-  transition: background-color 0.15s ease;
-}
-
-.cta-primary:hover {
-  background-color: #1d4ed8;
-}
-
-.cta-ghost {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.7rem 1.2rem;
-  font-size: 0.95rem;
-  font-weight: 500;
-  color: #475569 !important;
-  text-decoration: none !important;
-  border-bottom: 1px solid transparent;
-  transition: color 0.15s ease;
-}
-
-.dark .cta-ghost {
-  color: #94a3b8 !important;
-}
-
-.cta-ghost:hover {
-  color: var(--brand-blue) !important;
-}
-
-.dark .cta-ghost:hover {
-  color: var(--brand-frost) !important;
-}
-
 .row-name {
   color: #38bdf8;
   font-weight: 600;
@@ -86,12 +44,6 @@ code {
 /* ========================================================================= */
 
 @media (max-width: 768px) {
-  .cta-primary,
-  .cta-ghost {
-    justify-content: center;
-    width: 100%;
-    text-align: center;
-  }
 }
 
 @media (max-width: 480px) {

@@ -106,6 +106,7 @@ article:has(.landing) > .x\:float-end {
 }
 
 .cta-primary {
+  gap: 0.5rem;
   background: var(--brand-blue);
   color: #ffffff;
 }
@@ -114,6 +115,8 @@ article:has(.landing) > .x\:float-end {
   background: #1d4fd8;
 }
 
+/* Frost is a light blue, so the label goes dark on it. It was white, at 2.04:1: the `!important`
+   the Nextra theme needed outlived the theme and beat this rule from another file. */
 .dark .cta-primary {
   background: var(--brand-frost);
   color: var(--brand-night);
@@ -125,12 +128,29 @@ article:has(.landing) > .x\:float-end {
 
 .cta-ghost {
   border-color: var(--rail);
-  color: inherit;
+  color: #475569;
 }
 
 .cta-ghost:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.dark .cta-ghost {
+  color: #94a3b8;
+}
+
+.dark .cta-ghost:hover {
+  color: var(--brand-frost);
+}
+
+/* Side by side is two half-width buttons on a phone; stacked, each is a full-width target. */
+@media (max-width: 768px) {
+  .cta-primary,
+  .cta-ghost {
+    width: 100%;
+    text-align: center;
+  }
 }
 
 .hero-visual {
@@ -890,37 +910,6 @@ article:has(.landing) > .x\:float-end {
   line-height: 1.1;
   letter-spacing: -0.035em;
   font-weight: 600;
-}
-
-.install-line {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.7rem;
-  margin: 2rem 0 0;
-  padding: 0.7rem 1rem;
-  border: 1px solid var(--rail);
-  background: var(--card-bg);
-  box-shadow: var(--card-shadow);
-  border-radius: var(--card-radius);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.9rem;
-  color: inherit;
-  cursor: pointer;
-}
-
-.install-line:hover {
-  border-color: var(--accent);
-}
-
-.install-prompt {
-  color: var(--accent);
-}
-
-.install-action {
-  font-size: 0.72rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--ink-soft);
 }
 
 .final-actions {

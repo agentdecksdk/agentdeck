@@ -383,8 +383,6 @@
 .ad-deck__surface {
   position: absolute;
   inset: 0;
-  display: grid;
-  place-items: center;
 }
 
 /* The three-colour lockup docs/brand/logo-full.svg defines: Agent Blue card, the A knocked out
@@ -597,31 +595,6 @@
 
 .tree-node--run {
   left: 150px;
-  top: 164px;
-}
-
-.tree-node--answer-wf {
-  left: 360px;
-  top: 164px;
-}
-
-.tree-node--docs {
-  left: 590px;
-  top: 44px;
-}
-
-.tree-node--researcher {
-  left: 590px;
-  top: 164px;
-}
-
-.tree-node--jack {
-  left: 590px;
-  top: 284px;
-}
-
-.tree-node--inspect {
-  left: 790px;
   top: 164px;
 }
 
