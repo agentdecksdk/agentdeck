@@ -8,6 +8,13 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`scripts/release_bump.py issues` finds a squash-merged release's milestone issues again**
+  (#699). It looked for `Merge pull request #N` commits, a shape this repo's squash-merge
+  workflow never produces, so it silently milestoned nothing; it now resolves each commit's
+  merged PR and reads GitHub's own `closingIssuesReferences`.
+
 ### Added
 
 - **The docs site nav states which version it documents** (#686), sourced from
