@@ -22,7 +22,7 @@ class _ReportGate(MemoryEventStore):
         return await super().append(payloads, ctx, origin)
 ```
 
-The same shape gates a different seam in three other merged tests: `test_store.py`'s original (#421), its completion-side sibling (#471, #680), and `_ClaimThenStall` in `test_runtime_service.py` (#391, #682), which gates a read instead of a write.
+The same shape gates a different seam in three other merged tests: `test_store.py`'s original (#421), its completion-side sibling (#471, #680), and `_ClaimThenStall` in `test_runtime_service.py` (#391), which gates a read instead of a write.
 
 Bad, illustrative (the repo has no real instance; racing sleeps are already banned): `await asyncio.sleep(0.05)` between the two writes, then an assert on the order. It passes on a machine that happens to schedule them that way, which is every machine until CI is loaded.
 
