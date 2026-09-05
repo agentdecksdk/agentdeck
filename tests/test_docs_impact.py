@@ -111,8 +111,10 @@ def test_cli_fails_when_an_affected_page_was_not_updated(
     monkeypatch.delenv("PR_BODY", raising=False)
 
     assert docs_impact.main([]) == 1
+    err = capsys.readouterr().err
     # The verbatim line to paste, not just the page name (#719: naming pages alone cost a review round).
-    assert "- [x] Unchanged pages reviewed: reference/run.mdx" in capsys.readouterr().err
+    assert "- [x] Unchanged pages reviewed: reference/run.mdx" in err
+    assert "gh run rerun" in err
 
 
 def test_an_acknowledgement_with_no_page_list_still_fails(monkeypatch: pytest.MonkeyPatch) -> None:
