@@ -4,3 +4,4 @@ out/
 *.log
 .source
 tsconfig.tsbuildinfo
+/next-env.d.ts
