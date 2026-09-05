@@ -19,6 +19,11 @@ const COLUMNS = `minmax(min-content, 1fr) var(--fd-sidebar-col) minmax(0, ${PAGE
  *  The sidebar column runs down through the footer row on purpose. A sticky element is bounded
  *  by its own grid area, so with the footer outside the grid the sidebar was pushed up by the
  *  footer's height at full scroll and slid under the bar.
+ *
+ *  The footer stops at the table-of-contents column and does not reach the trailing gutter. That
+ *  gutter is `minmax(min-content, 1fr)`, and a spanning item puts its whole min-content on the one
+ *  intrinsically sized track it touches: the footer's own minimum took 133px of a 390px viewport
+ *  away from the article.
  */
 export function DocsShell({ className, style, children, ...props }: ComponentProps<'div'>) {
   return (
@@ -29,7 +34,7 @@ export function DocsShell({ className, style, children, ...props }: ComponentPro
           `". header header header ."\n` +
           `"sidebar sidebar toc-popover toc-popover ."\n` +
           `"sidebar sidebar main toc ." 1fr\n` +
-          `"sidebar sidebar footer footer footer" auto / ${COLUMNS}`,
+          `"sidebar sidebar footer footer ." auto / ${COLUMNS}`,
         '--fd-docs-row-1': 'var(--fd-banner-height, 0px)',
         '--fd-docs-row-2': 'calc(var(--fd-docs-row-1) + var(--fd-header-height))',
         '--fd-docs-row-3': 'calc(var(--fd-docs-row-2) + var(--fd-toc-popover-height))',

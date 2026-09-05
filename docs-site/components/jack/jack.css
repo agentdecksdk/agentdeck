@@ -273,6 +273,9 @@ body {
   .ask-panel {
     right: 0;
     left: 0;
+    /* `top`, `bottom` and `height` together over-constrain the box, and CSS resolves from `top`,
+       so the sheet anchored to the top of the viewport and left the page showing beneath it. */
+    top: auto;
     bottom: 0;
     width: 100%;
     height: min(86vh, 100% - 2.5rem);
