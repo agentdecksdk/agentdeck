@@ -14,6 +14,14 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   (#699). It looked for `Merge pull request #N` commits, a shape this repo's squash-merge
   workflow never produces, so it silently milestoned nothing; it now resolves each commit's
   merged PR and reads GitHub's own `closingIssuesReferences`.
+- **A run that fails between its claim and its play now folds to `failed`, not `cancelled`**
+  (#688). An infrastructure fault there (a store write, a control-signal read) used to close the
+  run with `run.cancelled`, the same terminal kind a real cancellation gets, with the true cause
+  readable only in the reason prose. It now writes `run.failed` with `error_code="engine_error"`,
+  the same code the identical fault gets inside a run's own engine loop, so an operator's failure
+  listing or an incident metric keyed on `run.failed` sees it. A cancellation between the claim
+  and the play still folds to `cancelled`, unchanged. Any consumer that filtered on a run's folded
+  status will now see these runs move from its cancelled set to its failed set.
 
 ### Added
 

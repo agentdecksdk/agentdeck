@@ -56,7 +56,7 @@ from agentdeck.runtime.dispatch import SinkDispatch
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Mapping, Sequence
-    from typing import Any
+    from typing import Any, Literal
 
     from agentdeck.core.content import Input
     from agentdeck.core.control import ControlSignal
@@ -533,22 +533,28 @@ class Runtime:
         ]
 
     async def _abandon_claim(
-        self, spec: InvocableSpec, ctx: RunContext, exc: BaseException, span: str, asked: str | None = None
+        self,
+        spec: InvocableSpec,
+        ctx: RunContext,
+        exc: Exception | asyncio.CancelledError,
+        span: str,
+        asked: str | None = None,
     ) -> None:
         """Close a run whose claim committed and whose play never started.
 
         Every exit from the claim to :meth:`_play` strands it as a run the log says is live with nobody playing
         it, its session held for a whole staleness window. Not only a cancellation: a ``ControlPort`` can fail
-        while the event store this writes to is healthy (#470). Recorded rather than shielded, because status is
-        folded from the log: a log saying a run is live while nothing plays it lies. Guarded on ``RUNNING``
-        because the same span also serves a pending cancel, whose terminal event is already written (#391).
+        while the event store this writes to is healthy (#470). A cancellation writes ``run.cancelled``, shielded
+        because the task is already being cancelled; anything else is an infrastructure fault, not a
+        cancellation, so it writes ``run.failed`` instead  -  unshielded, since nothing here is cancelling the
+        write itself  -  with the same ``error_code`` :func:`_failed` gives the identical fault inside ``_play``
+        (#688). Guarded on ``RUNNING`` because the same span also serves a pending cancel, whose terminal event
+        is already written (#391).
 
         Args:
             span: which claim was stranded, for the reason this writes.
             asked: an operator's own reason, when the stranded span was serving their cancel.
         """
-        # The type name only, the story ``_failed`` tells for a run that died in its engine:
-        # ``run.cancelled`` reads as a cancellation, so anything else has to say what it was.
         if isinstance(exc, asyncio.CancelledError):
             stranded = f"cancelled {span}"
         else:
@@ -557,7 +563,12 @@ class Runtime:
         try:
             status = await self._store.run_status(ctx)
             if status is RunStatus.RUNNING:
-                await self._close_cancelled(spec, ctx, reason)
+                if isinstance(exc, asyncio.CancelledError):
+                    await self._close_cancelled(spec, ctx, reason)
+                else:
+                    await self._record(
+                        RunFailed(error_code=_error_code(exc), message=reason, retryable=False), spec, ctx
+                    )
             elif status is None:
                 logger.debug("run %s has no events: its claim never committed, so nothing was written", ctx.run_id)
             else:
@@ -1321,6 +1332,14 @@ def _summed(one: Usage, other: Usage) -> Usage:
     )
 
 
+def _error_code(exc: Exception) -> Literal["invalid_input", "engine_error"]:
+    """The closed ``error_code`` an exception maps to, apart from any message: read from
+    ``type(exc)`` alone, so a caller with no engine in scope (:meth:`Runtime._abandon_claim`) gets
+    the same code :func:`_failed` would give the identical fault inside ``_play`` (#688).
+    """
+    return "invalid_input" if isinstance(exc, InputError) else "engine_error"
+
+
 def _failed(exc: Exception, engine: str) -> RunFailed:
     """The record for an exception the Runtime caught. The type name only  -  an exception message
     can carry content that must not reach a sink, ``InputError`` excepted: its own contract is
@@ -1331,7 +1350,7 @@ def _failed(exc: Exception, engine: str) -> RunFailed:
     fault, and minting one is a schema change rather than this line's business.
     """
     if isinstance(exc, InputError):
-        return RunFailed(error_code="invalid_input", message=str(exc), retryable=False)
+        return RunFailed(error_code=_error_code(exc), message=str(exc), retryable=False)
     if isinstance(exc, StoreError):
         return _engine_failed(f"{type(exc).__name__} recording this run")
     return _engine_failed(f"{type(exc).__name__} in engine {engine!r}")
