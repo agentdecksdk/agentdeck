@@ -583,6 +583,90 @@ main table td:last-child {
   border-bottom-color: var(--brand-border-dark);
 }
 
+/* Below 768px a table's columns stop fitting: a comparison matrix scrolled sideways in a
+   225px slot for a 310px table, and prose cells wrapped mid-word. Below the breakpoint each
+   row becomes a card. CSS cannot clone the header row's text onto every card without new
+   markup or a script, so the header collapses to one caption line, read once above the stack,
+   and the row's own first cell (already the row's identity in every table on the site) carries
+   the card. */
+@media (max-width: 768px) {
+  main table {
+    /* A card is 390px wide; an unbroken `<code>` span like `Deck.from_project().asgi(...)`
+       has no space to wrap at and would run past the rail otherwise. */
+    overflow-wrap: anywhere;
+  }
+
+  main table,
+  main table thead,
+  main table tbody,
+  main table tr {
+    display: block;
+    width: 100%;
+  }
+
+  main table thead {
+    margin-bottom: 0.75rem;
+    border-bottom: 1px solid var(--rail);
+    padding-bottom: 0.6rem;
+  }
+
+  main table thead tr {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  main table thead th {
+    display: block;
+    width: auto;
+    padding: 0;
+    border: 0;
+  }
+
+  main table thead th:empty {
+    display: none;
+  }
+
+  /* The header row has one cell per column with no separator of its own; this stands in for
+     the comma a hand-authored caption would use. */
+  main table thead th:not(:empty) ~ th:not(:empty)::before {
+    content: '\00b7';
+    margin: 0 0.45em;
+    color: var(--color-fd-muted-foreground);
+  }
+
+  main table tbody tr {
+    margin-bottom: 0.9rem;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--rail);
+    border-radius: var(--card-radius);
+  }
+
+  main table tbody tr:last-child {
+    margin-bottom: 0;
+  }
+
+  main table tr:last-child td {
+    border-bottom: 1px solid var(--rail);
+  }
+
+  main table td {
+    display: block;
+    width: auto;
+    padding: 0.55rem 0;
+  }
+
+  main table td:first-child {
+    padding-top: 0;
+    color: inherit;
+    font-weight: 600;
+  }
+
+  main table td:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+}
+
 /* Inline code: a tint, not a chip. A page of bordered pills is a page of small boxes. */
 main :not(pre) > code {
   border: 0;

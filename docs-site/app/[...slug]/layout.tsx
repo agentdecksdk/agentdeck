@@ -20,7 +20,13 @@ export default function Layout({ children }: { children: ReactNode }) {
       themeSwitch={{ enabled: false }}
       /* `collapsible` is what puts the collapse trigger in the bar; v6.0.3 had no such control
          there, and the sidebar is the page's spine rather than something to fold away. */
-      sidebar={{ footer: SidebarFooter, collapsible: false, components: { Item: SidebarItem } }}
+      sidebar={{
+        footer: SidebarFooter,
+        collapsible: false,
+        components: { Item: SidebarItem },
+        role: 'navigation',
+        'aria-label': 'Sidebar'
+      }}
       nav={{ mode: 'top' }}
     >
       {children}

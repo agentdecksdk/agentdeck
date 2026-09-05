@@ -1,6 +1,8 @@
 'use client'
 
 import type { ComponentProps, CSSProperties } from 'react'
+import { useEffect, useRef } from 'react'
+import { useSidebar } from 'fumadocs-ui/components/sidebar/base'
 import { cn } from '@/lib/utils'
 import { SiteFooter } from '@/components/site/footer'
 
@@ -26,6 +28,30 @@ const COLUMNS = `minmax(min-content, 1fr) var(--fd-sidebar-col) minmax(0, ${PAGE
  *  away from the article.
  */
 export function DocsShell({ className, style, children, ...props }: ComponentProps<'div'>) {
+  const { open, setOpen, mode } = useSidebar()
+  const opener = useRef<HTMLElement | null>(null)
+
+  // The drawer has no native <dialog>, so nothing restores focus to whatever opened it; capture
+  // that element on open and hand focus back on close, the way <dialog> would on its own.
+  useEffect(() => {
+    if (mode !== 'drawer') return
+    if (open) {
+      opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      return
+    }
+    opener.current?.focus()
+    opener.current = null
+  }, [open, mode])
+
+  useEffect(() => {
+    if (mode !== 'drawer' || !open) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [mode, open, setOpen])
+
   return (
     <div
       {...props}

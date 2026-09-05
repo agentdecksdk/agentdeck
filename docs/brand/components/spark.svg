@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="880 152.5 196.8 196.7" fill="currentColor" role="img" aria-label="AgentDeck spark">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="828.765 -64.697 257.229 257.086" fill="currentColor" role="img" aria-label="AgentDeck spark">
   <title>Spark</title>
-  <desc>The spark alone. Drawn geometry, not a trace, and already sized and positioned for the mark
-  space 246 145 832 933, so a composition pastes it with no transform.</desc>
-  <path d="M 998.23,319.84 l -9.95,22.78 c -3.82,8.76 -15.94,8.76 -19.77,0 l -9.95,-22.78 c -8.86,-20.28 -24.79,-36.42 -44.66,-45.24 L 886.53,262.45 c -8.7,-3.86 -8.7,-16.53 0,-20.4 l 26.52,-11.77 C 933.44,221.23 949.65,204.5 958.36,183.54 l 10.07,-24.28 c 3.74,-9.01 16.19,-9.01 19.93,0 L 998.43,183.54 c 8.7,20.97 24.92,37.71 45.31,46.75 l 26.52,11.77 c 8.7,3.86 8.7,16.53 0,20.4 l -27.38,12.16 C 1023.02,283.43 1007.08,299.57 998.23,319.84 z"/>
+  <desc>The spark alone, drawn in the mark space 0 -64.70 1085.99 1209.70 that AgentDeck Primary
+  Mark v1.0 defines, so a composition pastes it with no transform.</desc>
+  <path d="M 983.307 154.026 l -13.007 29.775 c -4.993 11.450 -20.837 11.450 -25.843 0.000 l -13.007 -29.775 c -11.582 -26.508 -32.405 -47.604 -58.379 -59.132 L 837.294 79.013 c -11.373 -5.045 -11.373 -21.606 0.000 -26.664 l 34.667 -15.384 C 898.614 25.135 919.804 3.268 931.190 -24.129 l 13.163 -31.736 c 4.889 -11.777 21.163 -11.777 26.052 0.000 L 983.569 -24.129 c 11.373 27.409 32.575 49.290 59.229 61.106 l 34.667 15.384 c 11.373 5.045 11.373 21.606 0.000 26.664 l -35.791 15.894 C 1015.712 106.435 994.876 127.532 983.307 154.026 Z"/>
 </svg>
