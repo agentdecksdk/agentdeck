@@ -94,7 +94,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           </Announcement>
           {children}
           <footer className="site-footer">
-            AgentDeck SDK v{CURRENT_VERSION} · Compose. Observe. Ship.
+            {/* README.md:7, verbatim. The footer says what the project is for, not what it does. */}
+            <strong>Agentic software should feel like software.</strong>
+            <span>AgentDeck SDK v{CURRENT_VERSION}</span>
           </footer>
         </RootProvider>
         {/* Annotate the running site in the browser; the overlay talks to the agent over the

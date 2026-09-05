@@ -1093,9 +1093,55 @@ main div.x\:float-end {
    element and no rule, so it has been 16px unpadded body text flush against the page edge since
    the migration. It sits outside the docs grid, as a direct child of `<body>`. */
 .site-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
   border-top: 1px solid var(--rail);
-  padding: 1.5rem 2rem;
+  padding: 2rem;
   text-align: center;
-  font-size: 0.8125rem;
+}
+
+/* The claim carries the weight; the version is a footnote under it. */
+.site-footer strong {
+  font-family: var(--font-display), sans-serif;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--brand-night);
+}
+
+.dark .site-footer strong {
+  color: #f1f5f9;
+}
+
+.site-footer span {
+  font-size: 0.78rem;
   color: var(--brand-cool-gray);
+}
+
+/* The install line: one command, so it hugs its content rather than filling the column.
+   `kibo-ui/snippet` is built for a code panel and defaults to `w-full` with a panel's padding,
+   which put a 1272x76 card where a reader is being handed a single line to copy. */
+.install-line {
+  width: max-content;
+  max-width: 100%;
+  margin-inline: auto;
+  background: var(--card-bg);
+  border-color: var(--rail);
+}
+
+.install-line [role='tabpanel'] {
+  padding: 0.5rem 0.9rem;
+  font-size: 0.82rem;
+}
+
+.install-line [role='tablist'] {
+  padding: 0.2rem;
+}
+
+.install-line [role='tab'] {
+  height: 26px;
+  padding-inline: 0.6rem;
+  font-size: 0.75rem;
 }
