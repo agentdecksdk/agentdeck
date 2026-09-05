@@ -1,9 +1,8 @@
 import type { Metadata, Viewport } from 'next'
 import { Inter, Poppins } from 'next/font/google'
-import { RootProvider } from 'fumadocs-ui/provider/next'
 import { Agentation } from 'agentation'
 import { Announcement } from '@/components/site/announcement'
-import PagefindSearchDialog from '@/components/site/search-dialog'
+import { SiteProviders } from '@/components/site/providers'
 import type { ReactNode } from 'react'
 import { CURRENT_VERSION } from '@/lib/version'
 import { SITE } from '@/lib/site'
@@ -98,12 +97,12 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             })
           }}
         />
-        <RootProvider search={{ SearchDialog: PagefindSearchDialog }}>
+        <SiteProviders>
           <Announcement id="v6-launch" href="/meet-agentdeck/whats-new-6">
             AgentDeck 6.0 is here: serve one deck over HTTP, AG-UI or the terminal.
           </Announcement>
           {children}
-        </RootProvider>
+        </SiteProviders>
         {/* Annotate the running site in the browser; the overlay talks to the agent over the
             agentation MCP server. Dead code in a production build, where NODE_ENV is inlined. */}
         {process.env.NODE_ENV === 'development' && <Agentation />}

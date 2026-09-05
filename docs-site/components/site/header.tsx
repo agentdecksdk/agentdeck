@@ -1,8 +1,7 @@
 'use client'
 
 import type { ComponentProps } from 'react'
-import { SearchTrigger } from 'fumadocs-ui/layouts/shared/slots/search-trigger'
-import { useSearchContext } from 'fumadocs-ui/contexts/search'
+import { SearchTrigger, useSearchContext } from '@/components/site/search-context'
 import { SidebarTrigger } from 'fumadocs-ui/components/sidebar/base'
 import { PanelLeft, Search } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -91,7 +90,7 @@ export function SiteHeader({ className, ...props }: ComponentProps<'header'>) {
         >
           <GitHubMark />
         </a>
-        <SearchTrigger hideIfDisabled className="p-[13px] md:hidden" />
+        <SearchTrigger className="p-[13px] md:hidden" />
         <Button variant="ghost" size="icon" className="size-11 md:hidden" asChild>
           <SidebarTrigger aria-label="Open sidebar"><PanelLeft /></SidebarTrigger>
         </Button>
