@@ -17,8 +17,13 @@ This tracks what is still open.
 
 ## Epic #729, still to do
 
-- [ ] Stages 8-9: own the page and TOC, then drop `DocsLayout`
-- [ ] Stage 11: own the providers, drop `RootProvider`
+- [ ] Stage 11b: own the search dialog on our own `Dialog`, dropping
+      `fumadocs-ui/components/dialog/search`. The last non-primitive import outside stage 10's four
+
+Stages 8, 9 and 11a are done. What is left of `fumadocs-ui` is primitives the plan keeps
+(`components/sidebar/base`, `contexts/tree`, `components/toc`, `components/sidebar/page-tree`,
+`utils/use-footer-items`), two leaf controls (`layouts/notebook/page`'s copy button and view
+options, `layouts/shared/slots/theme-switch`), the search dialog, and stage 10's `components/banner`.
 
 Deferred to v6.0.5:
 
