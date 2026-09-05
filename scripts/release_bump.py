@@ -90,7 +90,7 @@ def referenced_issues(text: str) -> list[int]:
 def commits_since(tag: str, run: Runner) -> list[tuple[str, str]]:
     """(hash, subject) pairs since ``tag``, oldest first."""
     pairs: list[tuple[str, str]] = []
-    for line in run(["git", "log", f"{tag}..HEAD", "--format=%H%x09%s"]).splitlines():
+    for line in run(["git", "log", "--reverse", f"{tag}..HEAD", "--format=%H%x09%s"]).splitlines():
         commit_hash, _, subject = line.partition("\t")
         pairs.append((commit_hash, subject))
     return pairs
