@@ -1,0 +1,101 @@
+/* AgentDeck brand palette and the shared controls every surface uses. */
+
+/* AgentDeck brand palette, applied over fumadocs-ui */
+
+:root {
+  --brand-blue: #2563ff;   /* Agent Blue - primary brand color */
+  --brand-frost: #93b5ff;  /* Frost Blue - accent in dark mode */
+  --brand-night: #0b1220;  /* Deep Night - dark-mode ground */
+  --brand-slate: #162032;  /* Slate - dark-mode raised surfaces */
+  --brand-ice: #f1f5fd;    /* Ice - light-mode raised surfaces */
+  --brand-canvas: #fafbfe; /* Snow - light-mode ground */
+  --brand-ace: #ff3b30;    /* Ace Red - subtle accent */
+  /* Decorative only. As ink it is 2.48:1 on the canvas, so text and icons take
+     `--color-fd-muted-foreground`, which is this value in dark and a darker slate in light. */
+  --brand-cool-gray: #94a3b8;
+  --brand-soft-gray: #e2e8f0;
+  --brand-border-light: #e5e9f2;
+  --brand-border-dark: #1e293b;
+
+  /* The brand card. Defined here rather than under `.landing` so docs pages get the same
+     surface: a code block on a guide is the same object as a code block on the home page. */
+  --rail: var(--brand-border-light);
+  --card-bg: linear-gradient(180deg, #ffffff, #f6f8ff);
+  --card-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 12px 30px rgba(11, 18, 32, 0.05);
+  --card-radius: 12px 12px 5px 12px;
+}
+
+.dark {
+  --rail: var(--brand-border-dark);
+  --card-bg: linear-gradient(180deg, #18233a, #131c30);
+  --card-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 12px 30px rgba(0, 0, 0, 0.3);
+}
+/* Base Code styling */
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+.cta-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 1.4rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #ffffff !important;
+  background-color: var(--brand-blue);
+  border-radius: 5px;
+  text-decoration: none !important;
+  transition: background-color 0.15s ease;
+}
+
+.cta-primary:hover {
+  background-color: #1d4ed8;
+}
+
+.cta-ghost {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.7rem 1.2rem;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #475569 !important;
+  text-decoration: none !important;
+  border-bottom: 1px solid transparent;
+  transition: color 0.15s ease;
+}
+
+.dark .cta-ghost {
+  color: #94a3b8 !important;
+}
+
+.cta-ghost:hover {
+  color: var(--brand-blue) !important;
+}
+
+.dark .cta-ghost:hover {
+  color: var(--brand-frost) !important;
+}
+
+.row-name {
+  color: #38bdf8;
+  font-weight: 600;
+}
+
+/* ========================================================================= */
+/* COMPREHENSIVE MOBILE LAYOUT & RESPONSIVENESS (< 768px & < 480px)          */
+/* ========================================================================= */
+
+@media (max-width: 768px) {
+  .cta-primary,
+  .cta-ghost {
+    justify-content: center;
+    width: 100%;
+    text-align: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .brand-callout {
+    padding: 0.85rem 1rem;
+  }
+}

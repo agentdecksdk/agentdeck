@@ -1,0 +1,25 @@
+/* The install line: one command, so it hugs its content rather than filling the column.
+   `kibo-ui/snippet` is built for a code panel and defaults to `w-full` with a panel's padding,
+   which put a 1272x76 card where a reader is being handed a single line to copy. */
+.install-line {
+  width: max-content;
+  max-width: 100%;
+  margin-inline: auto;
+  background: var(--card-bg);
+  border-color: var(--rail);
+}
+
+.install-line [role='tabpanel'] {
+  padding: 0.5rem 0.9rem;
+  font-size: 0.82rem;
+}
+
+.install-line [role='tablist'] {
+  padding: 0.2rem;
+}
+
+.install-line [role='tab'] {
+  height: 26px;
+  padding-inline: 0.6rem;
+  font-size: 0.75rem;
+}

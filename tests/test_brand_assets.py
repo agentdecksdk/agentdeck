@@ -18,7 +18,7 @@ BRAND = ROOT / "docs" / "brand"
 COMPONENTS = BRAND / "components"
 PATH_D = re.compile(r'\sd="([^"]+)"')
 FILL = re.compile(r'fill="(#[0-9a-fA-F]{3,8})"')
-PALETTE_CSS = ROOT / "docs-site" / "styles" / "brand.css"
+PALETTE_CSS = ROOT / "docs-site" / "styles" / "base.css"
 PALETTE_TOKEN = re.compile(r"(--brand-[\w-]+)\s*:\s*(#[0-9a-fA-F]{3,8})")
 WORD = "agentdeck"
 

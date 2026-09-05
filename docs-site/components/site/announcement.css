@@ -1,0 +1,130 @@
+/* Announcement banner: one static line on the card blue, with the stylized A repeated behind it
+   at low opacity. The watermark is a pseudo-element rather than a fill on the asset, so its
+   weight is tunable here without a second copy of the geometry.
+   Text is pure white, not an off-white: 4.88:1 against the fill's lightest point (both themes),
+   AA but not AAA - 7:1 needs darkening the fill past a recognizable brand blue. */
+/* No `position: relative` here: fumadocs-ui ships the banner `sticky top-0`, the docs layout
+   reserves `--fd-banner-height` at the top of the sidebar's sticky offset, and overriding the
+   position let the banner scroll away while that reservation stayed, leaving a 48px strip of
+   page above the sidebar. `sticky` is already a containing block for the watermark below. */
+.ad-banner {
+  background: var(--brand-blue) !important;
+  color: #fff !important;
+}
+
+.dark .ad-banner {
+  background: linear-gradient(90deg, #1d4fd8, var(--brand-blue)) !important;
+}
+
+.ad-banner::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: url('/brand/a-chevron.svg') repeat-x;
+  background-position: 0 center;
+  /* Authored tile width, not a percentage of the bar, because the drift below has to travel
+     exactly one tile to loop without a seam. */
+  background-size: 44px auto;
+  opacity: 0.13;
+  /* Cleared under the message: chevrons behind text is texture competing with reading. */
+  mask-image: linear-gradient(90deg, #000 0%, transparent 34%, transparent 66%, #000 100%);
+  pointer-events: none;
+  animation: ad-announce-drift 4s linear infinite;
+}
+
+@keyframes ad-announce-drift {
+  from {
+    background-position: 0 center;
+  }
+  to {
+    background-position: -44px center;
+  }
+}
+
+.ad-announce {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  width: 100%;
+  /* The link's own hit area, not the banner's, so it reaches 44 tall inside the fixed
+     3rem banner (set via inline style, out of this file's reach) without growing the text. */
+  min-height: 44px;
+  color: inherit;
+  text-decoration: none;
+  font-family: var(--font-display), sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.005em;
+}
+
+.ad-announce__spark {
+  height: 0.85rem;
+  flex: none;
+  fill: var(--brand-ace);
+}
+
+/* The first beat: the news itself, a size and a weight above the call to action. */
+.ad-announce__claim {
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ad-announce__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex: none;
+  font-weight: 500;
+  /* Not opacity: at 0.92 the CTA measured 4.37:1 against the fill's lightest stop, below AA
+     while the claim text next to it holds 4.88:1. Full-opacity white keeps both at 4.88:1; the
+     weight difference (500 vs. the claim's 600) still reads as the quieter of the two. */
+  white-space: nowrap;
+}
+
+.ad-announce__arrow {
+  height: 0.7em;
+  transition: transform 0.18s ease;
+}
+
+.ad-announce:hover .ad-announce__arrow {
+  transform: translateX(2px);
+}
+
+.ad-announce:hover .ad-announce__cta {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ad-banner::before {
+    animation: none;
+  }
+}
+
+/* Under the pill and the CTA there is no room for the claim, and the CTA is the part that has to
+   survive: the announcement page carries the sentence anyway. */
+@media (max-width: 560px) {
+  .ad-announce__claim {
+    display: none;
+  }
+}
+/* The banner's own close control. It inherits the page's accent on hover, which paints a pale
+   grey-blue box with near-black text on top of the brand blue. On this surface white is the only
+   ink there is. */
+.ad-banner button[aria-label='Close Banner'] {
+  color: rgb(255 255 255 / 65%);
+  /* Padding sizes the visible glyph; min-width/height grows the hit area past it without
+     enlarging the icon. inset-e-2 anchors the right edge, so the box grows leftward. */
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.ad-banner button[aria-label='Close Banner']:hover {
+  background: rgb(255 255 255 / 15%);
+  color: #fff;
+}

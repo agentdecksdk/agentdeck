@@ -63,7 +63,7 @@ single `translate`, since it is not part of the mark.
 
 Colour also belongs to the composition. The parts are `currentColor`; the dark-mode lockup is a
 blue card, a white A and a red spark, and the part files do not know that. Every fill a
-composition sets is a `--brand-*` token from the site's `brand.css`, which the test enforces:
+composition sets is a `--brand-*` token from the site's `styles/base.css`, which the test enforces:
 the A counter sat at `#ffffff` beside a `#fafbfe` headline until it did.
 
 **Copy from here, never from a finished card.** Every other SVG in this directory is a composition
@@ -253,5 +253,5 @@ the lighter weight unexamined, against the site's `-0.02em`. The outlines are re
 `-1.92`, which is `-0.02em` at font-size 96, so the wordmark now matches the site in family,
 weight and tracking.
 
-The palette is not affected  -  the sheet's hexes and the site's `brand.css` already match exactly.
+The palette is not affected  -  the sheet's hexes and the site's `styles/base.css` already match exactly.
 The wider presentation question stays with the docs-site design pass (#140).

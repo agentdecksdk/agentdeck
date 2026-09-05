@@ -3,7 +3,7 @@
 
    One story told down one spine. Every section is a `.chapter` on the same
    1px vertical rule, so the page reads as a single execution rather than as
-   a stack of unrelated panels. Colour comes from `brand.css` tokens only,
+   a stack of unrelated panels. Colour comes from `base.css` tokens only,
    motion comes from runtime state only, and the geometry is the mark's:
    45-degree cut corners, spark markers, thin structural lines.
    ========================================================================== */
@@ -23,7 +23,7 @@ article:has(.landing) > .x\:float-end {
 }
 
 /* `--rail`, `--card-bg`, `--card-shadow` and `--card-radius` are the brand card and live in
-   brand.css, so a docs page and this page draw the same object. Only what is particular to the
+   base.css, so a docs page and this page draw the same object. Only what is particular to the
    landing page is defined here. */
 .landing {
   --surface: var(--brand-ice);

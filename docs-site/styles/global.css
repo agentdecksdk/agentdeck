@@ -9,7 +9,7 @@
    `xl:layout:[--fd-toc-width:268px]`. Custom properties inherit down, not up, so our own
    container collapses the sidebar and the table of contents to 0px without this.
 
-   It has to live here rather than in `brand.css`: a variant only applies where the utilities are
+   It has to live here rather than in `base.css`: a variant only applies where the utilities are
    generated, and this file is the Tailwind entry point. Last registration wins. */
 @variant layout {
   #nd-docs-layout:has(&),

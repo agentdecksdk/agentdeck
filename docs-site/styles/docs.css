@@ -1,0 +1,344 @@
+/* The article: code blocks, prose typography, tables, details. */
+
+/* Every code block, not just the home page's. fumadocs-ui renders one as `figure.shiki` with
+   `bg-fd-card`, a neutral grey that reads as a foreign surface beside the brand's own cards. */
+figure.shiki {
+  background: var(--card-bg);
+  border-color: var(--rail);
+  box-shadow: var(--card-shadow);
+  border-radius: var(--card-radius);
+}
+
+/* The figure carries the surface; a painted `pre` inside it stacks a second panel in a card. */
+figure.shiki pre {
+  background: transparent !important;
+}
+
+/* Copy Text: a 24x24 glyph shrink-wrapped `top-3 right-2` inside the figure's own
+   `overflow: hidden`. The overlay's offsets match that budget exactly (12px up, 8px right)
+   so the 44x44 hit area lands inside the figure instead of getting clipped by it. */
+figure.shiki button[aria-label='Copy Text'] {
+  position: relative;
+}
+
+figure.shiki button[aria-label='Copy Text']::after {
+  content: '';
+  position: absolute;
+  top: -12px;
+  right: -8px;
+  width: 44px;
+  height: 44px;
+}
+
+/* Typography */
+main :is(h1, h2, h3, h4) {
+  font-family: var(--font-display), var(--font-body), sans-serif;
+  letter-spacing: -0.025em;
+  font-weight: 600;
+  color: var(--brand-night);
+}
+
+.dark main :is(h1, h2, h3, h4) {
+  color: #f8fafc;
+}
+/* No hover-`#` on headings: the ids stay, so the table of contents and every deep link keep
+   working, but the mark itself is noise next to a heading. */
+.subheading-anchor {
+  display: none;
+}
+
+/* Copy Anchor Link: 24x24, revealed on hover. The overlay is positioned content, so it grows
+   the hit area to 44x44 without adding to the heading row's height. */
+main :is(h1, h2, h3, h4) button[aria-label='Copy Anchor Link'] {
+  position: relative;
+}
+
+main :is(h1, h2, h3, h4) button[aria-label='Copy Anchor Link']::after {
+  content: '';
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 44px;
+  height: 44px;
+  transform: translate(-50%, -50%);
+}
+
+/* ------------------------------------------------------------ docs component language
+
+   The theme's defaults read as "a documentation framework": uniform vertical rhythm, a border on
+   every surface, neutral grey for the active state. What follows is the same structure with the
+   brand's own proportions and one accent colour doing the work borders were doing. */
+
+main h1 {
+  font-size: 2.5rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+/* Space above, not a rule: a section starts because the page breathes, and the border under every
+   h2 was one of the horizontal lines competing with the code blocks and tables. */
+main h2 {
+  margin-top: 3.5rem;
+  margin-bottom: 0.6rem;
+  padding-bottom: 0;
+  border-bottom: 0;
+  font-size: 1.375rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+main h3 {
+  margin-top: 2.25rem;
+  margin-bottom: 0.5rem;
+}
+
+/* Prose is capped at a readable measure while code blocks, tables and figures keep the article's
+   full width: the wider column bought the tables room, not longer lines of text. */
+main p,
+main ul,
+main ol,
+main blockquote {
+  max-width: 46rem;
+}
+
+main p {
+  line-height: 1.75;
+}
+
+/* The lead: the first sentence of a page is its thesis, so it is set a size above the body. */
+main h1 + p {
+  margin-top: 0.9rem;
+  font-size: 1.3125rem;
+  line-height: 1.6;
+  color: var(--color-fd-muted-foreground);
+}
+
+.dark main h1 + p {
+  color: #94a3b8;
+}
+
+/* Tables as a comparison matrix: one rule under the header, hairlines between rows, nothing around
+   the outside, and the answer column carrying more weight than the problem column. */
+main table {
+  border-collapse: collapse;
+  border: 0;
+  /* fumadocs-ui paints the table itself with `bg-fd-card` and rounds it, which puts a grey slab
+     around a design whose whole point is that nothing surrounds it. */
+  background: transparent;
+  border-radius: 0;
+  /* Left to `auto`, a comparison table sizes to its longest cell and scrolls sideways in the
+     column it is meant to be read against. */
+  width: 100%;
+}
+
+main table tr {
+  background: transparent !important;
+}
+
+main table th {
+  padding: 0.55rem 1.1rem 0.55rem 0;
+  border: 0;
+  border-bottom: 1px solid var(--brand-border-light);
+  background: transparent;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fd-muted-foreground);
+  text-align: start;
+}
+
+main table td {
+  padding: 0.9rem 1.1rem 0.9rem 0;
+  border: 0;
+  border-bottom: 1px solid var(--brand-border-light);
+  background: transparent;
+  vertical-align: top;
+}
+
+main table tr:last-child td {
+  border-bottom: 0;
+}
+
+main table td:first-child {
+  color: var(--color-fd-muted-foreground);
+}
+
+main table td:last-child {
+  color: inherit;
+}
+
+.dark main table th,
+.dark main table td {
+  border-bottom-color: var(--brand-border-dark);
+}
+
+/* Row rhythm: troubleshooting runs 11 rows across two tables, and the eye loses its row
+   crossing back from the last column. Desktop only - below 768 rows are already cards. */
+@media (min-width: 769px) {
+  main table tbody tr:nth-child(even) td {
+    background: color-mix(in srgb, var(--brand-blue) 4%, transparent);
+  }
+
+  .dark main table tbody tr:nth-child(even) td {
+    background: color-mix(in srgb, var(--brand-frost) 6%, transparent);
+  }
+}
+
+/* Below 768px a table's columns stop fitting: a comparison matrix scrolled sideways in a
+   225px slot for a 310px table, and prose cells wrapped mid-word. Below the breakpoint each
+   row becomes a card. CSS cannot clone the header row's text onto every card without new
+   markup or a script, so the header collapses to one caption line, read once above the stack,
+   and the row's own first cell (already the row's identity in every table on the site) carries
+   the card. */
+@media (max-width: 768px) {
+  main table {
+    /* A card is 390px wide; an unbroken `<code>` span like `Deck.from_project().asgi(...)`
+       has no space to wrap at and would run past the rail otherwise. */
+    overflow-wrap: anywhere;
+  }
+
+  main table,
+  main table thead,
+  main table tbody,
+  main table tr {
+    display: block;
+    width: 100%;
+  }
+
+  main table thead {
+    margin-bottom: 0.75rem;
+    border-bottom: 1px solid var(--rail);
+    padding-bottom: 0.6rem;
+  }
+
+  main table thead tr {
+    display: flex;
+    flex-wrap: wrap;
+  }
+
+  main table thead th {
+    display: block;
+    width: auto;
+    padding: 0;
+    border: 0;
+  }
+
+  main table thead th:empty {
+    display: none;
+  }
+
+  /* The header row has one cell per column with no separator of its own; this stands in for
+     the comma a hand-authored caption would use. */
+  main table thead th:not(:empty) ~ th:not(:empty)::before {
+    content: '\00b7';
+    margin: 0 0.45em;
+    color: var(--color-fd-muted-foreground);
+  }
+
+  main table tbody tr {
+    margin-bottom: 0.9rem;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--rail);
+    border-radius: var(--card-radius);
+  }
+
+  main table tbody tr:last-child {
+    margin-bottom: 0;
+  }
+
+  main table tr:last-child td {
+    border-bottom: 1px solid var(--rail);
+  }
+
+  main table td {
+    display: block;
+    width: auto;
+    padding: 0.55rem 0;
+  }
+
+  main table td:first-child {
+    padding-top: 0;
+    color: inherit;
+    font-weight: 600;
+  }
+
+  main table td:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+}
+
+/* Inline code: a tint, not a chip. A page of bordered pills is a page of small boxes. */
+main :not(pre) > code {
+  border: 0;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--brand-blue) 7%, transparent);
+  padding: 0.1em 0.32em;
+}
+
+.dark main :not(pre) > code {
+  background: color-mix(in srgb, var(--brand-frost) 12%, transparent);
+}
+
+/* The install line is itself a card the reader clicks. The inline-code tint above would put a
+   second, differently coloured surface inside it. The dark selector is repeated because
+   `.dark main :not(pre) > code` outranks a single class on one element. */
+.install-line code,
+.dark .install-line code {
+  background: transparent;
+  padding: 0;
+}
+
+/* Troubleshooting entries: a list with dividers when closed, one tinted surface when open. The
+   error output stays the darkest thing inside it, so the hierarchy is page, answer, output. */
+main details {
+  margin: 0;
+  border: 0;
+  border-bottom: 1px solid var(--brand-border-light);
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.dark main details {
+  border-bottom-color: var(--brand-border-dark);
+}
+
+main details > summary {
+  padding: 0.55rem 0.2rem;
+  font-weight: 500;
+  background: transparent;
+}
+
+/* Nextra wraps a summary's text in an `h3`, which the section rhythm above must not reach: its
+   top margin lands inside the row and pushes the title off the chevron's line. */
+main details > summary h3 {
+  margin: 0;
+  padding: 0;
+  font-size: 0.9375rem;
+  font-weight: inherit;
+}
+
+main details[open] {
+  background: color-mix(in srgb, var(--brand-blue) 4%, transparent);
+  border-radius: 6px;
+  padding-bottom: 0.5rem;
+}
+
+.dark main details[open] {
+  background: color-mix(in srgb, var(--brand-frost) 6%, transparent);
+}
+
+main details[open] > summary {
+  font-weight: 600;
+}
+
+main details > :not(summary) {
+  margin-inline: 0.9rem;
+}
+/* "Copy page" floats at the top of the article, which lands it half a line above the h1 and short
+   of the column's right edge. On the breadcrumb's line, flush right, it reads as a page control. */
+main div.x\:float-end {
+  margin-top: -2.6rem;
+  margin-inline-end: 0;
+}

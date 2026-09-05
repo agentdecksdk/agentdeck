@@ -81,7 +81,7 @@ export function SiteHeader({ className, ...props }: ComponentProps<'header'>) {
 
       <div className="ms-auto flex items-center gap-1.5 md:ms-0">
         <JackPanel validSlugs={slugs} />
-        {/* Explicit min-width/min-height, not `w-11 h-11`: brand.css fixes width/height at 30px
+        {/* Explicit min-width/min-height, not `w-11 h-11`: header.css fixes width/height at 30px
             and only a conflicting min- constraint is guaranteed to win over it regardless of
             stylesheet order. */}
         <a
