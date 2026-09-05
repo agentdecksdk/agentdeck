@@ -553,7 +553,7 @@ two handles on one run always agree: the durable store is the only thing either 
 | `resume` | `() -> None` | continue a paused run; `RunStateError` when it is waiting for an answer instead |
 | `cancel` | `(reason=None) -> None` | ask it to stop for good; a suspended run ends immediately rather than waiting for a safe point |
 | `pending` | `() -> InterruptResult \| None` | what it is waiting to be answered about, or `None` if it is not `WAITING_ANSWER` |
-| `answer` | `(value) -> None` | answer the interrupt it is paused on |
+| `answer` | `(value) -> None` | answer the interrupt it is paused on; `RunStateError` if it isn't waiting, `ValueError` if the log can't carry `value`  -  an ask that named `options` refuses anything outside them, one that named none hands `value` to the body unvalidated |
 | `events` | `(*, from_seq=0, follow=False) -> AsyncIterator[Event]` | this run's own events  -  a snapshot by default, tailed live with `follow=True` |
 | `await run` | | the result: a `TurnResult` for an agent, the body's own return value for a workflow |
 
@@ -3082,12 +3082,31 @@ The current release is **v6.0.3**. Earlier releases are listed at the bottom.
 
 ## Unreleased
 
+### Removed
+
+- **Docs no longer deploy to GitHub Pages** (#724). The real site is served from its own domain;
+  the Pages mirror hadn't worked since the Fumadocs migration. `docs-pages.yml` is deleted, and
+  `next.config.mjs` no longer branches on `GITHUB_ACTIONS` to add a `/agentdeck` prefix, so CI's
+  `Build documentation` now builds the same output prod serves.
+
 ### Fixed
 
+- **`scripts/check_docs_impact.py` accepts an indented docs-impact acknowledgement** (#719). The
+  checklist line was anchored at column 0, so a Markdown list-continuation indent (identical when
+  rendered) failed silently, listing every affected page as unacknowledged. Leading whitespace is
+  now accepted, and the failure output now also names the `gh run rerun` / stale `PR_BODY` gotcha.
 - **`scripts/release_bump.py issues` finds a squash-merged release's milestone issues again**
   (#699). It looked for `Merge pull request #N` commits, a shape this repo's squash-merge
   workflow never produces, so it silently milestoned nothing; it now resolves each commit's
   merged PR and reads GitHub's own `closingIssuesReferences`.
+- **A run that fails between its claim and its play now folds to `failed`, not `cancelled`**
+  (#688). An infrastructure fault there (a store write, a control-signal read) used to close the
+  run with `run.cancelled`, the same terminal kind a real cancellation gets, with the true cause
+  readable only in the reason prose. It now writes `run.failed` with `error_code="engine_error"`,
+  the same code the identical fault gets inside a run's own engine loop, so an operator's failure
+  listing or an incident metric keyed on `run.failed` sees it. A cancellation between the claim
+  and the play still folds to `cancelled`, unchanged. Any consumer that filtered on a run's folded
+  status will now see these runs move from its cancelled set to its failed set.
 
 ### Added
 
@@ -3188,7 +3207,7 @@ Source: https://agentdecksdk.com/resources/known-issues
 
 # Known Issues
 
-Everything here is real, reproduced, and open against **v6.0.0**. It is published rather than
+Everything here is real, reproduced, and open against the current release. It is published rather than
 quietly tracked because most of these fail *silently*  -  you get a plausible wrong answer, not an
 error  -  and an hour spent debugging one of them is an hour this page could have saved.
 
@@ -3231,7 +3250,7 @@ check what the model is actually receiving.
 
 ## Rough edges
 
-Not silent, not traps  -  just things that will cost you a few minutes.
+Not silent  -  just things that will cost you a few minutes.
 
 | What | Issue |
 |---|---|
@@ -3555,6 +3574,28 @@ When a run enters `waiting_answer`, supply input with `run.answer()`:
 ```python
 await run.answer({"approved": True})
 ```
+
+## An unvalidated answer is the node's to judge
+
+`ctx.ask(question)` with no `options` hands `run.answer()`'s `value` straight to the body,
+unvalidated: nothing outside the node can judge a free-form answer, so the node raises on one it
+does not accept.
+
+```python
+@workflow
+async def resolve(ctx: WorkflowCtx, ticket: dict) -> str:
+    decision = await ctx.ask(f"approve {ticket['id']}?")
+    if decision not in ("yes", "no"):
+        raise ValueError(f"approval expects 'yes' or 'no', got {decision!r}")
+    return "approved" if decision == "yes" else "declined"
+```
+
+```python
+await run.answer("yes")   # decision == "yes", the node continues
+await run.answer(12345)   # no error here  -  the node's own check raises instead
+```
+
+An ask that names `options` gets this refusal for free instead: see [Workflows](/build-your-deck/workflows#options-make-it-a-choice).
 
 ---
 
