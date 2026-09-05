@@ -55,11 +55,9 @@ export const SnippetCopyButton = ({
   const [isCopied, setIsCopied] = useState(false);
 
   const copyToClipboard = () => {
-    if (
-      typeof window === "undefined" ||
-      !navigator.clipboard.writeText ||
-      !value
-    ) {
+    // `navigator.clipboard` exists only in a secure context, so it is undefined over plain http
+    // to anything but localhost. Reading `.writeText` off it there throws before the guard runs.
+    if (typeof window === "undefined" || !navigator.clipboard?.writeText || !value) {
       return;
     }
 

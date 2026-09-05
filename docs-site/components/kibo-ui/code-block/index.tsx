@@ -341,11 +341,9 @@ export const CodeBlockCopyButton = ({
   const code = data.find((item) => item.language === value)?.code;
 
   const copyToClipboard = () => {
-    if (
-      typeof window === "undefined" ||
-      !navigator.clipboard.writeText ||
-      !code
-    ) {
+    // `navigator.clipboard` exists only in a secure context, so it is undefined over plain http
+    // to anything but localhost. Reading `.writeText` off it there throws before the guard runs.
+    if (typeof window === "undefined" || !navigator.clipboard?.writeText || !code) {
       return;
     }
 
