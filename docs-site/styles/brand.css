@@ -60,7 +60,7 @@ main :is(h1, h2, h3, h4) {
   color: #f8fafc;
 }
 
-/* `#nd-sidebar` and `#nd-subnav`: fumadocs-ui's internal DOM ids, not a public API. A fumadocs-ui
+/* `#nd-sidebar`: a fumadocs-ui internal DOM id, not a public API. A fumadocs-ui
    upgrade can rename or restructure them; re-check every selector below against the built DOM
    when bumping that dependency. Each one leaves as its slot is taken over.
  */
@@ -79,49 +79,10 @@ main :is(h1, h2, h3, h4) {
   transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-/* The bar carries the mark, the search and then the actions. As nav children the actions land
-   next to the mark, so they are pushed to the end of that flexible region instead. */
-/* fumadocs-ui renders nav children in the bar's first region, beside the mark, and there is no
-   prop that reaches the region after the search. Pinned to the bar's end instead, which is where
-   v6.0.3 had the assistant and the repo link. */
-.nav-actions {
-  position: absolute;
-  inset-inline-end: 0;
-  top: 0;
-  height: 100%;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.6rem;
-}
-
-/* Pinned out of flow, so the row has to reserve the width itself or the search grows under it.
-   `--nav-actions-reserve` is that width plus a gap; the narrow value is smaller because
-   `jack.css` drops the assistant's label below 768. */
-#nd-subnav > .flex {
-  position: relative;
-  /* The actions' width plus the bar's own 8px rhythm, so the search stops one gap short of the
-     assistant rather than butting against it. */
-  --nav-actions-reserve: 153px;
-  padding-inline-end: var(--nav-actions-reserve);
-}
-
-@media (max-width: 767px) {
-  #nd-subnav > .flex {
-    --nav-actions-reserve: 80px;
-  }
-}
-
-/* Two controls, not one, but the same object: the assistant takes the search's height and corner
-   so they read as a pair rather than as a pill next to a field. */
-#nd-subnav .ask-launch {
-  height: 36px;
-  border-radius: 12px;
-}
-
-/* The bar's last region held the controls that are now in `.nav-actions`, and an empty flexible
-   region left a 276px hole between the search and them. */
-#nd-subnav > .flex > div:last-child {
-  flex: 0 0 auto;
+/* The bar is the page with a rule under it, not a raised surface. */
+.ad-bar {
+  background: transparent;
+  border-bottom-color: var(--rail);
 }
 
 .nav-actions__repo {
@@ -147,10 +108,11 @@ main :is(h1, h2, h3, h4) {
   color: var(--brand-frost);
 }
 
-/* The bar is the page with a rule under it, not a raised surface. */
-#nd-subnav > .flex {
-  background: transparent;
-  border-bottom: 1px solid var(--rail);
+/* Two controls, not one, but the same object: the assistant takes the search's height and corner
+   so they read as a pair rather than as a pill next to a field. */
+.ad-bar .ask-launch {
+  height: 36px;
+  border-radius: 12px;
 }
 
 /* The current page is named by its colour. fumadocs-ui also fills the whole row with
@@ -175,7 +137,7 @@ main :is(h1, h2, h3, h4) {
 }
 
 #nd-sidebar a[href="/"] strong,
-#nd-subnav a[href="/"] strong {
+.ad-wordmark {
   font-size: 1.0625rem;
 }
 
