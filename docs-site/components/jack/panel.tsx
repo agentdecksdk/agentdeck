@@ -13,10 +13,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
-import { AnswerLink } from './jack-answer-link'
-import { Mark } from './mark'
-import { jackCitationsPlugin } from './jack-citations'
-import { JackUnavailable, askJack } from './jack-stream'
+import { AnswerLink } from './answer-link'
+import { Mark } from '@/components/site/mark'
+import { jackCitationsPlugin } from './citations'
+import { JackUnavailable, askJack } from './stream'
 
 type Turn = { question: string; answer: string; reading: string[] }
 

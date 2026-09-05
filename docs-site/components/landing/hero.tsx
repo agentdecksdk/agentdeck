@@ -11,7 +11,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 
-import { ICONS, type ModuleKey } from './kind-icons'
+import { ICONS, type ModuleKey } from '@/components/ui/kind-icons'
 
 type Phase = "scatter" | "compose" | "deck" | "activate" | "execute";
 

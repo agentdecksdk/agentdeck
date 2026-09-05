@@ -1,9 +1,9 @@
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import { DocsBody, DocsPage } from 'fumadocs-ui/layouts/notebook/page'
-import { getMDXComponents } from '../../mdx-components'
-import { PageFeedback } from '../page-feedback'
-import { source } from '../source'
+import { getMDXComponents } from '@/mdx-components'
+import { PageFeedback } from '@/components/docs/page-feedback'
+import { source } from '@/lib/source'
 
 // A *required* catch-all: `/` is the landing page's own route (`app/page.tsx`), which renders
 // outside the docs shell. An optional catch-all would claim it and put a sidebar on it.

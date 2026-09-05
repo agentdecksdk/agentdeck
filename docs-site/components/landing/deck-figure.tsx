@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { ICONS, type ModuleKey } from './kind-icons'
+import { ICONS, type ModuleKey } from '@/components/ui/kind-icons'
 
 /**
  * The two figures the landing page reuses instead of drawing a new diagram per section.

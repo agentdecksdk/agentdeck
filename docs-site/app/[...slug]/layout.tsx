@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react'
 import { DocsLayout } from 'fumadocs-ui/layouts/notebook'
 import { ThemeSwitch } from 'fumadocs-ui/layouts/shared/slots/theme-switch'
-import { JackPanel } from '../jack'
-import { Mark } from '../mark'
-import { pageSlugs, source } from '../source'
-import { CURRENT_VERSION } from '../generated-version'
+import { JackPanel } from '@/components/jack/panel'
+import { Mark } from '@/components/site/mark'
+import { pageSlugs, source } from '@/lib/source'
+import { CURRENT_VERSION } from '@/lib/version'
 
 export default function Layout({ children }: { children: ReactNode }) {
   return (

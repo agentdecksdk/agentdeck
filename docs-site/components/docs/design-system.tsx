@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { BrandSpark, BrandCardMark } from './brand-icons'
+import { BrandSpark, BrandCardMark } from '@/components/ui/brand-icons'
 
 export interface SparkMarkerProps {
   kind?: 'inactive' | 'active' | 'live'

@@ -17,10 +17,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
-import { TreeFigure, type TreeNode } from './deck-figure'
-import { AnswerLink } from './jack-answer-link'
-import { jackCitationsPlugin } from './jack-citations'
-import { JackUnavailable, askJack } from './jack-stream'
+import { TreeFigure, type TreeNode } from '@/components/landing/deck-figure'
+import { AnswerLink } from './answer-link'
+import { jackCitationsPlugin } from './citations'
+import { JackUnavailable, askJack } from './stream'
 
 const EXAMPLES = [
   'How do I write a workflow with human approval?',

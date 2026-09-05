@@ -2,8 +2,8 @@ import React from 'react'
 import Link from 'next/link'
 
 import { TreeFigure, type TreeNode } from './deck-figure'
-import { pageSlugs } from './source'
-import { JackLive } from './jack-live'
+import { pageSlugs } from '@/lib/source'
+import { JackLive } from '@/components/jack/live'
 import { InstallLine } from './install-line'
 import { Hero } from './hero'
 

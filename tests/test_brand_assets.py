@@ -18,7 +18,7 @@ BRAND = ROOT / "docs" / "brand"
 COMPONENTS = BRAND / "components"
 PATH_D = re.compile(r'\sd="([^"]+)"')
 FILL = re.compile(r'fill="(#[0-9a-fA-F]{3,8})"')
-PALETTE_CSS = ROOT / "docs-site" / "app" / "brand.css"
+PALETTE_CSS = ROOT / "docs-site" / "styles" / "brand.css"
 PALETTE_TOKEN = re.compile(r"(--brand-[\w-]+)\s*:\s*(#[0-9a-fA-F]{3,8})")
 WORD = "agentdeck"
 
@@ -38,7 +38,7 @@ def _compositions() -> tuple[Path, ...]:
     """
     files = tuple(svg for svg in sorted(BRAND.glob("*.svg")) if svg.name not in PROVENANCE)
     assert files, f"no brand SVGs under {BRAND}  -  the directory moved"
-    site = (ROOT / "docs-site" / "app" / "mark.tsx", ROOT / "docs-site" / "app" / "icon.svg")
+    site = (ROOT / "docs-site" / "components" / "site" / "mark.tsx", ROOT / "docs-site" / "app" / "icon.svg")
     assert all(p.is_file() for p in site), f"a docs-site brand file moved: {site}"
     return files + site
 

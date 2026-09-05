@@ -1,5 +1,5 @@
 import React from 'react'
-import { BrandSpark } from './brand-icons'
+import { BrandSpark } from '@/components/ui/brand-icons'
 
 type Difficulty = 'small' | 'medium' | 'advanced'
 type Scope = 'example' | 'guide' | 'diagram' | 'troubleshooting' | 'integration'
