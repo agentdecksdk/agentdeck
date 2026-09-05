@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { DocsLayout } from 'fumadocs-ui/layouts/notebook'
-import { ThemeSwitch } from 'fumadocs-ui/layouts/shared/slots/theme-switch'
+import { SidebarFooter } from '@/components/docs/sidebar-footer'
 import { JackPanel } from '@/components/jack/panel'
 import { Mark } from '@/components/site/mark'
 import { pageSlugs, source } from '@/lib/source'
@@ -15,7 +15,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       themeSwitch={{ enabled: false }}
       /* `collapsible` is what puts the collapse trigger in the bar; v6.0.3 had no such control
          there, and the sidebar is the page's spine rather than something to fold away. */
-      sidebar={{ footer: <ThemeSwitch key="theme-switch" mode="light-dark-system" />, collapsible: false }}
+      sidebar={{ footer: SidebarFooter, collapsible: false }}
       nav={{
         /* The v6.0.3 arrangement: a real top bar carrying the mark, the assistant and the repo
            link, with the sidebar left to the page tree. `layouts/notebook` is fumadocs-ui's own
