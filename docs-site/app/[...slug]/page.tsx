@@ -1,9 +1,8 @@
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
-import { DocsBody, DocsPage } from 'fumadocs-ui/layouts/notebook/page'
 import { getMDXComponents } from '@/mdx-components'
+import { DocsArticle } from '@/components/docs/page'
 import { PageActions } from '@/components/docs/page-actions'
-import { PageFeedback } from '@/components/docs/page-feedback'
 import { source } from '@/lib/source'
 
 // A *required* catch-all: `/` is the landing page's own route (`app/page.tsx`), which renders
@@ -28,23 +27,13 @@ export default async function Page(props: { params: Promise<{ slug: string[] }> 
   const MDX = page.data.body
 
   return (
-    <DocsPage
-      toc={page.data.toc}
-      tableOfContent={{
-        footer: <PageFeedback />,
-        container: { className: 'ad-toc', role: 'navigation', 'aria-label': 'Table of contents' }
-      }}
-      /* Below the TOC's breakpoint fumadocs-ui puts a sticky bar above the article whose only
-         content is a button repeating the page title. The title is already the first thing in
-         the article. */
-      tableOfContentPopover={{ enabled: false }}
-    >
+    <DocsArticle toc={page.data.toc}>
       <PageActions url={page.url} path={page.path} />
       {/* Pagefind indexes only what carries this attribute, so the index stays page text rather
           than the navigation repeated 44 times. `nextra-theme-docs` emitted it for us. */}
-      <DocsBody data-pagefind-body>
+      <div className="prose flex-1" data-pagefind-body>
         <MDX components={getMDXComponents()} />
-      </DocsBody>
-    </DocsPage>
+      </div>
+    </DocsArticle>
   )
 }
