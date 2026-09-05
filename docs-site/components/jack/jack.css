@@ -124,7 +124,7 @@ body {
   flex: 1;
   font-family: ui-monospace, monospace;
   font-size: 0.72rem;
-  color: var(--brand-cool-gray);
+  color: var(--color-fd-muted-foreground);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -135,7 +135,7 @@ body {
   background: none;
   font-size: 1.35rem;
   line-height: 1;
-  color: var(--brand-cool-gray);
+  color: var(--color-fd-muted-foreground);
   cursor: pointer;
 }
 
@@ -148,7 +148,7 @@ body {
 
 .ask-hint,
 .ask-reading {
-  color: var(--brand-cool-gray);
+  color: var(--color-fd-muted-foreground);
   font-size: 0.8rem;
 }
 
@@ -330,7 +330,7 @@ body {
   max-width: 22rem;
   font-size: 0.8rem;
   line-height: 1.55;
-  color: var(--brand-cool-gray);
+  color: var(--color-fd-muted-foreground);
 }
 
 .ask-empty__suggestions {

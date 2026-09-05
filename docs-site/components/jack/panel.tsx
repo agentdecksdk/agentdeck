@@ -15,7 +15,7 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import { AnswerLink } from './answer-link'
-import { Mark } from '@/components/site/mark'
+import { MarkLockup } from '@/components/site/mark'
 import { jackCitationsPlugin } from './citations'
 import { JackUnavailable, askJack } from './stream'
 
@@ -146,7 +146,7 @@ export function JackPanel({ validSlugs }: { validSlugs: string[] }) {
         {turns.length === 0 && (
           <div className="ask-empty">
             <span className="ask-empty__mark">
-              <Mark size={34} />
+              <MarkLockup size={38} />
             </span>
             <p className="ask-empty__title">What can I help with?</p>
             <p className="ask-empty__note">
