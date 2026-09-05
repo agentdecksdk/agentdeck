@@ -30,6 +30,7 @@ VERSION_RE = re.compile(r'(?m)^version = ".*"$')
 UNRELEASED_RE = re.compile(r"(?ms)^## \[Unreleased\]\n\n(.*?)(?=^## \[)")
 UNRELEASED_LINK_RE = re.compile(r"(?m)^\[Unreleased\]: (?P<prefix>\S+/compare/v)(?P<last>\S+?)\.\.\.HEAD$")
 FIXES_RE = re.compile(r"(?im)^(?:fixes|closes)\s+#(\d+)")
+TRAILING_PR_RE = re.compile(r"\(#(\d+)\)\s*$")
 
 
 def run_command(args: list[str]) -> str:
@@ -86,27 +87,41 @@ def referenced_issues(text: str) -> list[int]:
     return list(seen)
 
 
-def merged_pr_numbers_since(tag: str, run: Runner) -> list[int]:
-    """PRs merged into ``dev`` since ``tag``, oldest first.
+def commits_since(tag: str, run: Runner) -> list[tuple[str, str]]:
+    """(hash, subject) pairs since ``tag``, oldest first."""
+    pairs: list[tuple[str, str]] = []
+    for line in run(["git", "log", "--reverse", f"{tag}..HEAD", "--format=%H%x09%s"]).splitlines():
+        commit_hash, _, subject = line.partition("\t")
+        pairs.append((commit_hash, subject))
+    return pairs
 
-    A closing keyword lives in the PR body, not the commit message: this repo merges with
-    ``--merge`` rather than squashing, so a PR body's text never reaches ``git log`` at all (the
-    gap that left #560 out of v5.2.1's own milestone on the first real run of this script).
+
+def pr_closing_issues(pr: int, run: Runner) -> list[int]:
+    """Issues ``pr`` closes, per GitHub's own tracking: correct regardless of merge strategy.
+
+    Empty if ``pr`` doesn't resolve to a real PR: a squash subject's other ``(#N)`` is often
+    the issue it closed, not a PR, and a stray reference should degrade, not abort the scan.
     """
-    log = run(["git", "log", f"{tag}..HEAD", "--merges", "--format=%s"])
-    numbers: list[int] = []
-    for line in log.splitlines():
-        match = re.search(r"Merge pull request #(\d+)", line)
-        if match:
-            numbers.append(int(match.group(1)))
-    return numbers
+    try:
+        raw = run(["gh", "pr", "view", str(pr), "--repo", REPO, "--json", "closingIssuesReferences"])
+    except subprocess.CalledProcessError:
+        return []
+    return [ref["number"] for ref in json.loads(raw)["closingIssuesReferences"]]
 
 
-def referenced_issues_in_merged_prs(tag: str, run: Runner) -> list[int]:
+def referenced_issues_in_range(tag: str, run: Runner) -> list[int]:
+    """Issues closed by commits since ``tag``: each commit's trailing ``(#N)`` names the
+    squash-merged PR to ask GitHub directly; a commit without one (a direct push) falls back
+    to scanning its own message for ``Fixes``/``Closes``.
+    """
     seen: dict[int, None] = {}
-    for pr in merged_pr_numbers_since(tag, run):
-        body = run(["gh", "pr", "view", str(pr), "--repo", REPO, "--json", "body", "-q", ".body"])
-        for issue in referenced_issues(body):
+    for commit_hash, subject in commits_since(tag, run):
+        match = TRAILING_PR_RE.search(subject)
+        if match:
+            issues = pr_closing_issues(int(match.group(1)), run)
+        else:
+            issues = referenced_issues(run(["git", "log", "-1", "--format=%B", commit_hash]))
+        for issue in issues:
             seen.setdefault(issue, None)
     return list(seen)
 
@@ -147,7 +162,7 @@ def cmd_issues(version: str, run: Runner = run_command) -> int:
     milestone = f"v{version}"
     ensure_milestone(milestone, run)
 
-    issues = referenced_issues_in_merged_prs(latest_tag(run), run)
+    issues = referenced_issues_in_range(latest_tag(run), run)
     for issue in issues:
         run(["gh", "issue", "edit", str(issue), "--repo", REPO, "--milestone", milestone])
 
