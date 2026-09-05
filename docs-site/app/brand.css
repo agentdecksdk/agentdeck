@@ -19,6 +19,13 @@
   --color-fd-primary: var(--brand-blue);
   --color-fd-primary-foreground: #fff;
 
+  /* fumadocs-ui centres a fixed-width layout and gives the leftover to two flexible gutter
+     columns. The sidebar spans its own column plus that gutter and pins the nav to the inside
+     edge, so on a wide screen the surplus becomes dead space inside the sidebar: 183px of it at
+     1920. Widening the layout spends that space instead. The prose does not stretch with it,
+     because `article` is capped at 900px and centred in the column. */
+  --fd-layout-width: calc(100vw - 2rem);
+
   /* The brand card. Defined here rather than under `.landing` so docs pages get the same
      surface: a code block on a guide is the same object as a code block on the home page. */
   --rail: var(--brand-border-light);
@@ -72,9 +79,110 @@ main :is(h1, h2, h3, h4) {
   color: #f8fafc;
 }
 
-/* `#nd-sidebar`, `#nd-subnav`: fumadocs-ui's internal DOM ids, not a public API. A
-   fumadocs-ui upgrade can rename or restructure them; re-check every selector below against
-   the built DOM when bumping that dependency. */
+/* `#nd-sidebar`, `#nd-subnav`, `#nd-notebook-layout`: fumadocs-ui's internal DOM ids, not a
+   public API. A fumadocs-ui upgrade can rename or restructure them; re-check every selector
+   below against the built DOM when bumping that dependency. */
+
+/* Collapsing the sidebar does animate the grid track, but over ~90ms, so it reads as a snap
+   rather than a movement. Slower and decelerating, so the eye follows the panel out. Scoped to
+   the track: fumadocs-ui's `transition: all` animates every track on any resize. */
+#nd-notebook-layout {
+  transition-property: grid-template-columns;
+  transition-duration: 420ms;
+  transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+#nd-sidebar {
+  transition-duration: 420ms;
+  transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* The bar carries the mark, the search and then the actions. As nav children the actions land
+   next to the mark, so they are pushed to the end of that flexible region instead. */
+/* fumadocs-ui renders nav children in the bar's first region, beside the mark, and there is no
+   prop that reaches the region after the search. Pinned to the bar's end instead, which is where
+   v6.0.3 had the assistant and the repo link. */
+.nav-actions {
+  position: absolute;
+  inset-inline-end: 0;
+  top: 0;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+/* Pinned out of flow, so the row has to reserve the width itself or the search grows under it.
+   `--nav-actions-reserve` is that width plus a gap; the narrow value is smaller because
+   `jack.css` drops the assistant's label below 768. */
+#nd-subnav > .flex {
+  position: relative;
+  /* The actions' width plus the bar's own 8px rhythm, so the search stops one gap short of the
+     assistant rather than butting against it. */
+  --nav-actions-reserve: 153px;
+  padding-inline-end: var(--nav-actions-reserve);
+}
+
+@media (max-width: 767px) {
+  #nd-subnav > .flex {
+    --nav-actions-reserve: 80px;
+  }
+}
+
+/* Two controls, not one, but the same object: the assistant takes the search's height and corner
+   so they read as a pair rather than as a pill next to a field. */
+#nd-subnav .ask-launch {
+  height: 36px;
+  border-radius: 12px;
+}
+
+/* The bar's last region held the controls that are now in `.nav-actions`, and an empty flexible
+   region left a 276px hole between the search and them. */
+#nd-subnav > .flex > div:last-child {
+  flex: 0 0 auto;
+}
+
+.nav-actions__repo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  color: var(--brand-cool-gray);
+}
+
+.nav-actions__repo svg {
+  width: 18px;
+  height: 18px;
+}
+
+.nav-actions__repo:hover {
+  color: var(--brand-blue);
+}
+
+.dark .nav-actions__repo:hover {
+  color: var(--brand-frost);
+}
+
+/* The bar is the page with a rule under it, not a raised surface. */
+#nd-subnav > .flex {
+  background: transparent;
+  border-bottom: 1px solid var(--rail);
+}
+
+/* The current page is named by its colour. fumadocs-ui also fills the whole row with
+   `bg-fd-primary/10`, which makes a block of the nav where a change of ink is enough. */
+#nd-sidebar a[data-active='true'] {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #nd-notebook-layout,
+  #nd-sidebar {
+    transition-duration: 0ms;
+  }
+}
 
 .agentdeck-mark {
   color: var(--brand-blue);
@@ -815,8 +923,11 @@ code {
    weight is tunable here without a second copy of the geometry.
    Text is pure white, not an off-white: 4.88:1 against the fill's lightest point (both themes),
    AA but not AAA - 7:1 needs darkening the fill past a recognizable brand blue. */
+/* No `position: relative` here: fumadocs-ui ships the banner `sticky top-0`, the docs layout
+   reserves `--fd-banner-height` at the top of the sidebar's sticky offset, and overriding the
+   position let the banner scroll away while that reservation stayed, leaving a 48px strip of
+   page above the sidebar. `sticky` is already a containing block for the watermark below. */
 .ad-banner {
-  position: relative;
   background: var(--brand-blue) !important;
   color: #fff !important;
 }
@@ -985,6 +1096,13 @@ main h1 + p {
 main table {
   border-collapse: collapse;
   border: 0;
+  /* fumadocs-ui paints the table itself with `bg-fd-card` and rounds it, which puts a grey slab
+     around a design whose whole point is that nothing surrounds it. */
+  background: transparent;
+  border-radius: 0;
+  /* Left to `auto`, a comparison table sizes to its longest cell and scrolls sideways in the
+     column it is meant to be read against. */
+  width: 100%;
 }
 
 main table tr {
