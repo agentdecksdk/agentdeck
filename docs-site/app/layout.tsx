@@ -93,10 +93,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             AgentDeck 6.0 is here: serve one deck over HTTP, AG-UI or the terminal.
           </Announcement>
           {children}
-          <footer className="site-footer">
-            {/* The claim is README.md:7, verbatim. */}
-            AgentDeck SDK v{CURRENT_VERSION} · Agentic software should feel like software.
-          </footer>
         </RootProvider>
         {/* Annotate the running site in the browser; the overlay talks to the agent over the
             agentation MCP server. Dead code in a production build, where NODE_ENV is inlined. */}

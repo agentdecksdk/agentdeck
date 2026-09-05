@@ -810,3 +810,15 @@ main div.x\:float-end {
   padding-inline: 0.6rem;
   font-size: 0.75rem;
 }
+
+/* The banner's own close control. It inherits the page's accent on hover, which paints a pale
+   grey-blue box with near-black text on top of the brand blue. On this surface white is the only
+   ink there is. */
+.ad-banner button[aria-label='Close Banner'] {
+  color: rgb(255 255 255 / 65%);
+}
+
+.ad-banner button[aria-label='Close Banner']:hover {
+  background: rgb(255 255 255 / 15%);
+  color: #fff;
+}

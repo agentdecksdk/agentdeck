@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import { getMDXComponents } from '@/mdx-components'
+import { SiteFooter } from '@/components/site/footer'
 import { source } from '@/lib/source'
 
 // The landing page carries no navbar, sidebar or TOC, which is why it is its own route rather
@@ -21,8 +22,11 @@ export default function Home() {
   const MDX = landing().data.body
 
   return (
-    <main data-pagefind-body>
-      <MDX components={getMDXComponents()} />
-    </main>
+    <>
+      <main data-pagefind-body>
+        <MDX components={getMDXComponents()} />
+      </main>
+      <SiteFooter />
+    </>
   )
 }
