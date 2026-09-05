@@ -104,3 +104,20 @@ def test_a_non_canonical_link_is_ignored() -> None:
     b = extract_head(_head('<link rel="stylesheet" href="/b.css"/>'))
     assert _diff_page(extract_head(_head("")), a) == []
     assert _diff_page(a, b) == []
+
+
+def test_a_property_only_meta_tag_is_compared() -> None:
+    """`og:*`/`twitter:*` carry `property`, not `name`  -  the exact class #689's review found a
+    regex-based check missing. Widening past `<title>` to catch that class is the reason this
+    script exists, so a change to one must be reported."""
+    a = extract_head(_head('<meta property="og:title" content="Old"/>'))
+    b = extract_head(_head('<meta property="og:title" content="New"/>'))
+    lines = _diff_page(a, b)
+    assert any("og:title" in line and "only in build-a" in line for line in lines)
+    assert any("og:title" in line and "only in build-b" in line for line in lines)
+
+
+def test_malformed_json_ld_falls_back_to_raw_text_instead_of_crashing() -> None:
+    html = _head('<script type="application/ld+json">{not valid json</script>')
+    _title, _metas, _links, ldjson = extract_head(html)
+    assert ldjson == ("{not valid json",)
