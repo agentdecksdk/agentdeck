@@ -18,11 +18,36 @@
      recolors both instead of hand-rolling either. */
   --color-fd-primary: var(--brand-blue);
   --color-fd-primary-foreground: #fff;
+
+  /* The brand card. Defined here rather than under `.landing` so docs pages get the same
+     surface: a code block on a guide is the same object as a code block on the home page. */
+  --rail: var(--brand-border-light);
+  --card-bg: linear-gradient(180deg, #ffffff, #f6f8ff);
+  --card-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 12px 30px rgba(11, 18, 32, 0.05);
+  --card-radius: 12px 12px 5px 12px;
 }
 
 .dark {
   --color-fd-primary: var(--brand-frost);
   --color-fd-primary-foreground: var(--brand-night);
+
+  --rail: var(--brand-border-dark);
+  --card-bg: linear-gradient(180deg, #18233a, #131c30);
+  --card-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 12px 30px rgba(0, 0, 0, 0.3);
+}
+
+/* Every code block, not just the home page's. fumadocs-ui renders one as `figure.shiki` with
+   `bg-fd-card`, a neutral grey that reads as a foreign surface beside the brand's own cards. */
+figure.shiki {
+  background: var(--card-bg);
+  border-color: var(--rail);
+  box-shadow: var(--card-shadow);
+  border-radius: var(--card-radius);
+}
+
+/* The figure carries the surface; a painted `pre` inside it stacks a second panel in a card. */
+figure.shiki pre {
+  background: transparent !important;
 }
 
 body {
@@ -1014,6 +1039,15 @@ main :not(pre) > code {
 
 .dark main :not(pre) > code {
   background: color-mix(in srgb, var(--brand-frost) 12%, transparent);
+}
+
+/* The install line is itself a card the reader clicks. The inline-code tint above would put a
+   second, differently coloured surface inside it. The dark selector is repeated because
+   `.dark main :not(pre) > code` outranks a single class on one element. */
+.install-line code,
+.dark .install-line code {
+  background: transparent;
+  padding: 0;
 }
 
 /* Troubleshooting entries: a list with dividers when closed, one tinted surface when open. The
