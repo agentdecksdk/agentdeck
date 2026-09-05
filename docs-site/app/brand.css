@@ -64,6 +64,17 @@ main :is(h1, h2, h3, h4) {
   font-size: 1.0625rem;
 }
 
+/* The version badge next to the wordmark: `--color-fd-muted-foreground` measures under 4.5:1
+   against the nav's real light-mode background (measured ~4.2-4.4:1), so light mode gets a
+   stronger tone here; the token already clears 4.5:1 in dark mode. */
+.docs-version {
+  color: #475569;
+}
+
+.dark .docs-version {
+  color: var(--brand-cool-gray);
+}
+
 #nd-sidebar a[aria-label="GitHub"]:hover {
   color: var(--brand-blue);
 }
