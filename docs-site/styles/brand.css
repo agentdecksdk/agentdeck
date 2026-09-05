@@ -60,25 +60,6 @@ main :is(h1, h2, h3, h4) {
   color: #f8fafc;
 }
 
-/* `#nd-sidebar`: a fumadocs-ui internal DOM id, not a public API. A fumadocs-ui
-   upgrade can rename or restructure them; re-check every selector below against the built DOM
-   when bumping that dependency. Each one leaves as its slot is taken over.
- */
-
-/* Collapsing the sidebar does animate the grid track, but over ~90ms, so it reads as a snap
-   rather than a movement. Slower and decelerating, so the eye follows the panel out. Scoped to
-   the track: fumadocs-ui's `transition: all` animates every track on any resize. */
-.ad-shell {
-  transition-property: grid-template-columns;
-  transition-duration: 420ms;
-  transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
-}
-
-#nd-sidebar {
-  transition-duration: 420ms;
-  transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
-}
-
 /* The bar is the page with a rule under it, not a raised surface. */
 .ad-bar {
   background: transparent;
@@ -115,19 +96,6 @@ main :is(h1, h2, h3, h4) {
   border-radius: 12px;
 }
 
-/* The current page is named by its colour. fumadocs-ui also fills the whole row with
-   `bg-fd-primary/10`, which makes a block of the nav where a change of ink is enough. */
-#nd-sidebar a[data-active='true'] {
-  background: transparent;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ad-shell,
-  #nd-sidebar {
-    transition-duration: 0ms;
-  }
-}
-
 .agentdeck-mark {
   color: var(--brand-blue);
 }
@@ -136,7 +104,6 @@ main :is(h1, h2, h3, h4) {
   color: var(--brand-frost);
 }
 
-#nd-sidebar a[href="/"] strong,
 .ad-wordmark {
   font-size: 1.0625rem;
 }
@@ -149,23 +116,6 @@ main :is(h1, h2, h3, h4) {
 
 .dark .docs-version {
   color: var(--brand-cool-gray);
-}
-
-#nd-sidebar a[aria-label="GitHub"]:hover {
-  color: var(--brand-blue);
-}
-
-.dark #nd-sidebar a[aria-label="GitHub"]:hover {
-  color: var(--brand-frost);
-}
-
-/* Sidebar Navigation with AgentDeck Spark Grammar */
-#nd-sidebar {
-  border-inline-end-color: var(--brand-border-light);
-}
-
-.dark #nd-sidebar {
-  border-inline-end-color: var(--brand-border-dark);
 }
 
 /* Branded Callouts */

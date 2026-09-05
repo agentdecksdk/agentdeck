@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { DocsLayout } from 'fumadocs-ui/layouts/notebook'
 import { DocsShell } from '@/components/docs/shell'
 import { SidebarFooter } from '@/components/docs/sidebar-footer'
+import { SidebarItem } from '@/components/docs/sidebar-item'
 import { SiteHeader } from '@/components/site/header'
 import { source } from '@/lib/source'
 
@@ -19,7 +20,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       themeSwitch={{ enabled: false }}
       /* `collapsible` is what puts the collapse trigger in the bar; v6.0.3 had no such control
          there, and the sidebar is the page's spine rather than something to fold away. */
-      sidebar={{ footer: SidebarFooter, collapsible: false }}
+      sidebar={{ footer: SidebarFooter, collapsible: false, components: { Item: SidebarItem } }}
       nav={{ mode: 'top' }}
     >
       {children}
