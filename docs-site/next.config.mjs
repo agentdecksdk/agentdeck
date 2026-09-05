@@ -4,6 +4,7 @@ const withMDX = createMDX()
 const isGitHubPages = process.env.GITHUB_ACTIONS === 'true'
 
 export default withMDX({
+  agentRules: false,
   output: 'export',
   trailingSlash: true,
   basePath: isGitHubPages ? '/agentdeck' : '',
