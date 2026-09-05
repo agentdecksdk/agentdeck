@@ -1,12 +1,7 @@
 # docs-site polish, branch `docs/727-quickstart-polish`
 
-## Done
-
-- [x] Callout title carried a dead `font-medium` from shadcn's AlertTitle
-- [x] Mobile Ask Jack now rises from the bottom instead of sliding in from the right
-- [x] Copy page / Open in ChatGPT restored, on the shipped fumadocs controls
-- [x] Content sweep of all 43 pages: 8 false or broken claims fixed
-
+Completed work is the git log, not this file: a `/task` write empties any Done section here.
+This tracks what is still open.
 
 ## Open
 
