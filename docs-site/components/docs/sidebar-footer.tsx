@@ -1,7 +1,7 @@
 'use client'
 
 import type { ComponentProps } from 'react'
-import { ThemeSwitch } from 'fumadocs-ui/layouts/shared/slots/theme-switch'
+import { ThemeSwitch } from '@/components/docs/theme-switch'
 
 /** The theme control, at the foot of the sidebar as v6.0.3 had it.
  *
@@ -11,12 +11,12 @@ import { ThemeSwitch } from 'fumadocs-ui/layouts/shared/slots/theme-switch'
  *  the whole footer rather than something placed inside fumadocs-ui's.
  *
  *  Its own module with `'use client'`, because a function prop cannot cross the RSC boundary into
- *  `DocsLayout` unless it is a client reference.
+ *  `DocsLayout`.
  */
 export function SidebarFooter(props: ComponentProps<'div'>) {
   return (
     <div {...props} className="flex flex-row items-center border-t px-4 py-2.5">
-      <ThemeSwitch mode="light-dark-system" />
+      <ThemeSwitch />
     </div>
   )
 }

@@ -1088,3 +1088,14 @@ main div.x\:float-end {
 .dark .page-feedback__more {
   color: var(--brand-frost);
 }
+
+/* The site footer. `nextra-theme-docs` styled its own `<Footer>`; #689 replaced it with a bare
+   element and no rule, so it has been 16px unpadded body text flush against the page edge since
+   the migration. It sits outside the docs grid, as a direct child of `<body>`. */
+.site-footer {
+  border-top: 1px solid var(--rail);
+  padding: 1.5rem 2rem;
+  text-align: center;
+  font-size: 0.8125rem;
+  color: var(--brand-cool-gray);
+}

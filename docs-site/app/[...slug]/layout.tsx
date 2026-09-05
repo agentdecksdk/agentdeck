@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { DocsLayout } from 'fumadocs-ui/layouts/notebook'
+import { Badge } from '@/components/ui/badge'
 import { SidebarFooter } from '@/components/docs/sidebar-footer'
 import { JackPanel } from '@/components/jack/panel'
 import { Mark } from '@/components/site/mark'
@@ -40,7 +41,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.55rem' }}>
             <Mark size={26} />
             <strong style={{ fontFamily: 'var(--font-display)', fontWeight: 600, letterSpacing: '-0.02em' }}>AgentDeck</strong>
-            <span className="text-xs docs-version">v{CURRENT_VERSION}</span>
+            <Badge variant="secondary" className="docs-version">v{CURRENT_VERSION}</Badge>
           </span>
         )
       }}

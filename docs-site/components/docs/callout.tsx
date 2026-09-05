@@ -1,5 +1,6 @@
 import React from 'react'
 import { BrandSpark } from '@/components/ui/brand-icons'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 
 interface BrandCalloutProps {
   type?: 'model' | 'runtime' | 'concept' | 'warning'
@@ -7,32 +8,24 @@ interface BrandCalloutProps {
   children: React.ReactNode
 }
 
-export function BrandCallout({
-  type = 'model',
-  title,
-  children
-}: BrandCalloutProps) {
-  const isRuntime = type === 'runtime'
-  const isWarning = type === 'warning'
-  const isModel = type === 'model' || type === 'concept'
+const DEFAULT_TITLE = {
+  model: 'AGENTDECK MODEL',
+  concept: 'AGENTDECK MODEL',
+  runtime: 'RUNTIME BEHAVIOR',
+  warning: 'IMPORTANT'
+} as const
 
-  const defaultTitle = isModel
-    ? 'AGENTDECK MODEL'
-    : isRuntime
-    ? 'RUNTIME BEHAVIOR'
-    : isWarning
-    ? 'IMPORTANT'
-    : 'AGENTDECK NOTE'
-
-  const displayTitle = title || defaultTitle
-
+/** A note the reader should not skim past.
+ *
+ *  Built on `ui/alert` for the structure a hand-rolled div did not have: `role="alert"` and the
+ *  title/description grid that keeps a wrapped second line aligned under the first. The surface
+ *  stays the brand's, so `.brand-callout` still paints it. */
+export function BrandCallout({ type = 'model', title, children }: BrandCalloutProps) {
   return (
-    <div className={`brand-callout ${type}`}>
-      <div className="callout-header">
-        <BrandSpark size={14} className={`callout-spark ${type}`} />
-        <span className="callout-title">{displayTitle}</span>
-      </div>
-      <div className="callout-content">{children}</div>
-    </div>
+    <Alert className={`brand-callout ${type}`}>
+      <BrandSpark size={14} className={`callout-spark ${type}`} />
+      <AlertTitle className="callout-title">{title || DEFAULT_TITLE[type]}</AlertTitle>
+      <AlertDescription className="callout-content">{children}</AlertDescription>
+    </Alert>
   )
 }

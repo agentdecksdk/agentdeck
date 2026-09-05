@@ -2,7 +2,6 @@
 
 import { useControllableState } from "@radix-ui/react-use-controllable-state";
 import {
-  type ComponentType,
   transformerNotationDiff,
   transformerNotationErrorLevel,
   transformerNotationFocus,
@@ -12,6 +11,7 @@ import {
 import { CheckIcon, CopyIcon } from "lucide-react";
 import type {
   ComponentProps,
+  ComponentType,
   HTMLAttributes,
   ReactElement,
   ReactNode,
