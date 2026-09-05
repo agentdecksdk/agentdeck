@@ -17,7 +17,7 @@ This tracks what is still open.
 
 ## Epic #729, still to do
 
-- [ ] Stage 3 second half: split `brand.css` into `styles/{base,docs,utilities}.css` plus colocated component sheets
+- [ ] Stage 3 second half: split `brand.css` (started, agent hit the session limit before writing; orphan base.css/docs.css removed) into `styles/{base,docs,utilities}.css` plus colocated component sheets
 - [ ] Stages 8-9: own the page and TOC, then drop `DocsLayout`
 - [ ] Stages 10-11: own the MDX layer and typography, own the providers, drop `preset.css` and `RootProvider`
 - [ ] Stage 13: remove `fumadocs-ui` from `package.json`
@@ -39,8 +39,4 @@ This tracks what is still open.
 
 ## Reported by the sweep, not fixed
 
-- [ ] `OPENAI_USE_RESPONSES` missing from the generated settings table: fix `scripts/generate_docs_reference.py`, not the mdx
 - [ ] `troubleshooting.mdx` says two ConfigErrors raise at build time; they raise from `expose()`/`serve()`
-- [ ] `skills.mdx`, `integrations/{existing-agents,mcp,openai-agents-sdk}.mdx` are 17-line stubs with no example
-- [ ] `pause-resume.mdx` duplicates `lifecycle-and-control.mdx` with nothing added
-- [ ] `human-input.mdx` and `pause-resume.mdx` have no `description:` frontmatter
