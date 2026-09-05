@@ -1093,30 +1093,10 @@ main div.x\:float-end {
    element and no rule, so it has been 16px unpadded body text flush against the page edge since
    the migration. It sits outside the docs grid, as a direct child of `<body>`. */
 .site-footer {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.35rem;
   border-top: 1px solid var(--rail);
-  padding: 2rem;
+  padding: 1.5rem 2rem;
   text-align: center;
-}
-
-/* The claim carries the weight; the version is a footnote under it. */
-.site-footer strong {
-  font-family: var(--font-display), sans-serif;
-  font-size: 1rem;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  color: var(--brand-night);
-}
-
-.dark .site-footer strong {
-  color: #f1f5f9;
-}
-
-.site-footer span {
-  font-size: 0.78rem;
+  font-size: 0.8125rem;
   color: var(--brand-cool-gray);
 }
 
