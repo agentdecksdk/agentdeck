@@ -13,12 +13,6 @@
   --brand-border-light: #e5e9f2;
   --brand-border-dark: #1e293b;
 
-  /* fumadocs-ui's own tokens: the sidebar's and TOC's active-state classes already read
-     these (`data-[active=true]:bg-fd-primary`, `:text-fd-primary`), so one override here
-     recolors both instead of hand-rolling either. */
-  --color-fd-primary: var(--brand-blue);
-  --color-fd-primary-foreground: #fff;
-
   /* fumadocs-ui centres a fixed-width layout and gives the leftover to two flexible gutter
      columns. The sidebar spans its own column plus that gutter and pins the nav to the inside
      edge, so on a wide screen the surplus becomes dead space inside the sidebar: 183px of it at
@@ -35,9 +29,6 @@
 }
 
 .dark {
-  --color-fd-primary: var(--brand-frost);
-  --color-fd-primary-foreground: var(--brand-night);
-
   --rail: var(--brand-border-dark);
   --card-bg: linear-gradient(180deg, #18233a, #131c30);
   --card-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 12px 30px rgba(0, 0, 0, 0.3);
@@ -55,16 +46,6 @@ figure.shiki {
 /* The figure carries the surface; a painted `pre` inside it stacks a second panel in a card. */
 figure.shiki pre {
   background: transparent !important;
-}
-
-body {
-  color: var(--brand-night);
-  background-color: var(--brand-canvas);
-}
-
-.dark body {
-  color: #f1f5f9;
-  background-color: var(--brand-night);
 }
 
 /* Typography */
