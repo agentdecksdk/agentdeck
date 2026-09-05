@@ -43,6 +43,22 @@ figure.shiki pre {
   background: transparent !important;
 }
 
+/* Copy Text: a 24x24 glyph shrink-wrapped `top-3 right-2` inside the figure's own
+   `overflow: hidden`. The overlay's offsets match that budget exactly (12px up, 8px right)
+   so the 44x44 hit area lands inside the figure instead of getting clipped by it. */
+figure.shiki button[aria-label='Copy Text'] {
+  position: relative;
+}
+
+figure.shiki button[aria-label='Copy Text']::after {
+  content: '';
+  position: absolute;
+  top: -12px;
+  right: -8px;
+  width: 44px;
+  height: 44px;
+}
+
 /* Typography */
 main :is(h1, h2, h3, h4) {
   font-family: var(--font-display), var(--font-body), sans-serif;
@@ -65,8 +81,11 @@ main :is(h1, h2, h3, h4) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  /* The glyph stays 18px and the box stays visually 30px; the tap target is the whole 44. */
   width: 30px;
   height: 30px;
+  min-width: 44px;
+  min-height: 44px;
   border-radius: 6px;
   color: var(--color-fd-muted-foreground);
 }
@@ -404,6 +423,9 @@ code {
   justify-content: center;
   gap: 0.6rem;
   width: 100%;
+  /* The link's own hit area, not the banner's, so it reaches 44 tall inside the fixed
+     3rem banner (set via inline style, out of this file's reach) without growing the text. */
+  min-height: 44px;
   color: inherit;
   text-decoration: none;
   font-family: var(--font-display), sans-serif;
@@ -471,6 +493,21 @@ code {
    working, but the mark itself is noise next to a heading. */
 .subheading-anchor {
   display: none;
+}
+
+/* Copy Anchor Link: 24x24, revealed on hover. The overlay is positioned content, so it grows
+   the hit area to 44x44 without adding to the heading row's height. */
+main :is(h1, h2, h3, h4) button[aria-label='Copy Anchor Link'] {
+  position: relative;
+}
+
+main :is(h1, h2, h3, h4) button[aria-label='Copy Anchor Link']::after {
+  content: '';
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 44px;
+  height: 44px;
+  transform: translate(-50%, -50%);
 }
 
 /* ------------------------------------------------------------ docs component language
@@ -581,6 +618,18 @@ main table td:last-child {
 .dark main table th,
 .dark main table td {
   border-bottom-color: var(--brand-border-dark);
+}
+
+/* Row rhythm: troubleshooting runs 11 rows across two tables, and the eye loses its row
+   crossing back from the last column. Desktop only - below 768 rows are already cards. */
+@media (min-width: 769px) {
+  main table tbody tr:nth-child(even) td {
+    background: color-mix(in srgb, var(--brand-blue) 4%, transparent);
+  }
+
+  .dark main table tbody tr:nth-child(even) td {
+    background: color-mix(in srgb, var(--brand-frost) 6%, transparent);
+  }
 }
 
 /* Below 768px a table's columns stop fitting: a comparison matrix scrolled sideways in a
@@ -902,6 +951,10 @@ main div.x\:float-end {
    ink there is. */
 .ad-banner button[aria-label='Close Banner'] {
   color: rgb(255 255 255 / 65%);
+  /* Padding sizes the visible glyph; min-width/height grows the hit area past it without
+     enlarging the icon. inset-e-2 anchors the right edge, so the box grows leftward. */
+  min-width: 44px;
+  min-height: 44px;
 }
 
 .ad-banner button[aria-label='Close Banner']:hover {

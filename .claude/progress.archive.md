@@ -1,0 +1,7 @@
+- [x] Zero `nav` / `role="navigation"` landmarks site-wide: sidebar and TOC are plain divs, invisible as navigation to a screen reader
+- [x] Reference tables illegible at 390: 3 text columns in a nested sideways scroller, worst on troubleshooting. Needs a stacked per-row layout
+- [x] `whats-new-6` first table has a 746px minimum, so it scrolls at every width below 1440
+- [x] Mobile drawer ignores Escape
+- [x] Mobile drawer drops focus to `body` on close instead of restoring the trigger
+- [x] Duplicate hidden sidebar-trigger button (closed: it is fumadocs-ui's own drawer-close button, not ours)
+- [x] refine-brand adoption: two different sparks currently ship on one page (Jack empty state 433, banner 526)

@@ -44,7 +44,8 @@
 
 @media (max-width: 767px) {
   .ask-launch {
-    padding: 0 0.4rem;
+    min-height: 44px;
+    padding: 0 0.55rem;
   }
 
   .ask-launch__label {

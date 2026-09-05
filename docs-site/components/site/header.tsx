@@ -1,9 +1,10 @@
 'use client'
 
 import type { ComponentProps } from 'react'
-import { FullSearchTrigger, SearchTrigger } from 'fumadocs-ui/layouts/shared/slots/search-trigger'
+import { SearchTrigger } from 'fumadocs-ui/layouts/shared/slots/search-trigger'
+import { useSearchContext } from 'fumadocs-ui/contexts/search'
 import { SidebarTrigger } from 'fumadocs-ui/components/sidebar/base'
-import { PanelLeft } from 'lucide-react'
+import { PanelLeft, Search } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { JackPanel } from '@/components/jack/panel'
@@ -12,6 +13,42 @@ import { GitHubMark } from '@/components/site/brand-marks'
 import { cn } from '@/lib/utils'
 import { CURRENT_VERSION } from '@/lib/version'
 import { useDocSlugs } from '@/components/docs/use-doc-slugs'
+
+/**
+ * fumadocs' `FullSearchTrigger` hardcodes its shortcut chip: the first key renders "⌘" during SSR
+ * and swaps to "Ctrl" after mount on Windows/Linux, with no slot to reserve space around that
+ * swap. Rebuilt here, off the same public `useSearchContext`, so the first `kbd` can carry a
+ * fixed width: the swap changes the glyph, not the box.
+ */
+function DesktopSearchTrigger({ className }: { className?: string }) {
+  const { enabled, hotKey, setOpenSearch } = useSearchContext()
+  if (!enabled) return null
+  return (
+    <button
+      type="button"
+      data-search-full=""
+      aria-label="Open Search"
+      onClick={() => setOpenSearch(true)}
+      className={cn(
+        'inline-flex items-center gap-2 rounded-lg border bg-fd-secondary/50 p-1.5 ps-2 text-sm text-fd-muted-foreground transition-colors hover:bg-fd-accent hover:text-fd-accent-foreground',
+        className
+      )}
+    >
+      <Search className="size-4" />
+      Search
+      <div className="ms-auto inline-flex gap-0.5">
+        {hotKey.map((key, index) => (
+          <kbd
+            key={index}
+            className={cn('rounded-md border bg-fd-background px-1.5', index === 0 && 'inline-block min-w-12 text-center')}
+          >
+            {key.display}
+          </kbd>
+        ))}
+      </div>
+    </button>
+  )
+}
 
 /** The top bar: the mark, then search, then the assistant and the repository.
  *
@@ -34,21 +71,28 @@ export function SiteHeader({ className, ...props }: ComponentProps<'header'>) {
         className
       )}
     >
-      <a href="/" className="inline-flex items-center gap-2.5 font-semibold">
+      <a href="/" className="inline-flex min-h-11 items-center gap-2.5 font-semibold">
         <Mark size={26} />
         <strong className="ad-wordmark">AgentDeck</strong>
         <Badge variant="secondary" className="docs-version">v{CURRENT_VERSION}</Badge>
       </a>
 
-      <FullSearchTrigger hideIfDisabled className="my-auto ms-auto w-full max-w-sm rounded-xl ps-2.5 max-md:hidden" />
+      <DesktopSearchTrigger className="my-auto ms-auto w-full max-w-sm rounded-xl ps-2.5 max-md:hidden" />
 
       <div className="ms-auto flex items-center gap-1.5 md:ms-0">
         <JackPanel validSlugs={slugs} />
-        <a className="nav-actions__repo" href="https://github.com/agentdecksdk/agentdeck" aria-label="GitHub">
+        {/* Explicit min-width/min-height, not `w-11 h-11`: brand.css fixes width/height at 30px
+            and only a conflicting min- constraint is guaranteed to win over it regardless of
+            stylesheet order. */}
+        <a
+          className="nav-actions__repo"
+          href="https://github.com/agentdecksdk/agentdeck"
+          aria-label="GitHub"
+        >
           <GitHubMark />
         </a>
-        <SearchTrigger hideIfDisabled className="p-2 md:hidden" />
-        <Button variant="ghost" size="icon" className="md:hidden" asChild>
+        <SearchTrigger hideIfDisabled className="p-[13px] md:hidden" />
+        <Button variant="ghost" size="icon" className="size-11 md:hidden" asChild>
           <SidebarTrigger aria-label="Open sidebar"><PanelLeft /></SidebarTrigger>
         </Button>
       </div>
