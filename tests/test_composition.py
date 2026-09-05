@@ -261,6 +261,17 @@ def test_resolve_control_port_builds_sqlite_from_a_scheme_url(tmp_path):
     assert isinstance(port, SqliteControlPort)
 
 
+def test_resolve_control_port_builds_postgres_from_a_dsn():
+    live_stores.require_psycopg()
+    from agentdeck.adapters.control.postgres import PostgresControlPort
+    from agentdeck.composition import resolve_control_port
+    from agentdeck.runtime.settings import ControlSettings
+
+    port = resolve_control_port(ControlSettings(url="postgresql://localhost/whatever"))
+
+    assert isinstance(port, PostgresControlPort)
+
+
 def test_resolve_control_port_rejects_sqlite_with_no_path_after_the_scheme():
     from agentdeck.composition import resolve_control_port
     from agentdeck.runtime.settings import ControlSettings
@@ -281,6 +292,17 @@ def test_the_lease_port_follows_the_control_setting(tmp_path):
     assert isinstance(
         resolve_lease_port(ControlSettings(url=f"sqlite://{tmp_path / 'control.sqlite3'}")), SqliteLeasePort
     )
+
+
+def test_the_lease_port_follows_postgres_control_selection():
+    live_stores.require_psycopg()
+    from agentdeck.adapters.leases.postgres import PostgresLeasePort
+    from agentdeck.composition import resolve_lease_port
+    from agentdeck.runtime.settings import ControlSettings
+
+    port = resolve_lease_port(ControlSettings(url="postgresql://localhost/whatever"))
+
+    assert isinstance(port, PostgresLeasePort)
 
 
 def test_a_memory_lease_backend_warns_that_a_killed_worker_still_wedges_its_session(caplog):

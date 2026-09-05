@@ -144,8 +144,8 @@ def resolve_run_settings(settings: Settings | None = None) -> RunSettings:
 
 
 def resolve_control_port(settings: ControlSettings | None = None) -> ControlPort:
-    """Build the control port named by ``AGENTDECK_CONTROL``'s scheme: ``memory://`` (default)
-    or ``sqlite://<path>``.
+    """Build the control port named by ``AGENTDECK_CONTROL``'s scheme: ``memory://`` (default),
+    ``sqlite://<path>``, or ``postgresql://<dsn>``.
 
     Always built, never left off: a Runtime without one cannot pause or cancel anything, and a
     caller finding that out from an endpoint that silently did nothing is worse than the
@@ -164,23 +164,26 @@ def resolve_control_port(settings: ControlSettings | None = None) -> ControlPort
         if not rest:
             raise ValueError("the sqlite control port needs a file path: set AGENTDECK_CONTROL=sqlite:///<path>")
         return SqliteControlPort(rest)
+    if scheme in ("postgres", "postgresql"):
+        try:
+            from agentdeck.adapters.control.postgres import PostgresControlPort
+        except ImportError as exc:
+            raise ImportError(
+                'the postgres control port needs psycopg  -  install the "postgres" extra: '
+                f'pip install "agentdeck-sdk[postgres]"  -  see {_STORE_DOCS}'
+            ) from exc
+        return PostgresControlPort(control.url)
     raise ValueError(
-        f"unknown control backend {scheme!r} in AGENTDECK_CONTROL={control.url!r}; expected memory or sqlite "
-        f" -  see {_STORE_DOCS}"
+        f"unknown control backend {scheme!r} in AGENTDECK_CONTROL={control.url!r}; "
+        f"expected memory, sqlite, or postgresql  -  see {_STORE_DOCS}"
     )
 
 
 def resolve_lease_port(settings: ControlSettings | None = None) -> LeasePort:
-    """Build the lease port from ``AGENTDECK_CONTROL``'s scheme, the same URL the control port
-    reads: ``memory://`` (default) or ``sqlite://<path>``.
+    """Build the lease port selected by ``AGENTDECK_CONTROL``, using the same backend as control.
 
-    One setting for two ports, deliberately. They answer different questions and stay separate
-    types, but both are ephemeral per-run state for one deployment, and making an operator
-    point them at two places would be asking the same question twice.
-
-    Always built, like the control port: a lease that reports nothing costs a start one
-    dictionary lookup, and there is no deployment where *not* asserting liveness is the safer
-    choice.
+    Control signals and liveness leases are per-run deployment state, so one URL deliberately
+    selects both ports instead of asking an operator to configure the same backend twice.
     """
     control = settings if settings is not None else get_settings().control
     scheme, rest = parse_backend_url(control.url)
@@ -195,9 +198,18 @@ def resolve_lease_port(settings: ControlSettings | None = None) -> LeasePort:
         if not rest:
             raise ValueError("the sqlite lease port needs a file path: set AGENTDECK_CONTROL=sqlite:///<path>")
         return SqliteLeasePort(rest)
+    if scheme in ("postgres", "postgresql"):
+        try:
+            from agentdeck.adapters.leases.postgres import PostgresLeasePort
+        except ImportError as exc:
+            raise ImportError(
+                'the postgres lease port needs psycopg  -  install the "postgres" extra: '
+                f'pip install "agentdeck-sdk[postgres]"  -  see {_STORE_DOCS}'
+            ) from exc
+        return PostgresLeasePort(control.url)
     raise ValueError(
-        f"unknown control backend {scheme!r} in AGENTDECK_CONTROL={control.url!r}; expected memory or sqlite "
-        f" -  see {_STORE_DOCS}"
+        f"unknown control backend {scheme!r} in AGENTDECK_CONTROL={control.url!r}; "
+        f"expected memory, sqlite, or postgresql  -  see {_STORE_DOCS}"
     )
 
 
