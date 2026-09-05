@@ -43,9 +43,18 @@
 }
 
 @media (max-width: 767px) {
+  /* The spark alone. At this size a border and a fill read as a second card in a bar that already
+     has enough edges; the 44px target stays. */
   .ask-launch {
     min-height: 44px;
     padding: 0 0.55rem;
+    border-color: transparent;
+    background: transparent;
+  }
+
+  .dark .ask-launch {
+    border-color: transparent;
+    background: transparent;
   }
 
   .ask-launch__label {
