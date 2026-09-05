@@ -2,24 +2,6 @@
 
 ## Done
 
-- [x] Mobile grid: article 257px -> 390px, the footer's grid area was taking a third of the viewport
-- [x] Ask Jack sheet anchored to the top of the phone instead of the bottom
-- [x] Grey ink at 2.48:1 on the light canvas, 13 rules, now 4.60:1
-- [x] refine-brand is the canonical geometry; two different sparks no longer ship on one page
-- [x] `components/card-a.svg`: the A is a hole again, so the mono mark is not a blank card
-- [x] Zero `nav` landmarks: sidebar and table of contents now carry the role
-- [x] Mobile drawer ignores Escape
-- [x] Mobile drawer drops focus to `body` instead of the trigger
-- [x] Reference tables illegible at 390: one card per row below 768
-- [x] `whats-new-6` first table had a 746px minimum
-- [x] Duplicate hidden sidebar trigger (closed: it is fumadocs-ui's own drawer-close button, not ours)
-- [x] Ten tap targets under 44x44 at 390
-- [x] Search shortcut chip resized on every non-Mac load, 52.4px -> 72.0px
-- [x] Quickstart skipped a heading level, h1 -> h3
-- [x] Ask Jack read as a notification badge below 768
-- [x] `run.mdx:16` rendered a plain "and" bold inside a link
-- [x] `---Resources---` separator duplicated the only label under it
-- [x] Long tables had no row rhythm above 768
 
 ## Open
 
@@ -44,3 +26,17 @@
 - [ ] Stages 10-11: own the MDX layer and typography, own the providers, drop `preset.css` and `RootProvider`
 - [ ] Stage 13: remove `fumadocs-ui` from `package.json`
 - [ ] Stage 12 (Jack on assistant-ui over AG-UI) deferred to v6.0.5
+- [ ] ## Page Feedback: /resources/migration-guides/
+**Viewport:** 390×844
+
+### 1. <LayoutBody> <DocsShell> <SiteHeader> <Button> <Slot.Slot> <SidebarTrigger> button [Open sidebar]
+**Location:** .ad-shell > .ad-bar > .ms-auto > .group/button
+**Source:** _next/static/chunks/node_modules_agentation_dist_index_mjs_1bt__qk._.js:14067:23
+**React:** <LayoutBody> <DocsShell> <SiteHeader> <Button> <Slot.Slot> <SidebarTrigger>
+**Feedback:** weired that it opn to the sdie bar at mobile view make it silale rot v603 styel
+
+### 2. <LayoutBody> <DocsShell> <SiteHeader> <JackPanel> button [Ask Jack]
+**Location:** .ad-shell > .ad-bar > .ms-auto > .ask-launch
+**Source:** _next/static/chunks/node_modules_agentation_dist_index_mjs_1bt__qk._.js:14067:23
+**React:** <LayoutBody> <DocsShell> <SiteHeader> <JackPanel>
+**Feedback:** remvoe teh serupend vard in moblble

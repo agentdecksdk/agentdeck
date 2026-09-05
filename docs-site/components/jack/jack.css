@@ -302,6 +302,21 @@ body {
   }
 }
 
+/* The sheet owns the bottom edge here, so it enters from there too. Scoped to `no-preference`
+   rather than nested under the reduced-motion query above: the two can never both match the same
+   viewer, so which one is later in the file can't matter. */
+@keyframes ask-slide-in-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@media (max-width: 640px) and (prefers-reduced-motion: no-preference) {
+  .ask-panel {
+    animation: ask-slide-in-up 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+}
+
 /* The empty state: the mark, one question, and three ways in. What a reader sees before they have
    asked anything is the whole first impression of the assistant. */
 .ask-empty {

@@ -529,7 +529,7 @@ waiting = await deck.runs.list(namespace="acme", status=RunStatus.WAITING_ANSWER
 
 `get()` never mutates: it does not create, start, resume, claim ownership or move lifecycle
 state, and it takes no `context=`  -  a run recovered this way has durable identity and durable
-state, never the ephemeral value a live process held for it (see `context=` [below](#context)).
+state, never the ephemeral value a live process held for it (see `context=` [below](#run)).
 It returns a run in any state, terminal included.
 
 ### `Run`
@@ -846,7 +846,7 @@ null  -  `Run.events()`, `deck.stream()` and `GET /runs/{run_id}/events` all rep
 correlate a stored child through `run.started.parent_run_id`, following it up until a run that
 has a session, since a nested child's invoker is session-less too.
 
-`v` is `{major: 4, minor: 0}`. A reader refuses any other major outright rather than guessing at a
+`v` is `{major: 4, minor: 2}`. A reader refuses any other major outright rather than guessing at a
 wire shape it was never taught, so a log written by another major is read with the release that
 wrote it or replayed into a new store. There is no migration.
 
@@ -891,7 +891,7 @@ Each of these sets the run's status. See [Lifecycle & Control](/runs-and-control
 | Kind | Payload | Notes |
 |---|---|---|
 | `tool.call.started` | `call_id`, `tool`, `args` | Paired with the completion by `call_id` |
-| `tool.call.completed` | `call_id`, `tool`, `result_preview`, `result_size`, `result_sha256`, `artifacts` | A capped preview plus size and hash, never the result itself |
+| `tool.call.completed` | `call_id`, `tool`, `result_preview`, `result_size`, `result_sha256`, `artifact_id`, `error` | A capped preview plus size and hash, never the result itself |
 
 ## Reporting
 
@@ -999,7 +999,8 @@ Source: https://agentdecksdk.com/reference/run
 # Run Reference
 
 API reference for `Run` instances and execution controls. Starting, fetching and listing runs is
-`deck.runs`, not this handle: see [`Run` and `deck.runs`](/reference/deck#run-and-deckruns).
+`deck.runs`, not this handle: see [`Run`](/reference/deck#run-and-deckruns) and
+[`deck.runs`](/reference/deck#run-and-deckruns).
 
 ## Methods
 
@@ -1703,7 +1704,7 @@ asyncio.run(main())
 A context parameter is injected by the runtime and is absent from the schema the model sees, which
 is why a tool that declares one cannot be pre-decorated with the Agents SDK's `function_tool`: that
 decorator puts every parameter into the schema, and a context has none, so it raises
-`PydanticSchemaGenerationError` at the decorator line.
+`ConfigError` at the decorator line.
 
 `billing.data` is the exact `Billing()` instance passed to `context=`, not a copy. `Deck.build`
 checks every `ToolCtx[...]`/`WorkflowCtx[...]` parameter in the catalog against the declared type
@@ -1907,8 +1908,7 @@ A tool already decorated with `function_tool` from the OpenAI Agents SDK (`agent
 `tools=` and passed through untouched. That passthrough has three consequences:
 
 - It cannot take a `ToolCtx` parameter. The decorator puts every parameter into the schema the
-  model sees, and a context has none, so it raises `PydanticSchemaGenerationError` at the
-  decorator line.
+  model sees, and a context has none, so it raises `ConfigError` at the decorator line.
 - It keeps whatever `failure_error_function` it was given, so its exceptions never reach
   `tool.call.completed.error`.
 - It is engine-native and carries no portability guarantee.
@@ -1933,15 +1933,12 @@ async def lookup_shift(date: str) -> str:
 If a tool raises instead, `agentdeck` records the call as `tool.call.completed` with the exception
 type and message on its `error` field, and hands the model the Agents SDK's standard tool-error
 string. The run is not failed, so it can still complete: `Deck.run()` returns the model's final
-answer, the non-streamed HTTP route returns `200 {"output": ...}`, and the streamed HTTP route ends
-with `done` if the model completes.
+answer, and a client watching the run's events sees it end in `run.completed`.
 
 An exception that escapes the SDK runner is a different outcome, and a pre-decorated
 `function_tool` whose own failure handling re-raises is the way to get one. Then the log records
-`run.failed` with `error_code="engine_error"`, `Deck.run()` raises the exception, `Deck.stream()`
-yields `run.failed` and then raises, the non-streamed HTTP route returns
-`500 {"detail": "internal error"}`, and the streamed HTTP route sends an `error` event with the
-exception type.
+`run.failed` with `error_code="engine_error"`, `Deck.run()` raises the exception, and `Deck.stream()`
+yields `run.failed` and then raises.
 
 ## Tools do not carry images
 
@@ -2431,7 +2428,7 @@ Question
 
 That shape is the whole application, and the code says the same thing:
 
-```python
+```python no-test reason="condensed from jack/agent.py and jack/corpus.py; DocsCorpus and instructions are defined there, not repeated here"
 from agentdeck import Agent, ToolCtx, Deck, tool
 
 @tool
@@ -2502,7 +2499,7 @@ The allowlist drops other event kinds without reshaping the canonical events it 
 
 The route is a few lines over `deck.stream()`, and the wire is the event log itself:
 
-```python
+```python no-test reason="excerpt from jack/server.py's route body; AGENT, question, corpus and session_id are in scope there, not here"
 async for event in deck.stream(AGENT, question, context=corpus, session_id=session_id):
     if event.kind in PUBLIC_KINDS:
         yield f"data: {event.model_dump_json()}\n\n"
@@ -2519,7 +2516,7 @@ when he makes one, and the run resolves when it completes.
 
 ## Source
 
-- [`examples/jack`](https://github.com/agentdecksdk/agentdeck/tree/dev/examples/jack)  -  the agent, its tools, the corpus and the route
+- [`examples/jack`](https://github.com/agentdecksdk/agentdeck/tree/main/examples/jack)  -  the agent, its tools, the corpus and the route
 - [Implementation notes](/jack/notes)  -  the decisions behind this build, and the alternatives they beat
 - [Examples](/examples)  -  smaller runnable projects, each exercising a single idea
 
@@ -2616,7 +2613,11 @@ only known values survive, and the delimiter is stripped from any reader selecti
 model chooses to say with that text is not guarded, and no delimiter makes it so.
 
 The full accounting is in the
-[example's README](https://github.com/agentdecksdk/agentdeck/tree/dev/examples/jack#readme).
+[example's README](https://github.com/agentdecksdk/agentdeck/tree/main/examples/jack#readme).
+
+These notes stop at the process boundary. For how a Deck becomes a supervised service, what a
+health check must actually check, and what shutdown owes `aclose()`, see
+[Deployment](/operate/deployment).
 
 ---
 
@@ -2758,13 +2759,13 @@ Build a Deck, start a Run, and watch its events.
 
 <Steps>
 
-### Install
+## Install
 
 ```bash
 pip install agentdeck-sdk
 ```
 
-### Build your deck
+## Build your deck
 
 Compose an agent into a Deck:
 
@@ -2780,7 +2781,7 @@ agent = Agent(
 deck = Deck(agents=[agent])
 ```
 
-### Start a run
+## Start a run
 
 Execute the agent within the Deck's runtime context:
 
@@ -2799,7 +2800,7 @@ async def main():
 log already holds, which for a run this young is one event. `run.status()` is a coroutine, not a
 property.
 
-### Watch what happened
+## Watch what happened
 
 Running the script emits an ordered sequence of lifecycle and content events:
 
@@ -3439,7 +3440,7 @@ These raise from `Deck(...)` or `Deck.build()`, before anything runs.
 |---|---|---|
 | `ConfigError` | Invalid or incomplete configuration: a duplicate target name, a workflow bundle exporting no `@workflow`, a binding declaring an SPI version this release does not support, two bindings claiming one HTTP path | The message names what collided or what was missing; fix the declaration it points at |
 | `ContextTypeError` | A tool declares `ToolCtx[T]` the deck's `context=` cannot satisfy | Give the deck the context type the tool asks for, or drop the annotation |
-| `NotFoundError` | An unknown agent, workflow or skill name | The message lists the available names; a pinned `target=` on a binding is checked here too |
+| `NotFoundError` | An unknown agent, workflow or skill name, such as an unresolved `@handoff` target | The message lists the available names |
 | `SkillError` | A skill failed to load or execute | Read the `SKILL.md` frontmatter it names |
 
 ## When starting or driving a run
@@ -3552,7 +3553,7 @@ log written by a newer release of the same schema major.
 
 ## Related
 
-- [Event types](/reference/events) - all 22 kinds, their payloads, and the envelope
+- [Event types](/reference/events) - all 21 kinds, their payloads, and the envelope
 - [Runs](/runs-and-control/runs) - starting a run and rehydrating its handle
 - [Lifecycle & Control](/runs-and-control/lifecycle-and-control) - which events set which status
 

@@ -1,0 +1,24 @@
+# Examples
+
+Four runnable examples, each one file or two and each about a single idea. Every page below links
+to its own source.
+
+| Example | What it shows | Needs a key |
+|---|---|---|
+| [Chat agent with a tool](/examples/chat-agent-with-a-tool) | A `@tool` and an `Agent` discovered from `.agentdeck/`, then `deck.run(...)`. Six lines of declaration, no JSON schema and no tool loop | yes |
+| [Agent with a skill](/examples/agent-with-a-skill) | A `SKILL.md` the model loads only when it decides it needs it, across two turns on one session | yes |
+| [Chat in the terminal](/examples/chat-in-the-terminal) | A `@workflow` that asks the questions with `ctx.ask(...)`, driven by `agentdeck chat` | no |
+| [Run events stream](/examples/run-events-stream) | A run's typed event log, printed as it arrives from `deck.stream(...)` | no |
+
+The two without a key run the same on every machine: a `@workflow` is your own Python, and the
+events example scripts the model in-process.
+
+```bash
+git clone https://github.com/agentdecksdk/agentdeck
+cd agentdeck/examples/chat-agent-with-a-tool
+export OPENAI_API_KEY=sk-...
+python run.py
+```
+
+The reference application, [Jack](/jack), is documented separately: he is the agent answering
+questions on this site, and his page records the reasoning behind each decision in him.

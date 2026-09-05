@@ -1,14 +1,3 @@
----
-title: Events
-description: Every event kind a run can emit, with its payload fields.
----
-
-{/* docs_sources:
-  - "agentdeck/core/events.py"
-  - "agentdeck/core/content.py"
-  - "agentdeck/core/reporting.py"
-*/}
-
 # Events Reference
 
 One ordered log per run. Every managed invocation appends to it, whatever started the run, and

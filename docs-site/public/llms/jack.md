@@ -1,14 +1,3 @@
----
-title: How Jack is built
-description: What building a real application with AgentDeck looks like, and what AgentDeck provides around your application code.
----
-
-{/* docs_sources:
-  - "examples/jack/**"
-  - "agentdeck/deck.py"
-  - "agentdeck/adapters/bindings/**"
-*/}
-
 # How Jack is built
 
 Jack is the AgentDeck documentation agent running on this site. The same application powers the

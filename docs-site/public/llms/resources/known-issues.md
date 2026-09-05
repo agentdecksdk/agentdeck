@@ -1,0 +1,83 @@
+# Known Issues
+
+Everything here is real, reproduced, and open against the current release. It is published rather than
+quietly tracked because most of these fail *silently*  -  you get a plausible wrong answer, not an
+error  -  and an hour spent debugging one of them is an hour this page could have saved.
+
+<Callout type="warning">
+  The worst kind left: **a tool returning something unserializable still reaches the model as a
+  raw memory address.** If an agent's answers look subtly corrupted, read that entry first.
+</Callout>
+
+## Silent wrong answers
+
+These produce no error. Nothing in the log says anything went wrong.
+
+### A tool returning something unserializable reaches the model as a memory address
+
+Return a value JSON cannot carry and it is neither rejected nor flagged  -  it is coerced to its
+`repr()`, and that string, typically containing a raw memory address, enters both the event log
+and the prompt. `result_sha256`/`result_size` are computed over that same repr, so two identical
+non-serializable results are recorded as two different ones.
+
+This was filed as #251 and closed by folding its done-when items into #250, on the reasoning that
+both are "a tool result mishandled in the same translation function". #250's fix shipped only the
+raise half; this half  -  the warning and the hashing fix  -  was never implemented, and no open
+issue tracks it.
+
+```python
+@tool
+def get_user(user_id: str) -> object:
+    return object()          # not JSON-serializable
+```
+
+```text
+# the model receives, and the event log records byte-for-byte:
+<object object at 0x7fb09bf28b30>
+```
+
+**Until it is fixed:** return JSON-compatible values from tools. If you return an object today,
+check what the model is actually receiving.
+&nbsp;→ [#251](https://github.com/agentdecksdk/agentdeck/issues/251), folded into
+[#250](https://github.com/agentdecksdk/agentdeck/issues/250), which did not implement this half
+
+## Rough edges
+
+Not silent  -  just things that will cost you a few minutes.
+
+| What | Issue |
+|---|---|
+| A binding cannot supply per-request context: `DeckGateway.start()` takes none, so a run started over `Native.http()`, `AGUI.http()` or `Terminal.stdio()` gets `context=None`. A deck-level `Deck(context=...)` is the way to give tools their dependencies; a request cannot vary it | [#227](https://github.com/agentdecksdk/agentdeck/issues/227) |
+| `run()`'s return type makes the documented interrupt idiom fail a type checker | [#231](https://github.com/agentdecksdk/agentdeck/issues/231) |
+| The CLI can send signals but cannot read anything  -  no inbox, no run view | [#256](https://github.com/agentdecksdk/agentdeck/issues/256) |
+
+## Fixed in v6.0.0
+
+Removed from this page rather than struck through, because a Known Issues page that lists fixed
+things teaches you to distrust the entries that are still true. Every release's fixes in full are
+in the [changelog](/resources/changelog).
+
+| What | Issue |
+|---|---|
+| A `@tool` exported beside a `@workflow` became a runnable target and could be started by name | [#488](https://github.com/agentdecksdk/agentdeck/issues/488) |
+| A workflow's own `InputError` after `run.started` reached the wire as `engine_error` with its message stripped | [#621](https://github.com/agentdecksdk/agentdeck/issues/621) |
+| A failure late in `Deck.__aenter__` left observers open and the process claim held, blocking a second `Deck(...)` | [#572](https://github.com/agentdecksdk/agentdeck/issues/572) |
+| A workflow input mapping that did not match its parameters raised `ConfigError` rather than `InputError` | [#583](https://github.com/agentdecksdk/agentdeck/issues/583) |
+
+<Callout type="info">
+  `usage.usd` used to be listed on this page. It isn't a defect: agentdeck does not price model
+  calls, on purpose ([#177](https://github.com/agentdecksdk/agentdeck/issues/177))  -  see
+  [`TurnResult`](/reference/deck#turnresult) for the ruling, not a fix.
+</Callout>
+
+## What is being done about all this
+
+v6.0.0 replaced the serve surface with bindings, which is why #227 reads the way it does now: the
+limitation survived the rewrite in a new shape. The reference bindings still to come, and the
+read-path CLI in #256, are tracked on the [v6.x milestone](https://github.com/agentdecksdk/agentdeck/milestones).
+
+<Callout type="info">
+  Hit something that is not here?
+  [Open an issue](https://github.com/agentdecksdk/agentdeck/issues/new). A reproduction is worth more
+  than a diagnosis  -  most of this page came from people who sent one.
+</Callout>

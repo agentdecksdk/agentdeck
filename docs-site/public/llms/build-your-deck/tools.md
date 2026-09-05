@@ -1,15 +1,3 @@
----
-title: Tools
----
-
-{/* docs_sources:
-  - "agentdeck/authoring/native.py"
-  - "agentdeck/authoring/tools.py"
-  - "agentdeck/authoring/injection.py"
-  - "agentdeck/authoring/compile.py"
-  - "agentdeck/adapters/tools/**"
-*/}
-
 # Tools
 
 Tools allow agents to perform actions and fetch external information.

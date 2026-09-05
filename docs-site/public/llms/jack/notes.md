@@ -1,14 +1,3 @@
----
-title: Implementation notes
-description: The decisions behind Jack, and the alternatives each one beat.
----
-
-{/* docs_sources:
-  - "examples/jack/**"
-  - "agentdeck/deck.py"
-  - "agentdeck/adapters/bindings/**"
-*/}
-
 # Implementation notes
 
 The engineering behind [how Jack is built](/jack). Each note is a decision that had a reasonable

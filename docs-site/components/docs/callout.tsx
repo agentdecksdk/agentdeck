@@ -24,7 +24,9 @@ export function BrandCallout({ type = 'model', title, children }: BrandCalloutPr
   return (
     <Alert className={`brand-callout ${type}`}>
       <BrandSpark size={14} className={`callout-spark ${type}`} />
-      <AlertTitle className="callout-title">{title || DEFAULT_TITLE[type]}</AlertTitle>
+      {/* `font-bold` isn't decorative here: `cn` is tailwind-merge, so it's what evicts
+          shadcn's `font-medium` from AlertTitle rather than leaving it a dead, conflicting class. */}
+      <AlertTitle className="callout-title font-bold">{title || DEFAULT_TITLE[type]}</AlertTitle>
       <AlertDescription className="callout-content">{children}</AlertDescription>
     </Alert>
   )

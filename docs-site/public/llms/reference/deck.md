@@ -1,14 +1,3 @@
----
-title: Deck
-description: The composition root  -  builds a catalog from Agent objects and @workflow definitions or a project directory, and runs every turn on it.
----
-
-{/* docs_sources:
-  - "agentdeck/deck.py"
-  - "agentdeck/composition.py"
-  - "agentdeck/runtime/discovery.py"
-*/}
-
 # Deck
 
 `Deck` is the one object a project talks to. Build it directly from `Agent` objects and

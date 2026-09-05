@@ -1,15 +1,3 @@
----
-title: Context
-description: Typed, request-scoped access to your own application state, for tools and workflows.
----
-
-{/* docs_sources:
-  - "agentdeck/core/context.py"
-  - "agentdeck/authoring/native.py"
-  - "agentdeck/authoring/injection.py"
-  - "agentdeck/authoring/compile.py"
-*/}
-
 # Context
 
 `ToolCtx[T]` and `WorkflowCtx[T]` give a `@tool` or `@workflow` typed, request-scoped access to

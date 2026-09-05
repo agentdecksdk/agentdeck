@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import { DocsBody, DocsPage } from 'fumadocs-ui/layouts/notebook/page'
 import { getMDXComponents } from '@/mdx-components'
+import { PageActions } from '@/components/docs/page-actions'
 import { PageFeedback } from '@/components/docs/page-feedback'
 import { source } from '@/lib/source'
 
@@ -38,6 +39,7 @@ export default async function Page(props: { params: Promise<{ slug: string[] }> 
          the article. */
       tableOfContentPopover={{ enabled: false }}
     >
+      <PageActions url={page.url} path={page.path} />
       {/* Pagefind indexes only what carries this attribute, so the index stays page text rather
           than the navigation repeated 44 times. `nextra-theme-docs` emitted it for us. */}
       <DocsBody data-pagefind-body>

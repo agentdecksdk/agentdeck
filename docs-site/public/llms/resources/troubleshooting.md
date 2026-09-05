@@ -1,14 +1,3 @@
----
-title: Troubleshooting
----
-
-{/* docs_sources:
-  - "agentdeck/errors.py"
-  - "agentdeck/core/errors.py"
-  - "agentdeck/runtime/settings.py"
-  - "agentdeck/bindings/exposure.py"
-*/}
-
 # Troubleshooting
 
 What AgentDeck raises when the fault is in the configuration or the call, and what to do about it.

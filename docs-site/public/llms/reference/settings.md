@@ -1,0 +1,104 @@
+# Settings
+
+Generated from [`agentdeck/runtime/settings.py`](https://github.com/agentdecksdk/agentdeck/blob/main/agentdeck/runtime/settings.py)'s `LayeredSettings` subclasses  -  this page cannot drift from the code because `make check` regenerates it and fails if the result differs (`scripts/generate_docs_reference.py`). Values come from process environment variables or the project-root `.env`; process values win.
+
+## `OpenAISettings`
+
+OpenAI-compatible endpoint configuration.
+
+| Env var | Type | Default | Description |
+|---|---|---|---|
+| `OPENAI_MODEL` | `str` | `'gpt-4.1-mini'` | Default model for agents that do not declare `model=`. |
+| `OPENAI_API_KEY` | `str` | `''` | API key for OpenAI. A custom `OPENAI_BASE_URL` may omit it when the endpoint needs no auth. |
+| `OPENAI_BASE_URL` | `str` | `''` | OpenAI-compatible endpoint base URL. Empty uses the SDK default, api.openai.com. |
+| `OPENAI_CA_BUNDLE` | `str` | `''` | Path to a CA/certificate bundle for verifying the endpoint's TLS certificate. Empty uses the system's default trust store. |
+
+## `ModelProviderSettings`
+
+Credentials for prefixed model providers.
+
+| Env var | Type | Default | Description |
+|---|---|---|---|
+| `ANTHROPIC_API_KEY` | `str` | `''` | API key for `anthropic/...` models. |
+| `GEMINI_API_KEY` | `str` | `''` | API key for `gemini/...` models. |
+| `OLLAMA_BASE_URL` | `str` | `''` | Endpoint for `ollama/...` models. |
+| `OPENROUTER_API_KEY` | `str` | `''` | API key for `openrouter/...` models. |
+
+## `RunnerSettings`
+
+Defaults for the host-side Agents SDK runner.
+
+| Env var | Type | Default | Description |
+|---|---|---|---|
+| `AGENTDECK_RUNNER_WORKFLOW_NAME` | `str` | `'agentdeck'` | Name recorded on the host Agents SDK run (`RunConfig.workflow_name`)  -  identifies which workflow produced a run in tracing/observability. |
+| `AGENTDECK_RUNNER_TEMPERATURE` | `float` | `1.0` | Sampling temperature for the host agent loop's model. |
+| `AGENTDECK_RUNNER_MAX_TURNS` | `int` | `30` | Maximum turns `Runner.run`/`run_streamed` may take before giving up. |
+| `AGENTDECK_RUNNER_MAX_TOKENS` | `int` or `None` | `None` | Cap on tokens per response for the host agent loop's `ModelSettings`. `None` means the model's own default (uncapped). |
+| `AGENTDECK_RUNNER_HANDOFF_ENDS_ON_USER_TURN` | `bool` | `False` | Append a synthetic user turn after a handoff's collapsed history so the transferred-to agent's request ends on a user role instead of an assistant one. Off by default: it changes what every model sees on every handoff, including against OpenAI, and only some OpenAI-compatible endpoints reject the assistant-terminated shape. |
+| `AGENTDECK_RUNNER_HANDOFF_CLOSING_TURN` | `str` | `'Please continue.'` | Content of the synthetic user turn `handoff_ends_on_user_turn` appends. Override for a deployment whose conversations aren't English  -  the default is otherwise an English sentence injected into every handoff regardless of the conversation's own language. |
+
+## `RuntimeSettings`
+
+Knobs the Runtime itself reads.
+
+| Env var | Type | Default | Description |
+|---|---|---|---|
+| `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` | `float` | `3600.0` | How long, in seconds, a running open run may go without writing an event before it is treated as abandoned and its session ownership is released for another worker to claim. Never applies to a run paused or waiting on an answer  -  those hold their session until resumed, answered, or cancelled. Must be positive; set it above the longest gap a healthy turn can go quiet. |
+| `AGENTDECK_RUNTIME_LEASE_TTL_SECONDS` | `float` | `90.0` | How long, in seconds, a run's lease stays valid without renewal. A worker renews its lease six times per TTL while it plays a run, so a process killed outright frees its session within one TTL instead of one `stale_run_after_seconds`. Only takes effect with a lease backend shared across processes (`AGENTDECK_CONTROL=sqlite:///<path>`); with the in-memory default nothing is ever reported dead and the staleness timer remains the only backstop. Must be positive; set it above the longest the event loop can be blocked in one go. |
+
+## `LangfuseSettings`
+
+Langfuse LLM-observability export config.
+
+| Env var | Type | Default | Description |
+|---|---|---|---|
+| `AGENTDECK_LANGFUSE_PUBLIC_KEY` | `str` | `''` | Langfuse public key. Tracing stays off unless this and `secret_key` are both set. |
+| `AGENTDECK_LANGFUSE_SECRET_KEY` | `str` | `''` | Langfuse secret key. Tracing stays off unless this and `public_key` are both set. |
+| `AGENTDECK_LANGFUSE_BASE_URL` | `str` | `'http://localhost:3000'` | Langfuse endpoint. |
+| `AGENTDECK_LANGFUSE_ENVIRONMENT` | `str` | `'local'` | Langfuse `environment` tag attached to every exported span. |
+| `AGENTDECK_LANGFUSE_DEBUG` | `bool` | `False` | Enable the Langfuse SDK's own debug logging. |
+| `AGENTDECK_LANGFUSE_SAMPLE_RATE` | `float` | `1.0` | Fraction of traces exported to Langfuse, from 0.0 to 1.0. |
+| `AGENTDECK_LANGFUSE_SERVICE_NAME` | `str` | `'agentdeck'` | OpenTelemetry resource `service.name` for every exported span. Without it, spans fall back to `unknown_service` and are unattributed in the Langfuse UI. |
+
+## `TavilySettings`
+
+Tavily web-search API. One knob: `TAVILY_API_KEY`.
+
+| Env var | Type | Default | Description |
+|---|---|---|---|
+| `TAVILY_API_KEY` | `str` | `''` | Tavily web-search API key. Empty makes the `web_search` tool return an `error:` string instead of raising  -  it degrades the same way an unavailable MCP server does, rather than disappearing. |
+
+## `EventsSettings`
+
+Where the Runtime's canonical event log is written, as one scheme-shaped URL.
+
+| Env var | Type | Default | Description |
+|---|---|---|---|
+| `AGENTDECK_EVENTS` | `str` | `'memory://'` | Where the Runtime's canonical event log is written: `memory://` (default, in-process, gone when the process exits), `sqlite://<path>`, `redis://<url>`/`rediss://<url>` (needs the `[redis]` extra), or `postgresql://<dsn>` (needs the `[postgres]` extra). The scheme names the backend. |
+
+## `ControlSettings`
+
+Where a run's pending control signals live  -  what pause and cancel are written to.
+
+| Env var | Type | Default | Description |
+|---|---|---|---|
+| `AGENTDECK_CONTROL` | `str` | `'memory://'` | Where a run's pending control signals and its liveness lease live: `memory://` (default, reachable only from this process) or `sqlite://<path>` (crosses process boundaries, and is required for the `agentdeck runs signal` CLI to reach a run, and for a killed worker's session to be freed by its lapsed lease rather than by `stale_run_after_seconds`). The scheme names the backend. |
+
+## `SessionSettings`
+
+Configuration for Redis-backed agent conversation memory.
+
+| Env var | Type | Default | Description |
+|---|---|---|---|
+| `AGENTDECK_SESSION` | `str` or `None` | `None` | Redis URL for `RedisSession`-backed agent conversation memory (`agentdeck.adapters.executors.openai_agents.sessions.SessionFactory`), needing the `[redis]` extra. `None` falls back to one in-process `SQLiteSession` per session key  -  no persistence across a restart, no sharing across workers. |
+| `AGENTDECK_SESSION_REDIS_KEY_PREFIX` | `str` | `'agents:session'` | Key prefix under which `RedisSession` stores conversations in Redis. |
+| `AGENTDECK_SESSION_REDIS_TTL` | `int` or `None` | `None` | Per-session TTL in seconds for Redis-backed conversations. `None` means sessions persist indefinitely. |
+
+## Read directly from the environment
+
+Owned by no settings model: read where it is used, so it takes no `with_overrides` and appears
+in no layered dump.
+
+| Env var | Type | Default | Description |
+|---|---|---|---|
+| `AGENTDECK_OPENAI_AGENTS_TRACING_ENABLED` | `bool` | `False` | Opt in to the OpenAI Agents SDK's own trace exporter (`adapters/executors/openai_agents/runconfig.py`). Off by default: a keyless or fake-model run has no account to export to, and the exporter otherwise attempts a real HTTPS call per run. Langfuse traces are built from the event stream, and are a separate switch. |
