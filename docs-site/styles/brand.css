@@ -822,3 +822,16 @@ main div.x\:float-end {
   background: rgb(255 255 255 / 15%);
   color: #fff;
 }
+
+/* The marker travelling the table-of-contents rail is the brand's spark.
+   fumadocs-ui draws it as a 4px `rounded-full` div moved along the rail by `offset-path`; masking
+   it changes the shape and leaves the geometry that moves it untouched. It takes the rail's own
+   blue rather than the spark's usual Ace Red: on this rail it marks a position, and the position
+   is what the blue already means. */
+.ad-toc [style*='offset-path'] {
+  width: 8px;
+  height: 8px;
+  border-radius: 0;
+  background: var(--color-fd-primary);
+  mask: url("data:image/svg+xml,<svg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='828.765%20-64.697%20257.229%20257.086'><path%20d='M%20983.307%20154.026%20l%20-13.007%2029.775%20c%20-4.993%2011.450%20-20.837%2011.450%20-25.843%200.000%20l%20-13.007%20-29.775%20c%20-11.582%20-26.508%20-32.405%20-47.604%20-58.379%20-59.132%20L%20837.294%2079.013%20c%20-11.373%20-5.045%20-11.373%20-21.606%200.000%20-26.664%20l%2034.667%20-15.384%20C%20898.614%2025.135%20919.804%203.268%20931.190%20-24.129%20l%2013.163%20-31.736%20c%204.889%20-11.777%2021.163%20-11.777%2026.052%200.000%20L%20983.569%20-24.129%20c%2011.373%2027.409%2032.575%2049.290%2059.229%2061.106%20l%2034.667%2015.384%20c%2011.373%205.045%2011.373%2021.606%200.000%2026.664%20l%20-35.791%2015.894%20C%201015.712%20106.435%20994.876%20127.532%20983.307%20154.026%20Z'/></svg>") center / contain no-repeat;
+}

@@ -29,7 +29,7 @@ export default async function Page(props: { params: Promise<{ slug: string[] }> 
   return (
     <DocsPage
       toc={page.data.toc}
-      tableOfContent={{ footer: <PageFeedback /> }}
+      tableOfContent={{ footer: <PageFeedback />, container: { className: 'ad-toc' } }}
       /* Below the TOC's breakpoint fumadocs-ui puts a sticky bar above the article whose only
          content is a button repeating the page title. The title is already the first thing in
          the article. */
