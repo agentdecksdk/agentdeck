@@ -8,6 +8,11 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Added
+
+- **The docs site nav states which version it documents** (#686), sourced from
+  `generated-version.ts` so it follows the release bump automatically.
+
 ### Changed
 
 - **The documentation site runs on Fumadocs instead of Nextra 4** (#683). Same 44 URLs, same

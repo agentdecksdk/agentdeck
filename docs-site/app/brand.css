@@ -64,6 +64,16 @@ main :is(h1, h2, h3, h4) {
   font-size: 1.0625rem;
 }
 
+/* `--color-fd-muted-foreground` measures 4.2-4.4:1 against the nav's real light-mode
+   background, under the 4.5:1 floor; dark mode already clears it. */
+.docs-version {
+  color: #475569;
+}
+
+.dark .docs-version {
+  color: var(--brand-cool-gray);
+}
+
 #nd-sidebar a[aria-label="GitHub"]:hover {
   color: var(--brand-blue);
 }

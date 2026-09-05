@@ -38,6 +38,9 @@ leaving the rest open (#541).
      `CHANGELOG.md`'s `[Unreleased]` entries to a dated `## [X.Y.Z]` heading with compare links.
    - Run `python scripts/generate_docs_reference.py` once, then verify
      `python scripts/generate_docs_reference.py --check`.
+   - Snapshot the docs site only if this release removes or changes a documented surface, not on
+     every release (`docs/delivery/docs-site-plan.md` DS-D3). A patch documenting the same
+     surface owes nothing.
    - Commit: `chore(release): vX.Y.Z`. Open the PR against the bump issue from step 3
      (`Closes #N`), wait for every required check, merge.
 5. **Promotion issue:** `python scripts/release_bump.py promote X.Y.Z` opens the labeled
