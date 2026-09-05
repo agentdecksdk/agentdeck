@@ -2580,12 +2580,14 @@ Explicit composition has neither problem. Both front doors are described in [Dec
 
 ## Its own route, not `Deck.asgi()`
 
-AgentDeck packages an HTTP surface and Jack writes his own, for two structural reasons:
+AgentDeck packages an HTTP surface as [bindings](/bindings/serve): `deck.serve()` / `deck.expose()`
+take a `Binding` and open a standalone server or an ASGI app. Jack writes his own route instead,
+for two structural reasons:
 
 | | |
 |---|---|
-| **Context cannot cross HTTP** | A run started through `asgi()` carries `context=None`. There is no wire form for a live Python object, and both tools need the `DocsCorpus`. |
-| **The chat wire is frozen** | Its body is exactly `{"session_id", "message"}`, pinned byte-for-byte by `tests/golden/`. The page a reader is on has nowhere to go in it. |
+| **Context cannot cross HTTP** | A run started through a binding carries `context=None`. There is no wire form for a live Python object, and both tools need the `DocsCorpus`. |
+| **`Native.http()` speaks a different wire** | It's AgentDeck's generic protocol  -  `POST /runs`, `GET /runs/{id}/events`, and the rest  -  not a single `POST /ask` with a chat body. Adopting it still means translating between Jack's own request and the protocol's, which is the layer this route exists to avoid. |
 
 The result is about forty lines over `deck.stream()`, streaming canonical events with no
 translation layer.
@@ -3080,11 +3082,27 @@ The current release is **v6.0.3**. Earlier releases are listed at the bottom.
 
 ## Unreleased
 
+### Fixed
+
+- **`scripts/release_bump.py issues` finds a squash-merged release's milestone issues again**
+  (#699). It looked for `Merge pull request #N` commits, a shape this repo's squash-merge
+  workflow never produces, so it silently milestoned nothing; it now resolves each commit's
+  merged PR and reads GitHub's own `closingIssuesReferences`.
+
+### Added
+
+- **The docs site nav states which version it documents** (#686), sourced from
+  `generated-version.ts` so it follows the release bump automatically.
+
 ### Changed
 
 - **The documentation site runs on Fumadocs instead of Nextra 4** (#683). Same 44 URLs, same
   Pagefind search, same pages. Nextra's loader routed every fenced block through `twoslash`,
   whose peer range pinned TypeScript below 7 (#664); nothing does now.
+- **`brand.css` targets Fumadocs' own DOM and tokens instead of Nextra's leftovers** (#691). The
+  sidebar and table-of-contents active states now recolor through Fumadocs' own
+  `--color-fd-primary` token; the announcement bar reads 4.88:1 white-on-blue (AA, disclosed on
+  #691); the docs-site build has zero remaining `.nextra-*` selectors.
 
 ## v6.0.3
 
