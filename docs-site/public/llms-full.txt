@@ -1144,6 +1144,7 @@ in no layered dump.
 | Env var | Type | Default | Description |
 |---|---|---|---|
 | `AGENTDECK_OPENAI_AGENTS_TRACING_ENABLED` | `bool` | `False` | Opt in to the OpenAI Agents SDK's own trace exporter (`adapters/executors/openai_agents/runconfig.py`). Off by default: a keyless or fake-model run has no account to export to, and the exporter otherwise attempts a real HTTPS call per run. Langfuse traces are built from the event stream, and are a separate switch. |
+| `OPENAI_USE_RESPONSES` | `bool` | `True` | Use the SDK's Responses transport (`runtime/settings.py`). Set it false for a Chat-Completions-only model server. The default gives every message a real response id, which is what avoids the `FAKE_RESPONSES_ID` collision. |
 
 ---
 
@@ -1819,11 +1820,57 @@ Source: https://agentdecksdk.com/build-your-deck/skills
 
 # Skills
 
-Skills provide modular, reusable domain knowledge and instructions defined in `SKILL.md` files.
+A skill is prose an agent loads only when it decides it needs it: a `SKILL.md` file the model
+reads on demand, instead of a paragraph folded permanently into `instructions`.
 
-## Adding Skills
+```python
+from agentdeck import Agent
 
-Attach skills directly to agents or load them from `./.agentdeck/skills/`.
+triage = Agent(
+    name="Triage",
+    instructions="Route support tickets. Load the refund-policy skill before approving a refund.",
+    skills=["refund-policy"],
+)
+```
+
+`skills=[...]` names skills by directory, resolved against the `Deck`'s skill roots at
+`build()`. A name the catalog does not hold fails there, naming the agent and what is available.
+
+## `SKILL.md`
+
+```text
+.agentdeck/
+└── skills/
+    └── refund-policy/
+        └── SKILL.md
+```
+
+```markdown
+---
+name: refund-policy
+description: How to evaluate a refund request - use before approving or denying one.
+---
+
+Approve refunds under $50 without escalation. Anything over $50 needs a supervisor tag.
+Never approve a refund for an order older than 90 days.
+```
+
+The directory name is the skill's name; `name:` in the frontmatter must match it if given, and
+`description:` is required. Both missing or mismatched fail `Deck.build()` naming the bundle.
+Only `description` reaches the agent's own instructions up front; the model calls
+`load_skill("refund-policy")` to read the body, which is why a skill is not a tool call the model
+can fake its way past.
+
+`Deck.from_project()` scans `./.agentdeck/skills/` automatically. Building a `Deck` directly
+instead, point `skills=` at the same directory (or several, or a `Skills(...)` object):
+
+```python
+from agentdeck import Deck
+
+deck = Deck(agents=[triage], skills="./.agentdeck/skills")
+```
+
+See [Agent with a Skill](/examples/agent-with-a-skill) for a full running example, tools and all.
 
 ---
 
@@ -2364,11 +2411,42 @@ Source: https://agentdecksdk.com/integrations/existing-agents
 
 # Existing Agents
 
-Wrap existing agents without requiring a rewrite.
+An agent built on something other than AgentDeck or the OpenAI Agents SDK - a hand-rolled loop,
+LangGraph, anything with a Python entry point - runs under a Deck by calling it from a
+`@workflow`, unchanged:
 
-## Wrapping Agents
+```python
+from agentdeck import Deck, WorkflowCtx, workflow
 
-Bring your custom agent implementations and wrap them with AgentDeck's runtime.
+
+class LegacyAgent:
+    async def answer(self, question: str) -> str:
+        ...  # whatever this already does
+
+
+legacy = LegacyAgent()
+
+
+@workflow
+async def support(ctx: WorkflowCtx, question: str) -> str:
+    return await legacy.answer(question)
+
+
+deck = Deck(workflows=[support])
+```
+
+`@workflow` puts a name and a context contract around ordinary Python; the body is free to call
+anything, including an agent implementation that predates AgentDeck entirely. Nothing about
+`legacy` changes - it keeps whatever model client, prompt loop or framework it already uses.
+
+Running it through `deck.runs.start("support", "where is my order?")` is what the wrap buys:
+this call gets a durable `Run` (`pause`/`resume`/`cancel`, rehydration from another process) and
+an event log, the same as an `Agent` or a native `@tool` would. `ctx.ask(...)` inside the body
+suspends the run for a human answer, if `legacy` ever needs one - see
+[Workflows](/build-your-deck/workflows) for what a workflow body can do beyond this one call.
+
+Already have an `agents.Agent` built with the OpenAI Agents SDK directly? See
+[OpenAI Agents SDK](/integrations/openai-agents-sdk) - it attaches without a `@workflow` wrapper.
 
 ---
 
@@ -2379,11 +2457,61 @@ Source: https://agentdecksdk.com/integrations/mcp
 
 # Model Context Protocol (MCP)
 
-Connect external tools and resources over standard MCP transports.
+An MCP server's tools reach an agent the same way a `@tool` does, once the server is named in
+`.mcp.json` and the agent asks for it by name.
 
-## Attaching MCP Servers
+```json
+{
+  "mcpServers": {
+    "search": {
+      "type": "http",
+      "url": "http://localhost:8765/mcp"
+    }
+  }
+}
+```
 
-Attach MCP clients directly to your `Deck` configuration.
+```python
+from agentdeck import Agent, Deck
+
+researcher = Agent(
+    name="Researcher",
+    instructions="Use the search tools to answer questions about current events.",
+    mcp=["search"],
+)
+
+deck = Deck(agents=[researcher], mcp=".mcp.json")
+```
+
+`mcp=[...]` names servers, resolved against the `Deck`'s own `.mcp.json` at `build()` - the
+same pattern as `skills=[...]`. `Deck.from_project()` finds `.mcp.json` on its own, next to
+`.agentdeck/` (a sibling, not inside it).
+
+**HTTP only, today.** `type` accepts `http` (or `streamable-http`); no stdio transport is wired
+up. `headers` and `timeout` are optional per-server.
+
+## When a server is down
+
+A server that fails to connect at startup does not fail the boot: it is marked unavailable, and
+an agent naming it gets a banner in its own instructions instead of the tools:
+
+```text
+## Runtime MCP status
+
+The following MCP server(s) you depend on are UNAVAILABLE: `search`.
+Tools from those servers are NOT exposed to you in this turn.
+If the user's request requires those tools, reply with exactly:
+
+    error: mcp_unavailable: <server-name>
+
+and stop. Do not invent results. Do not retry. Do not call other tools as a substitute unless
+the user explicitly asks for an alternative.
+```
+
+The banner is prepended to the agent's instructions; the model fills in `<server-name>` itself
+rather than guessing or substituting another tool. An agent naming an MCP server the `Deck` was
+never given `mcp=` for, or a name outside its own `.mcp.json`, fails at `build()` instead - that
+is a wiring mistake, not a runtime outage.
 
 ---
 
@@ -2394,11 +2522,42 @@ Source: https://agentdecksdk.com/integrations/openai-agents-sdk
 
 # OpenAI Agents SDK
 
-Integrate OpenAI Agents directly into AgentDeck.
+`Agent(...)` compiles to a real `agents.Agent`, and the openai-agents executor runs it with
+`agents.Runner` underneath. An `agents.Agent` you already built with the SDK directly - its own
+tools, its own handoffs - drops into a Deck as a handoff target, unrewritten:
 
-## Native Execution
+```python
+from agents import Agent as SDKAgent
 
-AgentDeck runs OpenAI Agents natively while adding sessions, durable runs, and event streaming.
+specialist = SDKAgent(name="Specialist", instructions="Handle billing disputes in detail.")
+```
+
+```python
+from agentdeck import Agent
+
+triage = Agent(
+    name="Triage",
+    instructions="Handle simple requests yourself. Hand off billing disputes to Specialist.",
+    handoffs=[specialist],
+)
+```
+
+`handoffs=[...]` takes a catalog agent's name, an AgentDeck `Agent`, or an already-compiled SDK
+object - `specialist` above passes straight through, unresolved and unvalidated, because it is
+already what the executor needs. Only `triage` has to be in `Deck(agents=[...])`; `specialist`
+never does, and never gets a `Run` of its own - a handoff takes over the run `triage` already
+started, recorded as an `agent.changed` event, not a new one. See
+[Handoffs](/runs-and-control/runs#handoffs).
+
+`tools=[...]` takes the same shortcut: a plain function is compiled fresh, but an already-built
+Agents SDK tool object is passed straight through, engine-native.
+
+## What the Deck adds
+
+Nothing about the SDK agent's own behavior changes. What wrapping it in a Deck adds is what the
+SDK does not have on its own: a durable `Run` (pause, resume, cancel, rehydrate from another
+process), a session across turns, and one event stream regardless of which agent in the catalog
+answered. See [Runs](/runs-and-control/runs) and [Lifecycle & Control](/runs-and-control/lifecycle-and-control).
 
 ---
 
@@ -3561,7 +3720,7 @@ log written by a newer release of the same schema major.
 
 # Human Input
 
-
+*Suspend a run for a human answer, validated against the question's own options when it named any.*
 Source: https://agentdecksdk.com/runs-and-control/human-input
 
 # Human Input
@@ -3694,19 +3853,43 @@ attached to each cell.
 
 # Pause / Resume
 
-
+*Ask a run to stop at its next safe point, check whether it can first, and lift the pause later.*
 Source: https://agentdecksdk.com/runs-and-control/pause-resume
 
 # Pause / Resume
 
-Pause executing runs and resume them safely across processes or workers.
+`run.pause(reason=None)` asks a run to stop cooperatively; `run.resume()` lifts it. Neither
+blocks until the run actually stops or starts - see
+[Lifecycle & Control](/runs-and-control/lifecycle-and-control) for what a safe point is and the
+full state table this page assumes.
 
-## Resuming Runs
+```python no-test reason="needs a live Run from runs.start/get"
+run = await deck.runs.start("Approval", {"order_id": "A-1003"})
 
-```python
-await run.pause()
+await run.pause("operator stepped away")
 await run.resume()
 ```
+
+The reason travels into the log on the run's own `control.requested` event, so anything reading
+`run.events()` later sees why it stopped, not just that it did.
+
+## Checking before you call
+
+`run.can` reads the status this handle last saw - `pause`, `resume`, `cancel`, no `answer` (an
+interrupt's shape is per-workflow, not a flag a generic UI can render). It is for a button's
+enabled state or a branch that would rather not raise:
+
+```python no-test reason="needs a live Run"
+if run.can.pause:
+    await run.pause("operator stepped away")
+```
+
+`can` is a snapshot from the last time this handle read status, not a live guarantee: the run
+can end between checking it and acting on it. `pause()`/`resume()` are the authoritative answer
+instead - they raise `RunStateError` when the state genuinely refuses, and return quietly only
+when there is nothing left to do (already paused, already over). See
+[Lifecycle & Control](/runs-and-control/lifecycle-and-control#what-you-can-act-on) for exactly
+which state accepts which call.
 
 ---
 

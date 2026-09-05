@@ -1,7 +1,57 @@
 # Model Context Protocol (MCP)
 
-Connect external tools and resources over standard MCP transports.
+An MCP server's tools reach an agent the same way a `@tool` does, once the server is named in
+`.mcp.json` and the agent asks for it by name.
 
-## Attaching MCP Servers
+```json
+{
+  "mcpServers": {
+    "search": {
+      "type": "http",
+      "url": "http://localhost:8765/mcp"
+    }
+  }
+}
+```
 
-Attach MCP clients directly to your `Deck` configuration.
+```python
+from agentdeck import Agent, Deck
+
+researcher = Agent(
+    name="Researcher",
+    instructions="Use the search tools to answer questions about current events.",
+    mcp=["search"],
+)
+
+deck = Deck(agents=[researcher], mcp=".mcp.json")
+```
+
+`mcp=[...]` names servers, resolved against the `Deck`'s own `.mcp.json` at `build()` - the
+same pattern as `skills=[...]`. `Deck.from_project()` finds `.mcp.json` on its own, next to
+`.agentdeck/` (a sibling, not inside it).
+
+**HTTP only, today.** `type` accepts `http` (or `streamable-http`); no stdio transport is wired
+up. `headers` and `timeout` are optional per-server.
+
+## When a server is down
+
+A server that fails to connect at startup does not fail the boot: it is marked unavailable, and
+an agent naming it gets a banner in its own instructions instead of the tools:
+
+```text
+## Runtime MCP status
+
+The following MCP server(s) you depend on are UNAVAILABLE: `search`.
+Tools from those servers are NOT exposed to you in this turn.
+If the user's request requires those tools, reply with exactly:
+
+    error: mcp_unavailable: <server-name>
+
+and stop. Do not invent results. Do not retry. Do not call other tools as a substitute unless
+the user explicitly asks for an alternative.
+```
+
+The banner is prepended to the agent's instructions; the model fills in `<server-name>` itself
+rather than guessing or substituting another tool. An agent naming an MCP server the `Deck` was
+never given `mcp=` for, or a name outside its own `.mcp.json`, fails at `build()` instead - that
+is a wiring mistake, not a runtime outage.

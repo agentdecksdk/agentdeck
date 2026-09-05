@@ -122,6 +122,10 @@ _DIRECT_ENV_SECTION = [
     "keyless or fake-model run has no account to export to, and the exporter otherwise attempts a "
     "real HTTPS call per run. Langfuse traces are built from the event stream, and are a separate "
     "switch. |",
+    "| `OPENAI_USE_RESPONSES` | `bool` | `True` | Use the SDK's Responses transport "
+    "(`runtime/settings.py`). Set it false for a Chat-Completions-only model server. The default "
+    "gives every message a real response id, which is what avoids the `FAKE_RESPONSES_ID` "
+    "collision. |",
     "",
 ]
 

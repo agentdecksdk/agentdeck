@@ -1,7 +1,38 @@
 # OpenAI Agents SDK
 
-Integrate OpenAI Agents directly into AgentDeck.
+`Agent(...)` compiles to a real `agents.Agent`, and the openai-agents executor runs it with
+`agents.Runner` underneath. An `agents.Agent` you already built with the SDK directly - its own
+tools, its own handoffs - drops into a Deck as a handoff target, unrewritten:
 
-## Native Execution
+```python
+from agents import Agent as SDKAgent
 
-AgentDeck runs OpenAI Agents natively while adding sessions, durable runs, and event streaming.
+specialist = SDKAgent(name="Specialist", instructions="Handle billing disputes in detail.")
+```
+
+```python
+from agentdeck import Agent
+
+triage = Agent(
+    name="Triage",
+    instructions="Handle simple requests yourself. Hand off billing disputes to Specialist.",
+    handoffs=[specialist],
+)
+```
+
+`handoffs=[...]` takes a catalog agent's name, an AgentDeck `Agent`, or an already-compiled SDK
+object - `specialist` above passes straight through, unresolved and unvalidated, because it is
+already what the executor needs. Only `triage` has to be in `Deck(agents=[...])`; `specialist`
+never does, and never gets a `Run` of its own - a handoff takes over the run `triage` already
+started, recorded as an `agent.changed` event, not a new one. See
+[Handoffs](/runs-and-control/runs#handoffs).
+
+`tools=[...]` takes the same shortcut: a plain function is compiled fresh, but an already-built
+Agents SDK tool object is passed straight through, engine-native.
+
+## What the Deck adds
+
+Nothing about the SDK agent's own behavior changes. What wrapping it in a Deck adds is what the
+SDK does not have on its own: a durable `Run` (pause, resume, cancel, rehydrate from another
+process), a session across turns, and one event stream regardless of which agent in the catalog
+answered. See [Runs](/runs-and-control/runs) and [Lifecycle & Control](/runs-and-control/lifecycle-and-control).
