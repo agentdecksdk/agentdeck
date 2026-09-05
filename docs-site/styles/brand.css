@@ -104,8 +104,13 @@ main :is(h1, h2, h3, h4) {
   color: var(--brand-frost);
 }
 
+/* The wordmark is set in the display face, not the body face, and `<strong>` inside a
+   `font-semibold` row computes to 900 unless the weight is stated. */
 .ad-wordmark {
+  font-family: var(--font-display), sans-serif;
   font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
 /* `--color-fd-muted-foreground` measures 4.2-4.4:1 against the nav's real light-mode
