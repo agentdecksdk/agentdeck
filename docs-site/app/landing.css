@@ -22,27 +22,23 @@ article:has(.landing) > .x\:float-end {
   display: none;
 }
 
+/* `--rail`, `--card-bg`, `--card-shadow` and `--card-radius` are the brand card and live in
+   brand.css, so a docs page and this page draw the same object. Only what is particular to the
+   landing page is defined here. */
 .landing {
-  --rail: var(--brand-border-light);
   --surface: var(--brand-ice);
   --ink-soft: #52607a;
   --accent: var(--brand-blue);
   --diagram: color-mix(in srgb, var(--ink-soft) 45%, transparent);
   --gutter: 4.5rem;
-  --card-radius: 12px 12px 5px 12px;
   --card-radius-sm: 8px 8px 3px 8px;
-  --card-bg: linear-gradient(180deg, #ffffff, #f6f8ff);
-  --card-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 12px 30px rgba(11, 18, 32, 0.05);
   --measure: 1320px;
 }
 
 .dark .landing {
-  --rail: var(--brand-border-dark);
   --surface: var(--brand-slate);
   --ink-soft: #94a3b8;
   --accent: var(--brand-frost);
-  --card-bg: linear-gradient(180deg, #18233a, #131c30);
-  --card-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 12px 30px rgba(0, 0, 0, 0.3);
 }
 
 /* Nextra gives the home page the full width; the page sets its own measure. */
@@ -241,7 +237,7 @@ article:has(.landing) > .x\:float-end {
 }
 
 .chapter-body {
-  padding: 3.25rem 0 4rem;
+  padding: 2.25rem 0 2.75rem;
   min-width: 0;
 }
 
@@ -264,7 +260,7 @@ article:has(.landing) > .x\:float-end {
 
 /* A section that is only an argument: no eyebrow, no figure, one paragraph. */
 .chapter.is-plain .chapter-body {
-  padding: 2.5rem 0;
+  padding: 1.75rem 0;
 }
 
 .chapter.is-plain .chapter-title {
@@ -352,12 +348,25 @@ article:has(.landing) > .x\:float-end {
   color: var(--ink-soft);
 }
 
+/* fumadocs-ui renders a code block as `figure.bg-fd-card`: a neutral grey card with a uniform
+   radius and `my-4`. Beside `.tree-figure` that reads as a second, foreign card language and sits
+   16px lower than the figure it pairs with. One card, the page's own. */
+.landing .snippet figure {
+  margin: 0;
+  border: 1px solid var(--rail);
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+  border-radius: var(--card-radius);
+}
+
+/* fumadocs-ui wraps every code block in `figure.bg-fd-card`, which carries the surface and the
+   border. Painting the `pre` as well stacks a blue-tinted panel inside a neutral card and draws
+   two rules where the design has one card. */
 .landing .snippet pre {
   margin: 0 !important;
-  border-radius: var(--card-radius);
-  border: 1px solid var(--rail) !important;
+  border: 0 !important;
   border-radius: 0 !important;
-  background: var(--surface) !important;
+  background: transparent !important;
   font-size: 0.83rem;
   line-height: 1.62;
   overflow-x: auto;
@@ -643,7 +652,7 @@ article:has(.landing) > .x\:float-end {
 /* ----------------------------------------------------------- live section */
 
 .chapter.is-live-section .chapter-body {
-  padding-bottom: 5rem;
+  padding-bottom: 3.5rem;
 }
 
 .jack-live {

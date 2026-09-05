@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
-import { DocsLayout } from 'fumadocs-ui/layouts/docs'
+import { DocsLayout } from 'fumadocs-ui/layouts/notebook'
+import { ThemeSwitch } from 'fumadocs-ui/layouts/shared/slots/theme-switch'
 import { JackPanel } from '../jack'
 import { Mark } from '../mark'
 import { pageSlugs, source } from '../source'
@@ -9,7 +10,32 @@ export default function Layout({ children }: { children: ReactNode }) {
   return (
     <DocsLayout
       tree={source.getPageTree()}
+      /* v6.0.3 put the theme control at the foot of the sidebar, not in the bar, and the bar's
+         right end was search, the assistant, then the repo link. */
+      themeSwitch={{ enabled: false }}
+      /* `collapsible` is what puts the collapse trigger in the bar; v6.0.3 had no such control
+         there, and the sidebar is the page's spine rather than something to fold away. */
+      sidebar={{ footer: <ThemeSwitch key="theme-switch" mode="light-dark-system" />, collapsible: false }}
       nav={{
+        /* The v6.0.3 arrangement: a real top bar carrying the mark, the assistant and the repo
+           link, with the sidebar left to the page tree. `layouts/notebook` is fumadocs-ui's own
+           layout for this shape; `layouts/docs` stacks all of it into the sidebar instead. */
+        mode: 'top',
+        /* The assistant belongs in the bar at every width. As a `links` entry fumadocs-ui moves
+           it into the sidebar below `lg`; as nav children it stays put, which is where v6.0.3
+           had it. */
+        children: (
+          <span key="bar-actions" className="nav-actions">
+            <JackPanel validSlugs={pageSlugs()} />
+            <a
+              className="nav-actions__repo"
+              href="https://github.com/agentdecksdk/agentdeck"
+              aria-label="GitHub"
+            >
+              <GitHubMark />
+            </a>
+          </span>
+        ),
         title: (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.55rem' }}>
             <Mark size={26} />
@@ -18,16 +44,6 @@ export default function Layout({ children }: { children: ReactNode }) {
           </span>
         )
       }}
-      links={[
-        { type: 'custom', secondary: true, children: <JackPanel validSlugs={pageSlugs()} /> },
-        {
-          type: 'icon',
-          label: 'GitHub',
-          text: 'GitHub',
-          url: 'https://github.com/agentdecksdk/agentdeck',
-          icon: <GitHubMark />
-        }
-      ]}
     >
       {children}
     </DocsLayout>

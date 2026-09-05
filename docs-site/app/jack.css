@@ -32,7 +32,6 @@
 .ask-launch svg {
   height: 13px;
   width: 13px;
-  color: var(--brand-ace);
 }
 
 .ask-launch:hover,

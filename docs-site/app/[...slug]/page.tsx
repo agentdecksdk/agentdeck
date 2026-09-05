@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
-import { DocsBody, DocsPage } from 'fumadocs-ui/layouts/docs/page'
+import { DocsBody, DocsPage } from 'fumadocs-ui/layouts/notebook/page'
 import { getMDXComponents } from '../../mdx-components'
 import { PageFeedback } from '../page-feedback'
 import { source } from '../source'
@@ -27,7 +27,14 @@ export default async function Page(props: { params: Promise<{ slug: string[] }> 
   const MDX = page.data.body
 
   return (
-    <DocsPage toc={page.data.toc} tableOfContent={{ footer: <PageFeedback /> }}>
+    <DocsPage
+      toc={page.data.toc}
+      tableOfContent={{ footer: <PageFeedback /> }}
+      /* Below the TOC's breakpoint fumadocs-ui puts a sticky bar above the article whose only
+         content is a button repeating the page title. The title is already the first thing in
+         the article. */
+      tableOfContentPopover={{ enabled: false }}
+    >
       {/* Pagefind indexes only what carries this attribute, so the index stays page text rather
           than the navigation repeated 44 times. `nextra-theme-docs` emitted it for us. */}
       <DocsBody data-pagefind-body>
