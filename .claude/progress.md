@@ -17,7 +17,6 @@ This tracks what is still open.
 
 ## Epic #729, still to do
 
-- [ ] Stage 3 second half: split `brand.css` (started, agent hit the session limit before writing; orphan base.css/docs.css removed) into `styles/{base,docs,utilities}.css` plus colocated component sheets
 - [ ] Stages 8-9: own the page and TOC, then drop `DocsLayout`
 - [ ] Stage 11: own the providers, drop `RootProvider`
 
