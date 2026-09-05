@@ -8,6 +8,7 @@
  * `event.kind` a Python consumer reading the run back would switch on.
  */
 
+import { createPortal } from 'react-dom'
 import { usePathname } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
@@ -118,18 +119,22 @@ export function JackPanel({ validSlugs }: { validSlugs: string[] }) {
       aria-expanded={open}
       aria-label="Ask Jack"
     >
-      <span className="ask-launch__badge">
-        <AskIcon />
-      </span>
+      <AskIcon />
       <span className="ask-launch__label">Ask Jack</span>
     </button>
   )
 
   if (!open) return launcher
 
+  // The panel is `position: fixed` against the viewport, and the bar it launches from carries
+  // `backdrop-filter: blur(8px)`. A backdrop filter makes an element a containing block for its
+  // fixed descendants, so rendered in place the panel resolved `top/bottom/right` against a 56px
+  // header: 480x55 hanging off the bar, with its own head at y:-32. A portal is what puts it back
+  // on the viewport.
   return (
     <>
       {launcher}
+      {createPortal(
       <aside className="ask-panel" aria-label="Ask Jack">
       <header className="ask-head">
         <strong>Ask Jack</strong>
@@ -185,6 +190,7 @@ export function JackPanel({ validSlugs }: { validSlugs: string[] }) {
         <button type="submit" disabled={busy || !question.trim()}>Ask</button>
         </form>
       </aside>
+      , document.body)}
     </>
   )
 }

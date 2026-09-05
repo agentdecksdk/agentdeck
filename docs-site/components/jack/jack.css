@@ -1,13 +1,12 @@
 /* The Jack panel: brand palette from brand.css, no new tokens. */
 
-/* The assistant, as a small dark pill in the bar: a secondary CTA rather than another icon. The
-   spark sits in its own tinted badge, because loose on a filled surface it read as decoration. */
+/* The assistant, as a small pill in the bar: a secondary CTA rather than another icon. */
 .ask-launch {
   display: inline-flex;
   align-items: center;
   gap: 0.55rem;
   height: 34px;
-  padding: 0 0.85rem 0 0.4rem;
+  padding: 0 0.85rem;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--brand-blue) 34%, transparent);
   background: color-mix(in srgb, var(--brand-blue) 7%, #fff);
@@ -19,19 +18,11 @@
   transition: background 140ms ease;
 }
 
-.ask-launch__badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--brand-ace) 13%, transparent);
-}
-
+/* The spark is the one accent on the bar, in Ace Red as it is everywhere else. */
 .ask-launch svg {
   height: 13px;
   width: 13px;
+  color: var(--brand-ace);
 }
 
 .ask-launch:hover,
