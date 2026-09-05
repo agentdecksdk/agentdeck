@@ -2,15 +2,16 @@
 
 ## Done
 
+- [x] Callout title carried a dead `font-medium` from shadcn's AlertTitle
+- [x] Mobile Ask Jack now rises from the bottom instead of sliding in from the right
+- [x] Copy page / Open in ChatGPT restored, on the shipped fumadocs controls
+- [x] Content sweep of all 43 pages: 8 false or broken claims fixed
+
 
 ## Open
 
-- [ ] Callout title carries `font-medium`: remove that type. `/meet-agentdeck/quickstart/#build-your-deck`, `.group/alert > .font-medium`
-- [ ] Mobile Ask Jack should animate up from the bottom, not in from the right as on desktop
 - [ ] Mobile top bar shows no navigation affordance, and the assistant should be the spark alone
 - [ ] Search trigger `kbd` chip: confirm the fix on a real Mac as well as here
-- [ ] Copy page / Open in ChatGPT affordance, lost in the Fumadocs migration
-- [ ] Content sweep of the 43 docs pages: six reviewers were stopped part-way, only fragments survived
 - [ ] Backdrop click-to-dismiss on the mobile drawer was never verified
 - [ ] "Build Your Deck" exposes 6 sibling pages flat, past the 4-item chunking limit
 
@@ -40,3 +41,11 @@
 **Source:** _next/static/chunks/node_modules_agentation_dist_index_mjs_1bt__qk._.js:14067:23
 **React:** <LayoutBody> <DocsShell> <SiteHeader> <JackPanel>
 **Feedback:** remvoe teh serupend vard in moblble
+
+## Reported by the sweep, not fixed
+
+- [ ] `OPENAI_USE_RESPONSES` missing from the generated settings table: fix `scripts/generate_docs_reference.py`, not the mdx
+- [ ] `troubleshooting.mdx` says two ConfigErrors raise at build time; they raise from `expose()`/`serve()`
+- [ ] `skills.mdx`, `integrations/{existing-agents,mcp,openai-agents-sdk}.mdx` are 17-line stubs with no example
+- [ ] `pause-resume.mdx` duplicates `lifecycle-and-control.mdx` with nothing added
+- [ ] `human-input.mdx` and `pause-resume.mdx` have no `description:` frontmatter
