@@ -283,38 +283,6 @@ code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
-.hero-heading {
-  font-size: 2.75rem;
-  line-height: 1.15;
-  font-weight: 700;
-  letter-spacing: -0.035em;
-  margin: 0 0 1.25rem;
-  color: var(--brand-night);
-}
-
-.dark .hero-heading {
-  color: #ffffff;
-}
-
-.hero-heading .text-accent {
-  color: var(--brand-blue);
-}
-
-.dark .hero-heading .text-accent {
-  color: var(--brand-frost);
-}
-
-.hero-lead {
-  font-size: 1.1rem;
-  line-height: 1.6;
-  color: #475569;
-  margin: 0 0 2rem;
-}
-
-.dark .hero-lead {
-  color: #94a3b8;
-}
-
 .cta-primary {
   display: inline-flex;
   align-items: center;
@@ -357,93 +325,10 @@ code {
   color: var(--brand-frost) !important;
 }
 
-.status-diamond.live {
-  color: #38bdf8;
-  text-shadow: 0 0 10px rgba(56, 189, 248, 0.8);
-}
-
-.status-diamond.amber {
-  color: #fcd34d;
-  text-shadow: 0 0 10px rgba(252, 211, 77, 0.8);
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.frame-kicker.active {
-  color: #38bdf8;
-}
-
-.frame-kicker.amber {
-  color: #fcd34d;
-}
-
-.frame-kicker.muted {
-  color: #94a3b8;
-}
-
-.frame-kicker.green {
-  color: #86efac;
-}
-
-.stage-cta-btn.resume {
-  background: #38bdf8;
-  color: #0b1220;
-}
-
-.stage-cta-btn.retry {
-  background: #1e293b;
-  color: #f1f5f9;
-  border: 1px solid #334155;
-}
-
-.track-connector.active {
-  background: #38bdf8;
-}
-
-.track-node.active .node-diamond {
-  color: #38bdf8;
-}
-
-.track-node.waiting .node-diamond {
-  color: #fcd34d;
-}
-
-.node-label {
-  font-size: 0.65rem;
-  letter-spacing: 0.05em;
-  color: #64748b;
-}
-
-.player-action-btn.resume {
-  background: rgba(56, 189, 248, 0.15);
-  border-color: #38bdf8;
-  color: #38bdf8;
-}
-
-.player-action-btn.cancel:hover {
-  border-color: #f87171;
-  color: #f87171;
-}
-
 .row-name {
   color: #38bdf8;
   font-weight: 600;
 }
-
-.model-pill.branch {
-  font-size: 0.75rem;
-  padding: 0.25rem 0.7rem;
-  letter-spacing: 0.05em;
-}
-
-.life-step.active { color: #93b5ff; }
-.life-step.wait { color: #fcd34d; }
-.life-step.done { color: #86efac; }
-
-.bottom-install .p { color: #64748b; }
 
 /* ========================================================================= */
 /* DESIGN SYSTEM PRIMITIVES & COMPONENTS                                     */
@@ -677,132 +562,15 @@ code {
 /* ========================================================================= */
 
 @media (max-width: 768px) {
-  .deck-hero {
-    grid-template-columns: 1fr;
-    gap: 2rem;
-    padding: 1.5rem 0.5rem 1rem;
-  }
-
-  .hero-heading {
-    font-size: 2.15rem;
-    line-height: 1.18;
-    margin-bottom: 1rem;
-  }
-
-  .hero-lead {
-    font-size: 1rem;
-    line-height: 1.5;
-    margin-bottom: 1.5rem;
-  }
-
-  .hero-cta-group {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.75rem;
-  }
-
   .cta-primary,
   .cta-ghost {
     justify-content: center;
     width: 100%;
     text-align: center;
   }
-
-  .stream-stage-viewport {
-    padding: 1.75rem 1rem;
-    min-height: 200px;
-  }
-
-  .frame-title {
-    font-size: 1.15rem;
-  }
-
-  .frame-subtitle {
-    font-size: 0.85rem;
-  }
-
-  .stage-actions-row {
-    width: 100%;
-    gap: 0.6rem;
-  }
-
-  .btn-stage-approve,
-  .btn-stage-reject {
-    flex: 1;
-    padding: 0.6rem 0.75rem;
-    font-size: 0.85rem;
-    text-align: center;
-  }
-
-  .stream-timeline-rail {
-    padding: 0.75rem 0.5rem 1.15rem;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .timeline-nodes-track {
-    min-width: 280px;
-  }
-
-  .stream-player-bottom {
-    padding: 0.6rem 0.85rem;
-  }
-
-  .player-action-btn {
-    min-height: 32px;
-    padding: 0.25rem 0.65rem;
-  }
-
-  .model-row-inputs {
-    gap: 0.35rem;
-  }
-
-  .model-pill {
-    font-size: 0.75rem;
-    padding: 0.25rem 0.6rem;
-  }
-
-  .model-branches {
-    gap: 1rem;
-  }
-
-  .two-ideas-grid {
-    grid-template-columns: 1fr;
-    gap: 1.75rem;
-  }
-
-  .stack-row {
-    grid-template-columns: 1fr;
-    gap: 1.25rem;
-  }
-
-  .bottom-cta-section {
-    padding: 1rem 0 2rem;
-  }
-
-  .bottom-cta-title {
-    font-size: 1.45rem;
-  }
-
-  .bottom-actions {
-    flex-direction: column;
-    align-items: stretch;
-    width: 100%;
-    gap: 0.75rem;
-  }
-
-  .bottom-install {
-    max-width: 100%;
-    overflow-x: auto;
-    font-size: 0.75rem;
-  }
 }
 
 @media (max-width: 480px) {
-  .hero-heading {
-    font-size: 1.75rem;
-  }
-
   .step-rail-body {
     padding-left: 0.75rem;
     margin-left: 0.25rem;
