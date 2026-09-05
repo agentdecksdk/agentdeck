@@ -8,6 +8,13 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Removed
+
+- **Docs no longer deploy to GitHub Pages** (#724). The real site is served from its own domain;
+  the Pages mirror hadn't worked since the Fumadocs migration. `docs-pages.yml` is deleted, and
+  `next.config.mjs` no longer branches on `GITHUB_ACTIONS` to add a `/agentdeck` prefix, so CI's
+  `Build documentation` now builds the same output prod serves.
+
 ### Fixed
 
 - **`scripts/check_docs_impact.py` accepts an indented docs-impact acknowledgement** (#719). The
