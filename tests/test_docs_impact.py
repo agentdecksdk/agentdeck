@@ -137,6 +137,17 @@ def test_naming_the_affected_page_acknowledges_it(monkeypatch: pytest.MonkeyPatc
     assert docs_impact.main([]) == 0
 
 
+def test_a_non_whitespace_prefix_is_not_an_indent() -> None:
+    # `^\s*` accepts indentation, not any prefix: a quote marker or stray text must not count.
+    assert docs_impact.ACKNOWLEDGEMENT.search("> - [x] Unchanged pages reviewed: foo.mdx") is None
+
+
+def test_an_empty_page_list_does_not_match_at_all() -> None:
+    # `(?P<pages>.+)` requires at least one page, asserted at the regex itself: downstream
+    # page.strip() filtering would otherwise mask a loosened `.*` from ever being noticed.
+    assert docs_impact.ACKNOWLEDGEMENT.search("- [x] Unchanged pages reviewed:\n") is None
+
+
 def test_an_indented_acknowledgement_is_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
     mapping = PageMapping("docs-site/content/reference/run.mdx", ("agentdeck/core/*.py",))
     monkeypatch.setattr(docs_impact, "load_mappings", lambda: (mapping,))
