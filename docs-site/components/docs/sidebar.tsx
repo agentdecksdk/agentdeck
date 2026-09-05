@@ -140,13 +140,18 @@ export function DocsSidebar() {
   return (
     <>
       <BaseContent>
-        {({ ref, ...rest }) => (
+        {({ ref, collapsed, hovered, ...rest }) => (
           <div
             data-sidebar-placeholder=""
             className="sticky z-20 [grid-area:sidebar] pointer-events-none *:pointer-events-auto md:layout:[--fd-sidebar-width:268px] max-md:hidden top-(--fd-docs-row-2) h-[calc(var(--fd-docs-height)-var(--fd-docs-row-2))]"
           >
+            {/* `collapsed` and `hovered` are render-prop state, not DOM attributes: React warns
+                on a boolean it does not know, so they go on as data attributes the way
+                `layouts/notebook` put them. */}
             <aside
               ref={ref}
+              data-collapsed={collapsed}
+              data-hovered={hovered}
               className="absolute flex flex-col w-full inset-s-0 inset-y-0 items-end text-sm duration-250 *:w-(--fd-sidebar-width)"
               {...NAV}
               {...rest}
