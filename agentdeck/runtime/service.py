@@ -542,14 +542,11 @@ class Runtime:
     ) -> None:
         """Close a run whose claim committed and whose play never started.
 
-        Every exit from the claim to :meth:`_play` strands it as a run the log says is live with nobody playing
-        it, its session held for a whole staleness window. Not only a cancellation: a ``ControlPort`` can fail
-        while the event store this writes to is healthy (#470). A cancellation writes ``run.cancelled``, shielded
-        because the task is already being cancelled; anything else is an infrastructure fault, not a
-        cancellation, so it writes ``run.failed`` instead  -  unshielded, since nothing here is cancelling the
-        write itself  -  with the same ``error_code`` :func:`_failed` gives the identical fault inside ``_play``
-        (#688). Guarded on ``RUNNING`` because the same span also serves a pending cancel, whose terminal event
-        is already written (#391).
+        Every exit from the claim to :meth:`_play` strands the run live with nobody playing it.
+        A cancellation writes ``run.cancelled``, shielded; any other exception is an infrastructure
+        fault and writes ``run.failed`` instead, unshielded, with the same ``error_code``
+        :func:`_failed` gives the identical fault inside ``_play`` (#688). Guarded on ``RUNNING``
+        since the same span also serves a pending cancel (#391).
 
         Args:
             span: which claim was stranded, for the reason this writes.
