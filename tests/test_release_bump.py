@@ -127,6 +127,18 @@ def test_referenced_issues_in_range_falls_back_to_prose_for_a_direct_push() -> N
     assert referenced_issues_in_range("v1.0.0", fake_run) == [12]
 
 
+def test_referenced_issues_in_range_a_resolved_pr_with_no_closing_issues_contributes_nothing() -> None:
+    def fake_run(args: list[str]) -> str:
+        if args[:2] == ["git", "log"] and "-1" not in args:
+            return "abc\tchore: bump to 6.0.3 (#700)\n"
+        if args[:3] == ["gh", "pr", "view"]:
+            assert args[3] == "700"
+            return json.dumps({"closingIssuesReferences": []})
+        raise AssertionError(args)
+
+    assert referenced_issues_in_range("v1.0.0", fake_run) == []
+
+
 def test_referenced_issues_in_range_skips_a_trailing_reference_that_is_not_a_real_pr() -> None:
     # gh pr view fails for a number that doesn't resolve to a PR; the scan degrades rather
     # than aborting the whole range.
