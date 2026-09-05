@@ -9,11 +9,52 @@ possible, so a change to the extractor or the diff logic fails fast without a tw
 
 from __future__ import annotations
 
-from head_parity import _diff_page, extract_head
+from typing import TYPE_CHECKING
+
+from head_parity import _diff_page, extract_head, main
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _head(body: str) -> str:
     return f"<!DOCTYPE html><html><head>{body}</head><body></body></html>"
+
+
+def _write_page(build_dir: Path, relative: str, head_body: str) -> None:
+    page = build_dir / relative
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_text(_head(head_body))
+
+
+def test_main_reports_zero_for_identical_build_trees(tmp_path: Path, capsys) -> None:
+    a, b = tmp_path / "a", tmp_path / "b"
+    _write_page(a, "index.html", "<title>Home</title>")
+    _write_page(b, "index.html", "<title>Home</title>")
+
+    assert main([str(a), str(b)]) == 0
+    assert "0 differences." in capsys.readouterr().out
+
+
+def test_main_reports_a_page_present_in_only_one_build(tmp_path: Path, capsys) -> None:
+    a, b = tmp_path / "a", tmp_path / "b"
+    _write_page(a, "index.html", "<title>Home</title>")
+    _write_page(a, "new-page/index.html", "<title>New</title>")
+    _write_page(b, "index.html", "<title>Home</title>")
+
+    exit_code = main([str(a), str(b)])
+    out = capsys.readouterr().out
+    assert exit_code == 1
+    assert "new-page/index.html: only in build-a" in out
+
+
+def test_main_rejects_a_build_dir_that_does_not_exist(tmp_path: Path, capsys) -> None:
+    missing = tmp_path / "missing"
+    real = tmp_path / "real"
+    real.mkdir()
+
+    assert main([str(missing), str(real)]) == 2
+    assert "not a directory" in capsys.readouterr().err
 
 
 def test_identical_heads_produce_no_diff() -> None:
