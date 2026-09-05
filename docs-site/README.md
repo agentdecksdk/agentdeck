@@ -20,6 +20,11 @@ Pagefind indexes built HTML, so only `preview` (which goes through `npm run buil
 npm run build
 ```
 
+Reviewing a change that could affect the built `<head>` (a framework, layout, or metadata
+change, not routine content edits)? Build both trees and run
+`python scripts/head_parity.py <build-a> <build-b>`: it diffs `<title>`, meta, canonical/alternate
+links and JSON-LD across every page. Not a CI gate; run it by hand.
+
 The static export is generated in `docs-site/out/`.
 
 ## Dependencies
