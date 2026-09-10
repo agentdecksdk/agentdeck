@@ -8,6 +8,15 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Sharing a docs page renders the social preview card instead of a blank one.** The site
+  declared `twitter:card=summary_large_image` and an Open Graph block with no image in either, so
+  every crawler that honoured the declaration reserved a large card and had nothing to put in it.
+  `docs-site/public/brand/social-card.png` now ships beside the SVG, because no crawler renders
+  SVG for a preview, and the social card artwork is now the light landing-page treatment in both
+  `docs/brand/` and `docs-site/public/brand/`.
+
 ### Removed
 
 - **Docs no longer deploy to GitHub Pages** (#724). The real site is served from its own domain;
