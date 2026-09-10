@@ -5,3 +5,4 @@ out/
 .source
 tsconfig.tsbuildinfo
 /next-env.d.ts
+public/brand/social-card.png
