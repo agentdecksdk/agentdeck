@@ -1,6 +1,6 @@
 # Harness Change Log
 
-Running log of anti-slop harness changes, one row per change. Research basis: [sota_style_alignment_findings.md](sota_style_alignment_findings.md), [ai_agent_repository_alignment_research.md](ai_agent_repository_alignment_research.md), [solutions_for_aligning_ai_agents.md](solutions_for_aligning_ai_agents.md).
+Running log of anti-slop harness changes, one row per change. Each row's evidence is cited in its own `Why` cell; the three research syntheses this table was originally read against were deleted once their conclusions had all shipped as harness.
 
 | Change | Where | Why |
 | --- | --- | --- |
