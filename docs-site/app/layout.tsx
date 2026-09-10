@@ -26,6 +26,9 @@ export const viewport: Viewport = {
   ]
 }
 
+// Tracked in `.github/assets/`, where CI requires every binary to live
+// (docs/engineering/dependencies.md §5); `prebuild` copies it into `public/`.
+const CARD = '/brand/social-card.png'
 const CARD_ALT = 'AgentDeck SDK: agentic software should feel like software.'
 
 export const metadata: Metadata = {
@@ -42,12 +45,12 @@ export const metadata: Metadata = {
       'Durable human-in-the-loop approvals, sessions, streaming, run control and one ordered '
       + 'event log per run  -  wrapping the OpenAI Agents SDK rather than replacing it.',
     // PNG, not the SVG beside it: no crawler renders SVG for a preview card.
-    images: [{ url: '/brand/social-card.png', width: 1280, height: 640, alt: CARD_ALT }]
+    images: [{ url: CARD, width: 1280, height: 640, alt: CARD_ALT }]
   },
   twitter: {
     card: 'summary_large_image',
     title: 'AgentDeck SDK',
-    images: [{ url: '/brand/social-card.png', alt: CARD_ALT }]
+    images: [{ url: CARD, alt: CARD_ALT }]
   },
   title: {
     default: 'AgentDeck SDK  -  a production runtime for AI agents',

@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack -p 3040",
+    "prebuild": "cp ../.github/assets/social-card.png public/brand/",
     "build": "next build",
     "postbuild": "pagefind --site out --output-path out/_pagefind",
     "preview": "npm run build && python3 -m http.server -d out 3031",
