@@ -5,7 +5,7 @@
 `design/event-store-claims.md`, `design/sink-dispatch.md`
 
 *(Amended 2026-08-14: "proposal" was true on 2026-08-03 and has not been since v3 shipped  -
-`CLAUDE.md` and `00-project-index.md` §2 both name this the design of record.)*
+`CLAUDE.md` and `agentdeck-internal:planning/project-index.md` §2 both name this the design of record.)*
 
 This document specifies the target architecture for evolving agentdeck from a declarative
 harness over two SDKs into an agent development and runtime platform, following Clean
@@ -264,7 +264,7 @@ came off the port with the counter it existed to recover.
 "speaker" means the invocable the caller addressed, not the SDK's internal sub-agent, so
 an internal handoff (one invocable delegating to another inside its own run) does not
 change `origin` for the rest of that run. This is the contract, not a gap  -  see
-`milestone-0-findings.md` §3 for the analysis and the alternative (an additive,
+`agentdeck-internal:planning/delivery/milestone-0-findings.md` §3 for the analysis and the alternative (an additive,
 payload-level speaker field) still available if a consumer needs sub-agent attribution.
 
 *(Amended 2026-08-06, issue #101.)* A **structured result** is a `DataBlock` in
@@ -595,7 +595,7 @@ the adapter, so no port method describes it. `write_text`, `ApprovalPort` and pe
 `RunContext` are absent for the same reason: nothing called them. Split when a consumer genuinely
 wants one half.)*
 
-*(Amended 2026-08-11, #71: **deleted.** Sandboxing left v3 by ruling (`docs/delivery/roadmap-v3.md`
+*(Amended 2026-08-11, #71: **deleted.** Sandboxing left v3 by ruling (`agentdeck-internal:planning/delivery/roadmap-v3.md`
 ruling 1), and the three consumers this seam was cut for never materialised  -  `core/ports/sandbox.py`
 and `adapters/caps/sandbox/` are gone, along with the `authoring/capabilities/` specs nothing
 constructed. The block below and the mapping rows further down are the design as it stood, kept as

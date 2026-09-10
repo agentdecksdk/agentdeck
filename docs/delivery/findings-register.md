@@ -8,7 +8,7 @@ disposition  -  solved, rejected, or scheduled against a named issue.**
 | Source | What it holds |
 |---|---|
 | GitHub issues titled `finding:` | the register's main body  -  24 open, 9 closed |
-| `beta-user-report-v3.md` | B1–B2, N1–N6, from a first-time user on `v3.0.0b1` |
+| `agentdeck-internal:planning/delivery/beta-user-report-v3.md` | B1–B2, N1–N6, from a first-time user on `v3.0.0b1` |
 | `plan-219-delivery.md` §4 | the reference application's friction ledger |
 | conversation | proposals raised and ruled on without ever becoming issues |
 
@@ -153,7 +153,7 @@ infrastructure a Deck opens, **and an empty catalog is a `build()` error**"*. Th
 convenience; the second is beta finding **N3**, a silent-failure defect squarely on v3.1's theme, so
 as one issue on v3.2 it cannot be scheduled correctly. **Recommend splitting**, guardrail to v3.1.
 
-**Beta report N1–N6 and B1–B2 carry no issue links in `beta-user-report-v3.md` itself**, though
+**Beta report N1–N6 and B1–B2 carry no issue links in `agentdeck-internal:planning/delivery/beta-user-report-v3.md` itself**, though
 every one is dispositioned above: N5 → #177, N6 → #178, N3 → #167; the rest are in §3.
 
 ## 7. How this stays true

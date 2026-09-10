@@ -228,7 +228,7 @@ render an SVG.
 The mark reads `agentdeck`; prose says **AgentDeck SDK** on first mention and **AgentDeck**
 thereafter. The qualifier lives in titles, descriptions and the domain  -  not in the glyph, where it
 would read as a sub-brand of a parent product that does not exist. See
-`docs/delivery/plan-adoption.md` §1.
+`agentdeck-internal:planning/delivery/plan-adoption.md` §1.
 
 ## The typeface: Poppins, and the sheet's own label is wrong
 

@@ -19,7 +19,7 @@ definition of done, which ruling 1 is what makes achievable  -  at v2.x the sand
 
 **Open question this plan does not answer: v3 has no entry point yet.** Deleting `App` leaves users
 with `authoring/` and `build_runtime()`. Decide before phase 4  -  it is the v3 public API that every doc
-example and the migration guide are written against. *(Answered by `decision-v3-entry-point.md` →
+example and the migration guide are written against. *(Answered by `agentdeck-internal:planning/delivery/decision-v3-entry-point.md` →
 `plan-phase4-deck.md`.)*
 
 ## The actual gap

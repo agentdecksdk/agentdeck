@@ -411,7 +411,7 @@ v3 is a breaking release, so duplicate vocabulary is not preserved for its own s
 | frozen v1 HTTP wire | must not move. `compat.py` is unnamespaced by design and `tests/golden/` replays it every `make test` |
 | namespaced control signals | behaviour changes, and that is the fix |
 | sqlite control table | a migration: the primary key changes meaning. Existing rows are identity-safe only if no deployment ran namespaced against this port. Verify, do not assume |
-| `design/run-operations.md` | its "there is no per-run object" ruling is reversed here, and `00-project-index.md`'s precedence table records it |
+| `design/run-operations.md` | its "there is no per-run object" ruling is reversed here, and `agentdeck-internal:planning/project-index.md`'s precedence table records it |
 
 ## 13. Delivery
 

@@ -182,7 +182,7 @@ as one test, not two.
 
 ## 7. Consequences to land with the change
 
-**All applied 2026-08-08**; the ledger is `00-project-index.md` §3.
+**All applied 2026-08-08**; the ledger is `agentdeck-internal:planning/project-index.md` §3.
 
 - `test_runtime_service.py:890`'s gap assertion flips `== [2]` → `== []`, and `_drain`'s
   *"not this arm's to close"* paragraph is deleted  -  it stops being true.
