@@ -156,9 +156,9 @@ event; ACP `session/load` still replays from the log.
 ## 5. Amendments to the existing documents
 
 Applied 2026-08-04 to `agentdeck-v2-architecture.md` (§12 D5, §5's openai-agents paragraph, §11's
-`runtime/sessions.py` migration row) and to `epic-agentdeck-v2-core.md` (Story 2's
+`runtime/sessions.py` migration row) and to `agentdeck-internal:planning/delivery/epic-agentdeck-v2-core.md` (Story 2's
 transcript-fidelity and crash-reconciliation criteria; Story 3b's write ordering). Ledger:
-`00-project-index.md` §3.
+`agentdeck-internal:planning/project-index.md` §3.
 
 ---
 
