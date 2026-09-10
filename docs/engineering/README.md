@@ -16,6 +16,7 @@ Read these in order:
 - [`dependencies.md`](./dependencies.md)  -  dependency policy and binary assets.
 - [`repository-policy.md`](./repository-policy.md)  -  PRs, reviewability, judgment records, change discipline.
 - [`coding-agents.md`](./coding-agents.md)  -  additional rules for coding agents.
+- [`documentation.md`](./documentation.md)  -  scope, page grammar, writing and code rules for `docs-site/`.
 - [`import-boundaries.md`](./import-boundaries.md)  -  current approved external import exceptions.
 
 Design rationale and historical decisions belong under `docs/design/` and ADRs, not in the standards themselves.
