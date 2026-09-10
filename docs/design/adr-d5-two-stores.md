@@ -1,6 +1,6 @@
 # ADR-D5 (revised)  -  Two stores: the Event Log and Engine Execution State
 
-**Status:** accepted (supersedes D5 as written in `agentdeck-v2-architecture.md` §12)
+**Status:** accepted (supersedes D5 as written in the v2 architecture record §12)
 **Date:** 2026-08-03 · **Relates to:** design doc §4.2, §5, §11 Story 2; epic Story 2/3b
 
 ---
@@ -155,7 +155,7 @@ event; ACP `session/load` still replays from the log.
 
 ## 5. Amendments to the existing documents
 
-Applied 2026-08-04 to `agentdeck-v2-architecture.md` (§12 D5, §5's openai-agents paragraph, §11's
+Applied 2026-08-04 to the v2 architecture record (§12 D5, §5's openai-agents paragraph, §11's
 `runtime/sessions.py` migration row) and to `agentdeck-internal:planning/delivery/epic-agentdeck-v2-core.md` (Story 2's
 transcript-fidelity and crash-reconciliation criteria; Story 3b's write ordering). Ledger:
 `agentdeck-internal:planning/project-index.md` §3.
