@@ -1,0 +1,63 @@
+/* "Was this page helpful?", in the table of contents rail under the page links. */
+.page-feedback {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--brand-border-light);
+}
+
+.dark .page-feedback {
+  border-top-color: var(--brand-border-dark);
+}
+
+.page-feedback__prompt {
+  margin: 0 0 0.5rem;
+  font-size: 0.78rem;
+  color: var(--color-fd-muted-foreground);
+}
+
+.page-feedback__votes {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.page-feedback__votes button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--brand-border-light);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-fd-muted-foreground);
+  cursor: pointer;
+}
+
+.dark .page-feedback__votes button {
+  border-color: var(--brand-border-dark);
+}
+
+.page-feedback__votes svg {
+  width: 14px;
+  height: 14px;
+}
+
+.page-feedback__votes button:hover {
+  border-color: var(--brand-blue);
+  color: var(--brand-blue);
+}
+
+.dark .page-feedback__votes button:hover {
+  border-color: var(--brand-frost);
+  color: var(--brand-frost);
+}
+
+.page-feedback__more {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--brand-blue);
+}
+
+.dark .page-feedback__more {
+  color: var(--brand-frost);
+}

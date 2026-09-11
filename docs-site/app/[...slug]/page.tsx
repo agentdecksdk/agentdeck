@@ -1,9 +1,9 @@
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
-import { DocsBody, DocsPage } from 'fumadocs-ui/layouts/docs/page'
-import { getMDXComponents } from '../../mdx-components'
-import { PageFeedback } from '../page-feedback'
-import { source } from '../source'
+import { getMDXComponents } from '@/mdx-components'
+import { DocsArticle } from '@/components/docs/page'
+import { PageActions } from '@/components/docs/page-actions'
+import { source } from '@/lib/source'
 
 // A *required* catch-all: `/` is the landing page's own route (`app/page.tsx`), which renders
 // outside the docs shell. An optional catch-all would claim it and put a sidebar on it.
@@ -27,12 +27,13 @@ export default async function Page(props: { params: Promise<{ slug: string[] }> 
   const MDX = page.data.body
 
   return (
-    <DocsPage toc={page.data.toc} tableOfContent={{ footer: <PageFeedback /> }}>
+    <DocsArticle toc={page.data.toc}>
+      <PageActions url={page.url} path={page.path} />
       {/* Pagefind indexes only what carries this attribute, so the index stays page text rather
           than the navigation repeated 44 times. `nextra-theme-docs` emitted it for us. */}
-      <DocsBody data-pagefind-body>
+      <div className="prose flex-1" data-pagefind-body>
         <MDX components={getMDXComponents()} />
-      </DocsBody>
-    </DocsPage>
+      </div>
+    </DocsArticle>
   )
 }

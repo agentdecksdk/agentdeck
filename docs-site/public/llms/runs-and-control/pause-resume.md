@@ -1,0 +1,34 @@
+# Pause / Resume
+
+`run.pause(reason=None)` asks a run to stop cooperatively; `run.resume()` lifts it. Neither
+blocks until the run actually stops or starts - see
+[Lifecycle & Control](/runs-and-control/lifecycle-and-control) for what a safe point is and the
+full state table this page assumes.
+
+```python no-test reason="needs a live Run from runs.start/get"
+run = await deck.runs.start("Approval", {"order_id": "A-1003"})
+
+await run.pause("operator stepped away")
+await run.resume()
+```
+
+The reason travels into the log on the run's own `control.requested` event, so anything reading
+`run.events()` later sees why it stopped, not just that it did.
+
+## Checking before you call
+
+`run.can` reads the status this handle last saw - `pause`, `resume`, `cancel`, no `answer` (an
+interrupt's shape is per-workflow, not a flag a generic UI can render). It is for a button's
+enabled state or a branch that would rather not raise:
+
+```python no-test reason="needs a live Run"
+if run.can.pause:
+    await run.pause("operator stepped away")
+```
+
+`can` is a snapshot from the last time this handle read status, not a live guarantee: the run
+can end between checking it and acting on it. `pause()`/`resume()` are the authoritative answer
+instead - they raise `RunStateError` when the state genuinely refuses, and return quietly only
+when there is nothing left to do (already paused, already over). See
+[Lifecycle & Control](/runs-and-control/lifecycle-and-control#what-you-can-act-on) for exactly
+which state accepts which call.

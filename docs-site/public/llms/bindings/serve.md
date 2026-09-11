@@ -1,0 +1,70 @@
+# Serve
+
+`deck.serve(binding, *bindings, host=, port=)` is synchronous: it owns the event loop, validates
+the bindings, opens the Deck, starts every binding, and blocks until interrupted. Ctrl-C stops the
+server and returns. At least one binding is required: `binding` is positional, so `deck.serve()`
+alone is a `TypeError` before any binding code runs.
+
+## Standalone
+
+```python
+from agentdeck import Deck
+from agentdeck.bindings import Native
+
+deck = Deck.from_project()
+deck.serve(Native.http("/api"), host="0.0.0.0", port=8000)
+```
+
+A stdio-only exposure ignores `host=`/`port=`: `deck.serve(Terminal.stdio())` runs the terminal
+loop directly, and no listener opens.
+
+## Inside an existing event loop
+
+Already inside asyncio, embedding AgentDeck serving in an application that owns its own event
+loop: `deck.serve(...)` refuses to run there, since it cannot own a loop that is already running.
+Use `await deck.serve_async(...)` instead, same behavior, without owning the loop:
+
+```python
+await deck.serve_async(Native.http("/api"), port=8000)
+```
+
+## Embedding
+
+`deck.asgi(binding, *bindings)` returns the ASGI application instead of blocking, for mounting
+inside a service you already run:
+
+```python
+from agentdeck import Deck
+from agentdeck.bindings import Native
+
+deck = Deck.from_project()
+app = deck.asgi(Native.http("/api"))
+```
+
+```bash
+uvicorn myapp:app --host 0.0.0.0 --port 8000
+```
+
+`deck.expose(*bindings)` is the lower-level call underneath both: it returns the
+`Exposure` object itself, for callers who need that object.
+
+## Validation before anything opens
+
+Every check below runs before any binding opens a socket or a process:
+
+| failure | the error you see |
+|---|---|
+| two bindings share a `name` | ``ConfigError: binding names must be unique in one exposure, but ['native'] appear more than once. `requires` resolves by name, so give each binding its own `BindingInfo.name`.`` |
+| a binding declares an unsupported `spi_version` | `ConfigError: binding 'native' declares spi_version=2, but this AgentDeck supports spi_version=1.` |
+| a binding's `requires` names something absent from the exposure | `ConfigError: binding 'agui' requires ['native'], not in this exposure. Available: ['agui'].` |
+| two HTTP bindings claim one path | `ConfigError: HTTP path '/api' is claimed by both 'native' and 'agui'.` |
+| more than one stdio binding | `ConfigError: only one stdio binding is allowed per exposure; got ['terminal', 'terminal-2'].` |
+
+If a later `start()` fails anyway, every binding already started stops in reverse order.
+
+## namespace= and name=
+
+`namespace=` on `Native.http()` or `AGUI.http()` fixes every run started through that binding to
+one tenant. `Terminal.stdio()` takes no `namespace=`: one stdio process is already one session.
+`name=` distinguishes a second instance of the same binding in one exposure, such as two
+`Native.http()` endpoints at different paths, and is what the name-uniqueness check above enforces.

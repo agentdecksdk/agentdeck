@@ -1,15 +1,15 @@
 """Regenerate-and-diff for every generated reference page (`docs-site/content/reference/
 {settings,cli}.mdx`, `docs-site/content/changelog.mdx`, `docs-site/public/{llms.txt,
-llms-full.txt}`, `docs-site/app/generated-version.ts`): a generated page that can silently drift
+llms-full.txt}`, `docs-site/lib/version.ts`): a generated page that can silently drift
 from the source it was generated from is worse than a hand-written one, because nobody suspects
 it. Run `python scripts/generate_docs_reference.py` to refresh the committed pages after changing
 `agentdeck/runtime/settings.py`, `agentdeck/cli.py`, `CHANGELOG.md`, or any `docs-site/content/**/*.mdx`
 page, and this suite fails loudly if that step was skipped.
 
 Four of the six are pinned byte for byte: `settings.mdx`, `cli.mdx`, `llms.txt` and
-`generated-version.ts`. The first three derive from `agentdeck/runtime/settings.py`,
+`lib/version.ts`. The first three derive from `agentdeck/runtime/settings.py`,
 `agentdeck/cli.py` and the set of docs pages, none of which two PRs edit at once by accident.
-`generated-version.ts` derives from `CHANGELOG.md`'s newest *released* heading, which only a
+`lib/version.ts` derives from `CHANGELOG.md`'s newest *released* heading, which only a
 release-cut commit adds  -  never two concurrent PRs at once, unlike an `## [Unreleased]` entry.
 
 **`changelog.mdx` and `llms-full.txt` are asserted regenerable, not byte-equal, and that is

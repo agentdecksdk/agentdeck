@@ -56,9 +56,9 @@ afterwards, approvals that outlive the process that requested them.
 - [Migration Guides](https://agentdecksdk.com/resources/migration-guides)
 - [Troubleshooting](https://agentdecksdk.com/resources/troubleshooting)
 - [Events](https://agentdecksdk.com/runs-and-control/events): One ordered log per run, how to stream it live, and how to read it back afterwards.
-- [Human Input](https://agentdecksdk.com/runs-and-control/human-input)
+- [Human Input](https://agentdecksdk.com/runs-and-control/human-input): Suspend a run for a human answer, validated against the question's own options when it named any.
 - [Lifecycle & Control](https://agentdecksdk.com/runs-and-control/lifecycle-and-control): The six states a run can be in, what moves it between them, and which ones you can act on.
-- [Pause / Resume](https://agentdecksdk.com/runs-and-control/pause-resume)
+- [Pause / Resume](https://agentdecksdk.com/runs-and-control/pause-resume): Ask a run to stop at its next safe point, check whether it can first, and lift the pause later.
 - [Runs](https://agentdecksdk.com/runs-and-control/runs): A run is a first-class execution with a durable identity you can pick up again, in this process or another one.
 - [Sessions](https://agentdecksdk.com/runs-and-control/sessions): Keep an agent's message history across multiple runs, and what happens when two runs reach for the same one at once.
 

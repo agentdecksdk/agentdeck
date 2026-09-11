@@ -323,7 +323,7 @@ waiting = await deck.runs.list(namespace="acme", status=RunStatus.WAITING_ANSWER
 
 `get()` never mutates: it does not create, start, resume, claim ownership or move lifecycle
 state, and it takes no `context=`  -  a run recovered this way has durable identity and durable
-state, never the ephemeral value a live process held for it (see `context=` [below](#context)).
+state, never the ephemeral value a live process held for it (see `context=` [below](#run)).
 It returns a run in any state, terminal included.
 
 ### `Run`

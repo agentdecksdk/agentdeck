@@ -40,7 +40,7 @@ null  -  `Run.events()`, `deck.stream()` and `GET /runs/{run_id}/events` all rep
 correlate a stored child through `run.started.parent_run_id`, following it up until a run that
 has a session, since a nested child's invoker is session-less too.
 
-`v` is `{major: 4, minor: 0}`. A reader refuses any other major outright rather than guessing at a
+`v` is `{major: 4, minor: 2}`. A reader refuses any other major outright rather than guessing at a
 wire shape it was never taught, so a log written by another major is read with the release that
 wrote it or replayed into a new store. There is no migration.
 
@@ -85,7 +85,7 @@ Each of these sets the run's status. See [Lifecycle & Control](/runs-and-control
 | Kind | Payload | Notes |
 |---|---|---|
 | `tool.call.started` | `call_id`, `tool`, `args` | Paired with the completion by `call_id` |
-| `tool.call.completed` | `call_id`, `tool`, `result_preview`, `result_size`, `result_sha256`, `artifacts` | A capped preview plus size and hash, never the result itself |
+| `tool.call.completed` | `call_id`, `tool`, `result_preview`, `result_size`, `result_sha256`, `artifact_id`, `error` | A capped preview plus size and hash, never the result itself |
 
 ## Reporting
 

@@ -1,0 +1,36 @@
+# Run Reference
+
+API reference for `Run` instances and execution controls. Starting, fetching and listing runs is
+`deck.runs`, not this handle: see [`Run`](/reference/deck#run-and-deckruns) and
+[`deck.runs`](/reference/deck#run-and-deckruns).
+
+## Methods
+
+- `await run`: Await completion of the run and return the final output.
+- `run.events()`: Stream events as an async generator.
+- `await run.pause()`: Pause execution.
+- `await run.resume()`: Resume paused execution.
+- `await run.answer(value)`: Supply input to a waiting run.
+- `await run.cancel()`: Cancel execution.
+- `await run.status()`: The run's lifecycle state, read from the store rather than cached. A
+  coroutine, not a property.
+- `await run.pending()`: The interrupt this run is waiting on, or `None`. What `answer()` answers.
+
+The three control methods are strict. They raise `RunStateError` when the run's state refuses the
+operation (resuming a run that is waiting for an answer), and `UnsupportedControlError` when the
+control can never be applied here (no control backend configured). An operation with nothing left
+to do, such as cancelling a run that already finished, returns quietly.
+
+## Availability
+
+- `run.can.pause`, `run.can.resume`, `run.can.cancel`: whether each control is available, combining
+  the engine's own capability with the run's current state.
+
+```python
+if run.can.pause:
+    await run.pause()
+```
+
+`can` reads the status this handle last saw, so it is for enabling buttons and branching, not for
+guaranteeing the next call succeeds. The run can end in between, which is what the strict methods
+above report.

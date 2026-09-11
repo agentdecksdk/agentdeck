@@ -1,0 +1,33 @@
+# Human Input
+
+Suspend execution for human approval or additional inputs.
+
+## Answering Prompts
+
+When a run enters `waiting_answer`, supply input with `run.answer()`:
+
+```python
+await run.answer({"approved": True})
+```
+
+## An unvalidated answer is the node's to judge
+
+`ctx.ask(question)` with no `options` hands `run.answer()`'s `value` straight to the body,
+unvalidated: nothing outside the node can judge a free-form answer, so the node raises on one it
+does not accept.
+
+```python
+@workflow
+async def resolve(ctx: WorkflowCtx, ticket: dict) -> str:
+    decision = await ctx.ask(f"approve {ticket['id']}?")
+    if decision not in ("yes", "no"):
+        raise ValueError(f"approval expects 'yes' or 'no', got {decision!r}")
+    return "approved" if decision == "yes" else "declined"
+```
+
+```python
+await run.answer("yes")   # decision == "yes", the node continues
+await run.answer(12345)   # no error here  -  the node's own check raises instead
+```
+
+An ask that names `options` gets this refusal for free instead: see [Workflows](/build-your-deck/workflows#options-make-it-a-choice).

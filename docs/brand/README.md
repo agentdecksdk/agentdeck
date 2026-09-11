@@ -25,10 +25,10 @@ system and the reason the mark survives at one colour.
 Everything else in that list exists because the proviso is real. An SVG loaded through `<img src>`
 has no parent to inherit from, so `currentColor` falls back to black, and on a dark ground the
 mark is then black on near-black. Verified side by side rather than assumed. So a file dropped
-somewhere gets a variant that names its own colour: `logo-blue.svg` reads on both themes because
-the A's counter is transparent and each background shows through it, `logo-white.svg` and
-`logo-black.svg` cover the grounds where blue is wrong, and `logo-full.svg` is the lockup itself
-for anywhere that can carry three fills.
+somewhere gets a variant that names its own colour: `logo-blue.svg`, `logo-white.svg` and
+`logo-black.svg` each set the card and spark only, since a single fill cannot also paint the A as
+its own shape without cutting a hole, and `logo-full.svg` is the lockup itself for anywhere that
+can carry three fills.
 
 `favicon.svg` is full colour for the same reason taken to its conclusion: a favicon is *only* ever
 loaded as a file, so `currentColor` was never going to work there. It rendered black on dark
@@ -44,8 +44,9 @@ browser chrome until 2026-08-15.
 
 | Part | What it is |
 |---|---|
-| `components/card.svg` | the ace-cut card carrying the A, which is a hole in the path |
-| `components/spark.svg` | the spark alone, drawn geometry, box `880 152.5 196.8 196.7` |
+| `components/card.svg` | the ace-cut card, solid (no hole), box `0 0 1000 1145` |
+| `components/a.svg` | the A alone, painted over the card rather than cut from it, box `153 355 693 640` |
+| `components/spark.svg` | the spark alone, drawn geometry, box `828.765 -64.697 257.229 257.086` |
 | `components/wordmark.svg` | `agentdeck` as nine outlines from Poppins-SemiBold |
 
 The spark is drawn geometry rather than a cleaned trace, so it is the one part of the mark that
@@ -53,15 +54,16 @@ no longer descends from `logo-traced-original.svg`. It is drawn rather than appr
 replaced the traced spark everywhere at once, because two near-identical sparks is the worse thing
 to maintain.
 
-**Every part is drawn in the mark space `246 145 832 933`, so a composition pastes the `<path>`
-with no transform at all.** Position and scale live in the coordinates, and the only thing a
-composition varies is the `viewBox` it frames them with. `logo.svg` is now two paths and nothing
-else. The wordmark is the one exception: it is drawn in its own `0 95 516.86 143` space and placed
-with a single `translate`, since it is not part of the mark.
+**Every part is drawn in the mark space `0 -64.70 1085.99 1209.70`, so a composition pastes the
+`<path>` with no transform at all, except `a.svg`, which is drawn pre-translate and needs the
+`<g transform="translate(0 -30)">` every composition wraps it in.** Position and scale live in the
+coordinates, and the only thing a composition varies is the `viewBox` it frames them with. The
+wordmark is the one exception: it is drawn in its own `0 95 516.86 143` space and placed with a
+single `translate`, since it is not part of the mark.
 
 Colour also belongs to the composition. The parts are `currentColor`; the dark-mode lockup is a
 blue card, a white A and a red spark, and the part files do not know that. Every fill a
-composition sets is a `--brand-*` token from the site's `brand.css`, which the test enforces:
+composition sets is a `--brand-*` token from the site's `styles/base.css`, which the test enforces:
 the A counter sat at `#ffffff` beside a `#fafbfe` headline until it did.
 
 **Copy from here, never from a finished card.** Every other SVG in this directory is a composition
@@ -186,14 +188,10 @@ magick /tmp/card-2x.png -crop 2560x1280+0+0 +repage -resize 1280x640 -strip soci
 Then upload `social-card.png` at **Settings → General → Social preview**. It is a manual upload;
 no API sets it.
 
-One thing in the SVG looks wrong and is not. The A is a **hole** in the card path rather than a
-shape: both `nonzero` and `evenodd` knock it out, because its subpath winds against the outer
-contour. The white rectangle behind the card is what the A shows through. Keep it inside the card
-silhouette and below the cut corner, or it appears as a white edge.
-
 The three cards each set the lockup as three fills (Agent Blue card, white A, Ace Red spark)
 rather than the single `currentColor` the part files carry, which is the composition supplying
-colour the parts deliberately do not know.
+colour the parts deliberately do not know. The A is `components/a.svg` painted over the card,
+raised into place by its own `translate(0 -30)`, not a hole cut into the card path.
 
 ## The contributor cards
 
@@ -203,10 +201,9 @@ social card's 1280×640: a comment renders them near 640px wide and near 320px o
 type is sized for that render instead of scaled down from the social card.
 
 Both carry their own copy of the lockup, same nested viewBox and same transform, taken from
-`components/` and held to it by `tests/test_brand_assets.py`. The merged card adds the spark alone and
-enlarged on the right. Its tight box is `x 880..1077, y 146..356` in the placed coordinate space,
-measured with `getBBox()` rather than derived, since the nested `viewBox` is not square and
-letterboxes under the default `preserveAspectRatio`.
+`components/` and held to it by `tests/test_brand_assets.py`. The merged card adds the spark alone
+and enlarged on the right, framed by `components/spark.svg`'s own box, `828.765 -64.697 257.229
+257.086`  -  already the spark's tight bounds, so no separate measurement is needed.
 
 Render them with the recipe above, changing only the height:
 
@@ -256,5 +253,5 @@ the lighter weight unexamined, against the site's `-0.02em`. The outlines are re
 `-1.92`, which is `-0.02em` at font-size 96, so the wordmark now matches the site in family,
 weight and tracking.
 
-The palette is not affected  -  the sheet's hexes and the site's `brand.css` already match exactly.
+The palette is not affected  -  the sheet's hexes and the site's `styles/base.css` already match exactly.
 The wider presentation question stays with the docs-site design pass (#140).

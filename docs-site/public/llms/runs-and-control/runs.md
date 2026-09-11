@@ -1,0 +1,90 @@
+# Runs
+
+A `Run` is one execution of an agent or workflow. It is not a return value you either catch or
+lose: it has an identity, a log, and a handle you can get back later.
+
+## Starting one
+
+```python
+async with deck:
+    run = await deck.runs.start("Jack", "how do I pause a run?")
+    result = await run
+```
+
+`start` returns the handle immediately; `await run` waits for the result. A `TurnResult` for an
+agent, the workflow's own result for a workflow  -  a native body's return value, a graph's final
+state.
+
+## Its identity
+
+| Attribute | What it is |
+|---|---|
+| `run.id` | Minted by AgentDeck, globally unique |
+| `run.key` | The application identity you chose, if you passed one |
+| `run.namespace` | The label this run was started under |
+| `run.session_id` | The conversation it belongs to, if any |
+
+`key` is yours to pick and is how you find a run again without storing its `id`:
+
+```python
+run = await deck.runs.start("Jack", question, key=f"ticket-{ticket_id}")
+```
+
+## Picking it up again
+
+`deck.runs.get()` rehydrates a handle to a run that already exists. It never creates, starts or
+resumes anything, and it returns a run in any state, terminal included.
+
+```python
+run = await deck.runs.get(run_id)                       # by canonical id
+run = await deck.runs.get(key="ticket-42")              # by your own key
+runs = await deck.runs.list(status=RunStatus.PAUSED)    # everything parked
+```
+
+**This works from another process.** A run paused by a web request can be resumed by a worker,
+because the handle carries durable identity and reads durable state rather than anything the
+original process held in memory. Two handles on one run always agree: the store is the only thing
+either of them reads.
+
+<Callout type="warning">
+Rehydration is only as durable as the stores behind it. `AGENTDECK_EVENTS` defaults to `memory://`,
+which is per-process, so a second process will not find the run. Set it to a `sqlite://`,
+`postgresql://` or `redis://` URL before relying on this. See [Settings](/reference/settings).
+</Callout>
+
+A rehydrated run takes no `context`: the ephemeral Python object the first process held is gone,
+and the run recovers its durable state instead.
+
+One thing rehydration is **not**: running two `Deck` objects side by side in a single process.
+That is a separate constraint and it is deliberate, unrelated to whether a run can be picked up
+elsewhere.
+
+## Watching it happen
+
+```python
+async for event in run.events(follow=True):
+    print(event.kind)
+```
+
+Without `follow=True` you get only what the log already holds, which for a run that just started
+is one event. See [Events](/runs-and-control/events).
+
+## Handoffs
+
+A run's active agent can change mid-conversation: one agent hands off to another, and the same
+run keeps going under the new one. `run.id` and `run.session_id` do not change; the log records
+only that the agent did:
+
+```python
+async for event in run.events():
+    if event.kind == "agent.changed":
+        print(event.payload.previous_agent, "->", event.payload.next_agent)
+```
+
+A handoff that was requested but failed or was refused leaves no `agent.changed` behind.
+
+## Related
+
+- [Sessions](/runs-and-control/sessions) - conversation history across runs
+- [Lifecycle & Control](/runs-and-control/lifecycle-and-control) - the six states, and pausing
+- [Run API](/reference/run) - every method on the handle

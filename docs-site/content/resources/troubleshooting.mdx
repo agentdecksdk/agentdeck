@@ -29,7 +29,7 @@ These raise from `Deck(...)` or `Deck.build()`, before anything runs.
 |---|---|---|
 | `ConfigError` | Invalid or incomplete configuration: a duplicate target name, a workflow bundle exporting no `@workflow`, a binding declaring an SPI version this release does not support, two bindings claiming one HTTP path | The message names what collided or what was missing; fix the declaration it points at |
 | `ContextTypeError` | A tool declares `ToolCtx[T]` the deck's `context=` cannot satisfy | Give the deck the context type the tool asks for, or drop the annotation |
-| `NotFoundError` | An unknown agent, workflow or skill name | The message lists the available names; a pinned `target=` on a binding is checked here too |
+| `NotFoundError` | An unknown agent, workflow or skill name, such as an unresolved `@handoff` target | The message lists the available names |
 | `SkillError` | A skill failed to load or execute | Read the `SKILL.md` frontmatter it names |
 
 ## When starting or driving a run

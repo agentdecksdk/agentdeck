@@ -6,7 +6,7 @@
 | Part | State |
 |---|---|
 | Audit, sitemap, migration plan, ownership matrix (§1-4) | Proposal only |
-| `<Contribute />` component (§5) | Built: `docs-site/app/contribute.tsx` |
+| `<Contribute />` component (§5) | Built: `docs-site/components/docs/contribute.tsx` |
 | Issue template (§6) | Built: `.github/ISSUE_TEMPLATE/docs_contribution.yml` |
 | Backlog (§7) | Proposal, except the four issues below |
 | First placements | #350 `/jack`, #351 `/meet-agentdeck/quickstart`, #352 `/resources/known-issues`, #353 `/jack/notes` |

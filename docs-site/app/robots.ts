@@ -1,5 +1,5 @@
 import type { MetadataRoute } from 'next'
-import { SITE } from './site'
+import { SITE } from '@/lib/site'
 
 // `output: 'export'` builds every route ahead of time, and a route handler has to opt in
 // explicitly or the build refuses rather than guessing. Nothing here reads a request.

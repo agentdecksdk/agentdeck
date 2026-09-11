@@ -1,4 +1,0 @@
-/* Tailwind v4 is fumadocs-ui's only supported version, and `preset.css` scans the package itself. */
-@import 'tailwindcss';
-@import 'fumadocs-ui/css/neutral.css';
-@import 'fumadocs-ui/css/preset.css';

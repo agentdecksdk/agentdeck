@@ -1,0 +1,115 @@
+# Workflows
+
+A workflow coordinates other executions. Write one as an ordinary async function.
+
+```python
+from agentdeck import Deck, WorkflowCtx, workflow
+
+@workflow
+async def resolve(ctx: WorkflowCtx, ticket: dict) -> str:
+    """Refund a ticket, once a person says so."""
+    if not await ctx.ask(f"refund {ticket['id']}?", options=[True, False]):
+        return "declined"
+    return "refunded"
+
+deck = Deck(workflows=[resolve])
+```
+
+## It suspends where it stands
+
+`ctx.ask(...)` stops the run and waits. The body is not unwound: its local variables are still
+there, so the answer continues on the next line rather than replaying the workflow from the top.
+
+```python
+run = await deck.runs.start("resolve", {"id": "T-1"})
+# ... the run is now `waiting_answer`, and shows up in deck.runs.list(status=...)
+await run.answer(True)
+print(await run)   # "refunded"
+```
+
+### Options make it a choice
+
+```python
+env = await ctx.ask("which environment?", options=["dev", "prod"])
+```
+
+The options travel with the question, so anything listing pending runs can render them:
+
+```python
+pending = await run.pending()
+pending["payload"]["options"]   # ["dev", "prod"]
+```
+
+An answer that is not one of them is refused before it is recorded. The answerer gets the error,
+an `answer.refused` event lands in the log, and the run is still waiting for a real answer.
+
+```python
+await run.answer("staging")   # ValueError, nothing resumed
+await run.answer("prod")      # lands
+```
+
+A question with no options takes whatever it is given: nothing outside the body can judge a
+free-form answer better than the body can.
+
+An operator's pause behaves the same way at a safepoint, and a cancel ends the run instead.
+
+```python
+@workflow
+async def batch(ctx: WorkflowCtx, items: list[str]) -> int:
+    done = 0
+    for item in items:
+        await process(item)
+        await ctx.safepoint()   # a pause parks here; a cancel stops the run here
+        done += 1
+    return done
+```
+
+A parked body lives in the process that started the run. If that process restarts, the run is
+still `waiting_answer` in the log but the body is gone, and answering it says so rather than
+silently re-running the workflow.
+
+## Invoking other executions
+
+`ctx.invoke(target, ...)` starts `target` as a child run and hands back its handle without
+waiting: an agent, a `@tool`/`@workflow`, or an `AgentInstance` all bind `*args`/`**kwargs` to
+their own signature. The handle is a run in its own right, with its own id, log, and
+`can.*`/lifecycle methods (`child.can.pause`, `await child.pause()`, and so on); it runs in its
+own deck-owned task from that call, whether or not the handle is ever awaited.
+
+| `await ctx.invoke(...)` on | resolves to |
+|---|---|
+| an agent | a `TurnResult` (value at `.output`) |
+| a `@tool` or `@workflow` | the body's return value directly |
+
+`ctx.parallel(...)` takes the handles `ctx.invoke` returns and resolves to a list of what
+awaiting each one gives, in the order given, not to the handles themselves. A call mixing an
+agent and a tool resolves to `[TurnResult, <value>]`, never one uniform shape.
+
+```python
+scout = await ctx.invoke("scout", said)          # agent -> TurnResult
+topic = str(scout.output)
+
+card, web = await ctx.parallel(
+    ctx.invoke(places_lookup, topic=topic),      # tool -> plain value
+    ctx.invoke(web_search, topic=topic),
+)
+```
+
+A child waiting on its own `ctx.ask` is not cancelled: it stays `waiting_answer` and answerable
+through `deck.runs.get(child.id)` from outside, and `ctx.parallel` leaves it alone when it gives
+the rest up.
+
+## Input binds like a call
+
+| the run's input | the body |
+|---|---|
+| `deck.run("research", "kites")` | `research(ctx, topic)` gets `topic="kites"` |
+| `deck.run("resolve", {"ticket": t, "urgent": True})` | `resolve(ctx, ticket, urgent)` gets both |
+| `deck.run("summarize", {"a": 1})` | `summarize(ctx, payload)` gets the mapping whole |
+
+One parameter is one value, a mapping included. Several parameters bind by name.
+
+That input is an argument, never a conversational turn. Pass a workflow the `session_id` an
+agent is using and its run joins that conversation's event stream, so one operator surface sees
+both; the argument stays out of the message history the agent's model call is handed. See
+[Sessions](/runs-and-control/sessions) for "enrich, then answer" on one conversation.
