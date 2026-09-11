@@ -35,6 +35,11 @@ export const viewport: Viewport = {
   ]
 }
 
+// Tracked in `.github/assets/`, where CI requires every binary to live
+// (docs/engineering/dependencies.md §5); `prebuild` copies it into `public/`.
+const CARD = '/brand/social-card.png'
+const CARD_ALT = 'AgentDeck SDK: agentic software should feel like software.'
+
 export const metadata: Metadata = {
   // Every relative URL in metadata  -  canonical tags, OG images  -  resolves against this, so the
   // whole site moves domain by changing one env var rather than by editing every page.
@@ -47,9 +52,15 @@ export const metadata: Metadata = {
     title: 'AgentDeck SDK  -  a production runtime for AI agents',
     description:
       'Durable human-in-the-loop approvals, sessions, streaming, run control and one ordered '
-      + 'event log per run  -  wrapping the OpenAI Agents SDK rather than replacing it.'
+      + 'event log per run  -  wrapping the OpenAI Agents SDK rather than replacing it.',
+    // PNG, not the SVG beside it: no crawler renders SVG for a preview card.
+    images: [{ url: CARD, width: 1280, height: 640, alt: CARD_ALT }]
   },
-  twitter: { card: 'summary_large_image', title: 'AgentDeck SDK' },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'AgentDeck SDK',
+    images: [{ url: CARD, alt: CARD_ALT }]
+  },
   title: {
     default: 'AgentDeck SDK  -  a production runtime for AI agents',
     template: '%s | AgentDeck SDK'

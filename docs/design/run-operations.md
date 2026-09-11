@@ -3,7 +3,7 @@
 The shape and naming of the surface that acts on a run which already exists. What each verb *does*
 in each state is `design/run-lifecycle.md`'s (state × intent) table; this file does not restate it.
 
-Decided 2026-08-14. Amends `delivery/decision-v3-entry-point.md`: ruling 2 and its no-daemon note.
+Decided 2026-08-14. Amends `agentdeck-internal:planning/delivery/decision-v3-entry-point.md`: ruling 2 and its no-daemon note.
 
 > **Partly superseded 2026-08-16 by `design/run-identity.md`.** Its "the run id stays an argument,
 > there is no per-run object" ruling is reversed: lifecycle ops move onto a `Run` object and
@@ -51,7 +51,7 @@ The Deck owns a clock instead: it starts on `__aenter__`, stops on `__aexit__`, 
 opened like every other resource it holds. One settings value sets the interval and most users
 never see it.
 
-This amends the no-daemon note in `decision-v3-entry-point.md`, which dropped `tick` on the grounds
+This amends the no-daemon note in `agentdeck-internal:planning/delivery/decision-v3-entry-point.md`, which dropped `tick` on the grounds
 that *"AgentDeck runs no daemon; a for-loop is not an API"*. The first half is what changes: an
 opt-in task scoped to the deck's own lifetime is not the background service that ruling refused.
 The second half still holds, which is why the sweep is not a public loop for a user to write.

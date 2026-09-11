@@ -117,7 +117,7 @@ disappears under `magick compare -fuzz 25%`; anything surviving that is a real p
 
 ## Vectors only
 
-The rule and its reasoning are in `docs/coding-standards.md` §11. What it means here: the
+The rule and its reasoning are in `docs/engineering/dependencies.md` §5. What it means here: the
 wordmark PNG, the mark PNG and the fourteen-panel brand sheet **live outside the repository**,
 with the designer's source files, and `.gitignore` keeps `docs/brand/*.{png,webp,jpg}` out of the
 tree. Only vectors are tracked, because a vector is text: reviewable in a pull request, and a few
@@ -217,7 +217,7 @@ done
 ```
 
 The PNGs belong under `.github/assets/`, which is the one place a tracked raster is allowed
-(`docs/coding-standards.md` §11). They live there rather than here because a GitHub comment cannot
+(`docs/engineering/dependencies.md` §5). They live there rather than here because a GitHub comment cannot
 render an SVG.
 
 ## Naming
@@ -225,7 +225,7 @@ render an SVG.
 The mark reads `agentdeck`; prose says **AgentDeck SDK** on first mention and **AgentDeck**
 thereafter. The qualifier lives in titles, descriptions and the domain  -  not in the glyph, where it
 would read as a sub-brand of a parent product that does not exist. See
-`docs/delivery/plan-adoption.md` §1.
+`agentdeck-internal:planning/delivery/plan-adoption.md` §1.
 
 ## The typeface: Poppins, and the sheet's own label is wrong
 
