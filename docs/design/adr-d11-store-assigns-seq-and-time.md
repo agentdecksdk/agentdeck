@@ -5,7 +5,7 @@
 §5, `core/ports/store.py`, `runtime/service.py`, coding-standards §6
 **Supersedes:**
 
-- coding-standards §6 (`docs/coding-standards.md:113`)  -  *"the Runtime is the **only** assigner of
+- coding-standards §6, since deleted from `docs/engineering/coding-standards.md`  -  *"the Runtime is the **only** assigner of
   `seq`, one counter per run, recovered from `max(seq)` on resume"*.
 - ADR-D5's *Explicitly unchanged* clause (`adr-d5-two-stores.md:151`)  -  *"`Runtime` still stamps and
   appends every event"*. D5's two-store rule itself is untouched.
