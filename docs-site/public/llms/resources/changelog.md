@@ -9,6 +9,24 @@ The current release is **v6.0.3**. Earlier releases are listed at the bottom.
 
 ## Unreleased
 
+### Changed
+
+- **Docs navigation on a phone collapses down from the bar instead of sliding in from the side.**
+  It fills the screen under the header, the tree scrolls inside it, and the bar's control is a menu
+  closed and an X open. The page behind no longer moves while it is open.
+- **Ask Jack on a phone is a full-screen page and no longer opens the keyboard by itself.** The
+  composer takes focus only on the docked panel, where typing is the next action; on a phone the
+  keyboard used to cover the transcript and the suggestions before anything had been asked.
+
+### Fixed
+
+- **Sharing a docs page renders the social preview card instead of a blank one** (#733). The site
+  declared `twitter:card=summary_large_image` and an Open Graph block with no image in either, so
+  every crawler that honoured the declaration reserved a large card and had nothing to put in it.
+  The site now serves a rendered PNG at `/brand/social-card.png`, because no crawler renders SVG
+  for a preview, and the card artwork is the light landing-page treatment in both `docs/brand/`
+  and `docs-site/public/brand/`.
+
 ### Removed
 
 - **Docs no longer deploy to GitHub Pages** (#724). The real site is served from its own domain;

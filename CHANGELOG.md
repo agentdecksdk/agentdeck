@@ -11,9 +11,11 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 ### Changed
 
 - **Docs navigation on a phone collapses down from the bar instead of sliding in from the side.**
-  The sheet hangs under the header, is full width, sizes to its own content and scrolls when the
-  tree is longer than the screen. The page behind it no longer scrolls while it is open, which it
-  did in the side drawer too: fumadocs' drawer is a bare element with no scroll lock.
+  It fills the screen under the header, the tree scrolls inside it, and the bar's control is a menu
+  closed and an X open. The page behind no longer moves while it is open.
+- **Ask Jack on a phone is a full-screen page and no longer opens the keyboard by itself.** The
+  composer takes focus only on the docked panel, where typing is the next action; on a phone the
+  keyboard used to cover the transcript and the suggestions before anything had been asked.
 
 ### Fixed
 

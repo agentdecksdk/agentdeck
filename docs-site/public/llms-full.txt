@@ -3242,6 +3242,15 @@ The current release is **v6.0.3**. Earlier releases are listed at the bottom.
 
 ## Unreleased
 
+### Changed
+
+- **Docs navigation on a phone collapses down from the bar instead of sliding in from the side.**
+  It fills the screen under the header, the tree scrolls inside it, and the bar's control is a menu
+  closed and an X open. The page behind no longer moves while it is open.
+- **Ask Jack on a phone is a full-screen page and no longer opens the keyboard by itself.** The
+  composer takes focus only on the docked panel, where typing is the next action; on a phone the
+  keyboard used to cover the transcript and the suggestions before anything had been asked.
+
 ### Fixed
 
 - **Sharing a docs page renders the social preview card instead of a blank one** (#733). The site
