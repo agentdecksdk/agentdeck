@@ -30,7 +30,19 @@ export function useSheet(open: boolean, { onResize, lockPage }: SheetOptions = {
   useEffect(() => {
     if (!open) return
     const root = document.documentElement
-    if (lockPage) root.classList.add('ad-sheet-locked')
+    const body = document.body
+
+    // `overflow: hidden` is not enough on iOS. Focusing an input makes Safari scroll the document
+    // to reveal it, and a `position: fixed` sheet is carried along with it: the chat ends up above
+    // the visible area and has to be scrolled back to. Taking the body out of flow at its current
+    // offset leaves nothing to scroll, so focus cannot move it. The offset is restored on close.
+    const parked = window.scrollY
+    if (lockPage) {
+      root.classList.add('ad-sheet-locked')
+      body.style.position = 'fixed'
+      body.style.top = `-${parked}px`
+      body.style.insetInline = '0'
+    }
 
     const viewport = window.visualViewport
     const apply = () => {
@@ -57,10 +69,16 @@ export function useSheet(open: boolean, { onResize, lockPage }: SheetOptions = {
     return () => {
       viewport?.removeEventListener('resize', apply)
       viewport?.removeEventListener('scroll', apply)
-      root.classList.remove('ad-sheet-locked')
       root.style.removeProperty('--ad-vv-top')
       root.style.removeProperty('--ad-vv-h')
       root.style.removeProperty('--ad-kb')
+      if (!lockPage) return
+      root.classList.remove('ad-sheet-locked')
+      body.style.removeProperty('position')
+      body.style.removeProperty('top')
+      body.style.removeProperty('inset-inline')
+      // The scroll position only exists in this closure now, so it is restored here or lost.
+      window.scrollTo(0, parked)
     }
   }, [open, onResize, lockPage])
 }

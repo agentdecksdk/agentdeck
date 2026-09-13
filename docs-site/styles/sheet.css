@@ -32,10 +32,11 @@
        or the foot, which scroll nothing themselves, otherwise pans the document underneath. The
        body opts back in below.
 
-       This is deliberately not `overflow: hidden` on the root. That removes the scrollport
-       `position: sticky` resolves against, so the banner and the bar stop sticking, fall back to
-       their static offsets far up the document, and the article shows in the strip above the
-       sheet. Measured: bar at -852 locked that way, 48 unlocked, same scroll position. */
+       This is the whole story for a sheet that leaves chrome visible, and deliberately so: a root
+       `overflow: hidden` removes the scrollport `position: sticky` resolves against, the bar stops
+       sticking and falls to its static offset far up the document, and the article shows where it
+       was. Measured: bar top -852 locked that way, 48 unlocked, same scroll position. A sheet that
+       covers everything has no such chrome to lose and locks as well, below. */
     touch-action: none;
     animation: ad-sheet-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
   }
@@ -71,12 +72,18 @@
     backdrop-filter: none;
   }
 
-  /* Only a sheet that covers the whole viewport asks for this: see lib/sheet.ts. `touch-action`
-     on the sheet already stops a drag reaching the page, but a wheel, a trackpad and the keyboard
-     are not touch, and the document behind was still scrolling under an open chat. */
+  /* Only a sheet that covers the whole viewport asks for this: see lib/sheet.ts, which also takes
+     the body out of flow. `touch-action` on the sheet stops a drag reaching the page; a wheel, a
+     trackpad and the keyboard are not drags, and the document behind was still scrolling under an
+     open chat. `width: 100%` because a fixed body shrink-wraps, and the article would reflow to
+     its content width for as long as the chat is up. */
   html.ad-sheet-locked,
   html.ad-sheet-locked body {
     overflow: hidden;
+  }
+
+  html.ad-sheet-locked body {
+    width: 100%;
   }
 
   @keyframes ad-sheet-in {
