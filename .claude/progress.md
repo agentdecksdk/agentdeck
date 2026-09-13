@@ -5,9 +5,9 @@ This tracks what is still open.
 
 ## Open
 
-- [ ] Mobile top bar shows no navigation affordance, and the assistant should be the spark alone
+- [x] Mobile top bar shows no navigation affordance, and the assistant should be the spark alone
 - [ ] Search trigger `kbd` chip: confirm the fix on a real Mac as well as here
-- [ ] Backdrop click-to-dismiss on the mobile drawer was never verified
+- [x] Backdrop click-to-dismiss on the mobile drawer was never verified
 - [ ] "Build Your Deck" exposes 6 sibling pages flat, past the 4-item chunking limit
 
 ## Closed without doing
@@ -42,6 +42,7 @@ Deferred to v6.0.5:
 **Source:** _next/static/chunks/node_modules_agentation_dist_index_mjs_1bt__qk._.js:14067:23
 **React:** <LayoutBody> <DocsShell> <SiteHeader> <Button> <Slot.Slot> <SidebarTrigger>
 **Feedback:** weired that it opn to the sdie bar at mobile view make it silale rot v603 styel
+**Done:** #749, it drops out of the bar as a full-width sheet
 
 ### 2. <LayoutBody> <DocsShell> <SiteHeader> <JackPanel> button [Ask Jack]
 **Location:** .ad-shell > .ad-bar > .ms-auto > .ask-launch
