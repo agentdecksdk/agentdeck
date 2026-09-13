@@ -52,3 +52,11 @@ Deferred to v6.0.5:
 ## Reported by the sweep, not fixed
 
 - [ ] `troubleshooting.mdx` says two ConfigErrors raise at build time; they raise from `expose()`/`serve()`
+
+## Board hygiene and the release blocker, 2026-09-13
+
+- [ ] #729 `docs-site: own the docs shell` is the last open issue on v6.0.4, so it is the only thing between here and tagging 6.0.4. Not on the project board at all
+- [ ] #273 Status is **In progress** with no open PR since 2026-08-22. Restore to Backlog or open one
+- [ ] #334 Status is **In progress**, but its PR #647 was closed unmerged. `help wanted`, `difficulty: advanced`. Restore to Backlog or reopen the work
+- [ ] #337 Status is **In progress** with three merged PRs referencing it and none open. Close it or restore to Backlog
+- [ ] #231 Status is **Needs ruling**, the only issue in that state: `run()`'s `TurnResult | Any` makes the documented interface unprovable. It blocks implementation until decided
