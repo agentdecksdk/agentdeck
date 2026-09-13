@@ -1,19 +1,16 @@
 'use client'
 
 import type { ComponentProps, CSSProperties } from 'react'
-import { X } from 'lucide-react'
 import { createPageTreeRenderer } from 'fumadocs-ui/components/sidebar/page-tree'
 import {
   SidebarContent as BaseContent,
   SidebarDrawerContent,
-  SidebarDrawerOverlay,
   SidebarFolder,
   SidebarFolderContent as BaseFolderContent,
   SidebarFolderLink as BaseFolderLink,
   SidebarFolderTrigger as BaseFolderTrigger,
   SidebarItem as BaseItem,
   SidebarSeparator as BaseSeparator,
-  SidebarTrigger,
   SidebarViewport,
   useFolder,
   useFolderDepth
@@ -123,7 +120,7 @@ const PageTree = createPageTreeRenderer({
 
 const NAV = { role: 'navigation', 'aria-label': 'Sidebar' } as const
 
-/** The docs sidebar: a rail beside the article, a drawer over it below the docs breakpoint.
+/** The docs sidebar: a rail beside the article, a sheet under the bar below the docs breakpoint.
  *
  *  Both render the same page tree. `nav.mode` was always `'top'` here and `collapsible` always
  *  false, so the branches `layouts/notebook`'s own sidebar carried for the other two arrangements
@@ -131,6 +128,10 @@ const NAV = { role: 'navigation', 'aria-label': 'Sidebar' } as const
  *  rather than reproduced: nothing in this site ever reached them.
  */
 export function DocsSidebar() {
+  // One element for both arrangements, and no scroll plumbing on it: `SidebarViewport` is already
+  // `flex-1 min-h-0` over a `size-full` scroller, which resolves and scrolls the moment its
+  // ancestor has a definite height. The rail gets that from the grid row, the sheet from being
+  // pinned top and bottom. Nothing here has to know which one it is in.
   const viewport = (
     <SidebarViewport>
       <PageTree Item={SidebarItem} />
@@ -164,18 +165,14 @@ export function DocsSidebar() {
         )}
       </BaseContent>
 
-      <SidebarDrawerOverlay className="fixed z-40 inset-0 backdrop-blur-xs data-[state=open]:animate-fd-fade-in data-[state=closed]:animate-fd-fade-out" />
+      {/* No overlay below the breakpoint: the sheet fills the screen under the bar, so there is
+          nothing behind it to dim and nothing outside it to click. */}
       <SidebarDrawerContent
-        className="fixed text-[0.9375rem] flex flex-col shadow-lg border-s inset-e-0 inset-y-0 w-[85%] max-w-[380px] z-40 bg-fd-background data-[state=open]:animate-fd-sidebar-in data-[state=closed]:animate-fd-sidebar-out"
+        className="ad-sheet text-[0.9375rem] bg-fd-background [--ad-sheet-top:var(--fd-docs-row-2)]"
         {...NAV}
       >
-        <div className="flex flex-col gap-3 p-4 pb-2 empty:hidden">
-          <SidebarTrigger className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors duration-100 disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fd-ring hover:bg-fd-accent hover:text-fd-accent-foreground p-1.5 [&_svg]:size-4.5 ms-auto text-fd-muted-foreground">
-            <X />
-          </SidebarTrigger>
-        </div>
         {viewport}
-        <SidebarFooter />
+        <SidebarFooter className="ad-sheet__foot" />
       </SidebarDrawerContent>
     </>
   )

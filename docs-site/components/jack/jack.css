@@ -151,7 +151,12 @@ body {
 
 .ask-transcript {
   flex: 1;
+  /* The only scrolling region in the panel. `min-height: 0` because a flex item will not shrink
+     below its content without it, which leaves the transcript overflowing instead of scrolling;
+     `contain` stops a flick at either end from chaining out to the page. */
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 0.9rem;
   font-size: 0.875rem;
 }
@@ -279,35 +284,22 @@ body {
 /* A popover anchored to a corner is a desktop shape. On a phone it left a strip of the page
    showing around it and read as something that had come loose; here it is a sheet that owns the
    bottom of the screen, which is what a phone conversation looks like. */
-@media (max-width: 640px) {
+@media (max-width: 767px) {
+  /* `.ad-sheet` (styles/sheet.css) owns the box; only what is Jack's own stays here. */
   .ask-panel {
-    right: 0;
-    left: 0;
-    /* `top`, `bottom` and `height` together over-constrain the box, and CSS resolves from `top`,
-       so the sheet anchored to the top of the viewport and left the page showing beneath it. */
-    top: auto;
-    bottom: 0;
     width: 100%;
-    height: min(86vh, 100% - 2.5rem);
-    border-radius: 16px 16px 0 0;
-    border-bottom: 0;
+    border-inline-start: 0;
   }
 
   .ask-head {
     padding: 0.9rem 1rem;
   }
 
-  .ask-transcript {
-    padding: 1rem;
-  }
-
-  .ask-form {
-    padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
-  }
-
-  .ask-launch {
-    right: 1rem;
-    bottom: 1rem;
+  /* iOS Safari zooms the whole page when a focused input is under 16px, and does not zoom back
+     out on blur: that is the "layout broke and I had to pinch to fit" on a real device, and it
+     never reproduces in a desktop browser's device emulation. */
+  .ask-form input {
+    font-size: 1rem;
   }
 }
 

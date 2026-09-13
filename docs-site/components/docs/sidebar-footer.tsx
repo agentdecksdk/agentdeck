@@ -2,6 +2,7 @@
 
 import type { ComponentProps } from 'react'
 import { ThemeSwitch } from '@/components/docs/theme-switch'
+import { cn } from '@/lib/utils'
 
 /** The theme control, at the foot of the sidebar as v6.0.3 had it.
  *
@@ -13,9 +14,9 @@ import { ThemeSwitch } from '@/components/docs/theme-switch'
  *  Its own module with `'use client'`, because a function prop cannot cross the RSC boundary into
  *  `DocsLayout`.
  */
-export function SidebarFooter(props: ComponentProps<'div'>) {
+export function SidebarFooter({ className, ...props }: ComponentProps<'div'>) {
   return (
-    <div {...props} className="flex flex-row items-center border-t px-4 py-2.5">
+    <div {...props} className={cn('flex flex-row items-center border-t px-4 py-2.5', className)}>
       <ThemeSwitch />
     </div>
   )

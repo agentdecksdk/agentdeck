@@ -9,6 +9,7 @@ import { SITE } from '@/lib/site'
 import '@/styles/global.css'
 import '@/styles/base.css'
 import '@/styles/docs.css'
+import '@/styles/sheet.css'
 import '@/components/site/header.css'
 import '@/components/site/announcement.css'
 import '@/components/site/footer.css'
@@ -32,7 +33,10 @@ export const viewport: Viewport = {
   themeColor: [
     { media: '(prefers-color-scheme: light)', color: 'rgb(250,251,254)' },
     { media: '(prefers-color-scheme: dark)', color: 'rgb(11,18,32)' }
-  ]
+  ],
+  // The keyboard shrinks the layout viewport, so `bottom: 0` is above the keys and a sheet needs
+  // no `visualViewport` arithmetic of its own.
+  interactiveWidget: 'resizes-content'
 }
 
 // Tracked in `.github/assets/`, where CI requires every binary to live

@@ -2,8 +2,8 @@
 
 import type { ComponentProps } from 'react'
 import { SearchTrigger, useSearchContext } from '@/components/site/search-context'
-import { SidebarTrigger } from 'fumadocs-ui/components/sidebar/base'
-import { PanelLeft, Search } from 'lucide-react'
+import { SidebarTrigger, useSidebar } from 'fumadocs-ui/components/sidebar/base'
+import { Menu, Search, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { JackPanel } from '@/components/jack/panel'
@@ -61,6 +61,7 @@ function DesktopSearchTrigger({ className }: { className?: string }) {
  */
 export function SiteHeader({ className, ...props }: ComponentProps<'header'>) {
   const slugs = useDocSlugs()
+  const { open: navOpen } = useSidebar()
   return (
     <header
       {...props}
@@ -91,8 +92,20 @@ export function SiteHeader({ className, ...props }: ComponentProps<'header'>) {
           <GitHubMark />
         </a>
         <SearchTrigger className="p-[13px] md:hidden" />
-        <Button variant="ghost" size="icon" className="size-11 md:hidden" asChild>
-          <SidebarTrigger aria-label="Open sidebar"><PanelLeft /></SidebarTrigger>
+        {/* `aria-expanded:bg-transparent` undoes ghost's open-state fill, which reads as a stuck
+            hover under a full sheet. Both icons render always so the swap can crossfade. */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-11 md:hidden aria-expanded:bg-transparent"
+          asChild
+        >
+          <SidebarTrigger aria-label={navOpen ? 'Close navigation' : 'Open navigation'}>
+            <span className="ad-navtoggle" aria-hidden="true">
+              <Menu />
+              <X />
+            </span>
+          </SidebarTrigger>
         </Button>
       </div>
     </header>

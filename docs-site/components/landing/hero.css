@@ -694,7 +694,8 @@
 
 @media (max-width: 640px) {
   .ad-hero {
-    padding-inline: 14px;
+    /* 14px put a 131-character subtitle against both edges at 390px. */
+    padding-inline: 20px;
   }
 
   .ad-hero h1 {
