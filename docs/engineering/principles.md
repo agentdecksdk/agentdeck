@@ -2,6 +2,29 @@
 
 **Status:** Binding philosophy
 
+## The standard
+
+Every major feature answers these. Cite them by key: a review that says **Q4** means the fourth row.
+
+| Key | Question |
+|---|---|
+| **Q1** | Does this make complex agentic software materially easier to build? |
+| **Q2** | Can a developer who does not need it ignore it completely? |
+| **Q3** | Can we express it through the existing mental model? |
+| **Q4** | Are we absorbing complexity, or transferring it to the user? |
+| **Q5** | Does it behave coherently with the rest of AgentDeck? |
+| **Q6** | Is the common path still obvious? |
+| **Q7** | Can both human developers and coding agents understand and operate it? |
+
+A no means the design is not finished. Q2 kills most proposals. Q4 is the one we most often fail
+ourselves, and finding that AgentDeck's own API has transferred complexity to the user is a defect,
+not a preference.
+
+These gate a feature. The six questions in §4 gate an abstraction, and a change can face both. A
+bugfix faces neither.
+
+The principles below are how the standard is met in code.
+
 ## 1. We do the hard work; the user gets the short path
 
 AgentDeck should absorb runtime and integration complexity when it can do so reliably.
@@ -38,7 +61,7 @@ An implementation requirement does not automatically become user configuration.
 
 ## 4. Complexity must earn its place
 
-Before introducing a new abstraction, state, port, service, registry, configuration option, or public concept, ask:
+Before introducing a new abstraction, state, port, service, registry, configuration option, or public concept, ask (the feature itself answers Q1-Q7 above):
 
 - What concrete problem does this solve?
 - Can an existing primitive solve it?
