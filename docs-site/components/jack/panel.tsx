@@ -18,7 +18,7 @@ import remarkGfm from 'remark-gfm'
 import { AnswerLink } from './answer-link'
 import { MarkLockup } from '@/components/site/mark'
 import { jackCitationsPlugin } from './citations'
-import { JackUnavailable, askJack } from './stream'
+import { JackUnavailable, askJack, jackHealth, type JackHealth } from './stream'
 
 type Turn = { question: string; answer: string; reading: string[] }
 
@@ -36,6 +36,7 @@ export function JackPanel({ validSlugs }: { validSlugs: string[] }) {
   const [turns, setTurns] = useState<Turn[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [health, setHealth] = useState<JackHealth>('checking')
   // The reader's selection, captured as they make it: opening the panel moves focus and clears
   // it, so reading it at submit time would always find nothing.
   const selection = useRef('')
@@ -50,6 +51,18 @@ export function JackPanel({ validSlugs }: { validSlugs: string[] }) {
     }
     document.addEventListener('selectionchange', remember)
     return () => document.removeEventListener('selectionchange', remember)
+  }, [])
+
+  // One probe per mount, and the component mounts with the layout, so client navigation between
+  // pages does not re-ask. The launcher starts disabled and enables on success rather than the
+  // reverse: a button that is briefly dead while Jack is up costs a reader nothing, and a button
+  // that is briefly live while he is down costs them a typed question.
+  useEffect(() => {
+    let live = true
+    void jackHealth().then(state => live && setHealth(state))
+    return () => {
+      live = false
+    }
   }, [])
 
   useEffect(() => {
@@ -113,6 +126,9 @@ export function JackPanel({ validSlugs }: { validSlugs: string[] }) {
     } catch (failure) {
       // The panel stays usable and the transcript keeps what it already had.
       setError(failure instanceof JackUnavailable ? failure.message : String(failure))
+      // He was up at page load or the composer would not have been reachable, so a failure here
+      // is news: re-probe rather than leaving the launcher claiming he is live.
+      void jackHealth().then(setHealth)
     } finally {
       setBusy(false)
     }
@@ -123,16 +139,25 @@ export function JackPanel({ validSlugs }: { validSlugs: string[] }) {
   if (slugOf(pathname) === 'index') return null
 
   // The launcher stays in the bar while the panel is open: it is the toggle, so it cannot be the
-  // thing the panel replaces.
+  // thing the panel replaces. That is also why `open` overrides the health state -  a probe that
+  // goes bad mid-session must not disable the only way to close the panel.
+  const down = health !== 'ok' && !open
+  // The label only changes once the probe has answered: "away" during the check would be a flash
+  // of bad news on every load of a site whose assistant is usually up.
+  const away = down && health !== 'checking'
+  const reason =
+    health === 'broken' ? 'Jack answered with an error' : 'Jack is not running right now'
   const launcher = (
     <button
-      className={`ask-launch ${open ? 'is-open' : ''}`}
+      className={`ask-launch ${open ? 'is-open' : ''} ${down ? 'is-down' : ''}`}
       onClick={() => setOpen(!open)}
+      disabled={down}
+      title={away ? reason : undefined}
       aria-expanded={open}
-      aria-label="Ask Jack"
+      aria-label={away ? `Ask Jack: ${reason}` : 'Ask Jack'}
     >
       <AskIcon />
-      <span className="ask-launch__label">Ask Jack</span>
+      <span className="ask-launch__label">{away ? 'Jack is away' : 'Ask Jack'}</span>
     </button>
   )
 
