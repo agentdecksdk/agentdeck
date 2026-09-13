@@ -285,8 +285,7 @@ body {
    showing around it and read as something that had come loose; here it is a sheet that owns the
    bottom of the screen, which is what a phone conversation looks like. */
 @media (max-width: 767px) {
-  /* The panel is a sheet: `.ad-sheet` (styles/sheet.css) owns the box, the keyboard inset and the
-     page lock. Only what is Jack's own stays here. */
+  /* `.ad-sheet` (styles/sheet.css) owns the box; only what is Jack's own stays here. */
   .ask-panel {
     width: 100%;
     border-inline-start: 0;

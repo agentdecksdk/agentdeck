@@ -92,11 +92,8 @@ export function SiteHeader({ className, ...props }: ComponentProps<'header'>) {
           <GitHubMark />
         </a>
         <SearchTrigger className="p-[13px] md:hidden" />
-        {/* The navigation comes down out of this bar, so the control is a menu closed and the way
-            out open. `aria-expanded:bg-transparent` undoes the ghost variant's open-state fill:
-            that highlight is for a dropdown the reader can still see past, and here it reads as a
-            hover that got stuck under a full sheet. Both icons are always rendered and crossfade,
-            which is why they cannot be a ternary. */}
+        {/* `aria-expanded:bg-transparent` undoes ghost's open-state fill, which reads as a stuck
+            hover under a full sheet. Both icons render always so the swap can crossfade. */}
         <Button
           variant="ghost"
           size="icon"

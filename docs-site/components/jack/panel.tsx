@@ -65,10 +65,8 @@ export function JackPanel({ validSlugs }: { validSlugs: string[] }) {
 
   useLockedPage(open)
 
-  // Focus only where typing is the next action anyway. On the sheet it is not: raising the keyboard
-  // on open covers the transcript and the suggestions with a question the reader has not asked yet,
-  // and it has to be dismissed before anything can be read. `pointer: fine` as well as the width,
-  // so a tablet wide enough for the docked panel but driven by touch is still left alone.
+  // Focus only where typing is the next action: on a phone it raises the keyboard over the
+  // transcript before anything has been asked. `pointer: fine` too, for a touch tablet.
   useEffect(() => {
     if (!open) return
     if (!window.matchMedia('(min-width: 768px) and (pointer: fine)').matches) return

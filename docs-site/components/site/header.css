@@ -80,10 +80,8 @@
   }
 }
 
-/* The navigation toggle's two states. Both icons are rendered and stacked in one grid cell, so the
-   swap is a crossfade with a quarter turn rather than one element being replaced by another: a
-   replacement cannot be animated, because the outgoing icon is gone before the incoming one
-   exists. The button's own `aria-expanded` drives it, so there is no second source of state. */
+/* Both icons stacked in one grid cell: a replacement cannot be animated, since the outgoing icon
+   is gone before the incoming one exists. The button's own `aria-expanded` drives the swap. */
 .ad-navtoggle {
   display: inline-grid;
   place-items: center;
