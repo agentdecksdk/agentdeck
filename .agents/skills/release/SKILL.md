@@ -31,13 +31,17 @@ leaving the rest open (#541).
    is 100% green. Run it unpiped (`make check`, not `make check | tail`) so its own exit code is
    what you read; a pipe reports the last command's status, not the gate's.
 3. **Bump issue:** `python scripts/release_bump.py issues X.Y.Z` creates (or reuses) the `vX.Y.Z`
-   milestone, assigns it to every issue `Fixes`/`Closes`-referenced since the last tag, opens the
-   labeled `chore: cut and ship vX.Y.Z` issue, and prints its number.
+   milestone, assigns it to every issue closed by a PR merged since the last tag (read from that
+   PR's `closingIssuesReferences`; a direct push falls back to scanning its message for
+   `Fixes`/`Closes`), opens the labeled `chore: cut and ship vX.Y.Z` issue, and prints its number.
 4. **Bump PR into `dev`:**
    - `python scripts/release_bump.py bump X.Y.Z` updates `pyproject.toml`'s version and moves
      `CHANGELOG.md`'s `[Unreleased]` entries to a dated `## [X.Y.Z]` heading with compare links.
    - Run `python scripts/generate_docs_reference.py` once, then verify
      `python scripts/generate_docs_reference.py --check`.
+   - Snapshot the docs site only if this release removes or changes a documented surface, not on
+     every release (`docs/delivery/docs-site-plan.md` DS-D3). A patch documenting the same
+     surface owes nothing.
    - Commit: `chore(release): vX.Y.Z`. Open the PR against the bump issue from step 3
      (`Closes #N`), wait for every required check, merge.
 5. **Promotion issue:** `python scripts/release_bump.py promote X.Y.Z` opens the labeled

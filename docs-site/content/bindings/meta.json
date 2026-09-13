@@ -1,0 +1,11 @@
+{
+  "title": "Bindings",
+  "pages": [
+    "index",
+    "serve",
+    "native",
+    "terminal",
+    "agui",
+    "write-your-own"
+  ]
+}

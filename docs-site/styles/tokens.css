@@ -1,0 +1,109 @@
+/* fumadocs-ui's colour tokens, defined from the AgentDeck palette.
+ *
+ * These replace `fumadocs-ui/css/neutral.css`, which was the only definition of them and painted
+ * every surface fumadocs-ui owns  -  the search dialog, popovers, accordions, the sidebar's hover
+ * states, code-block chrome  -  a neutral grey. 416 utility uses inside the package read these,
+ * so overriding one component at a time was never going to converge. `bg-fd-card` is a Tailwind
+ * utility over `--color-fd-card`: give that a brand value and the grey slab dies everywhere at
+ * once. */
+
+@theme {
+  --color-fd-background: #fafbfe;
+  --color-fd-foreground: #0b1220;
+  --color-fd-muted: #f1f5fd;
+  /* Not `--brand-cool-gray`: at #94a3b8 on the canvas this is 2.3:1, and it is body-sized text. */
+  --color-fd-muted-foreground: #64748b;
+  --color-fd-popover: #ffffff;
+  --color-fd-popover-foreground: #0b1220;
+  --color-fd-card: #f1f5fd;
+  --color-fd-card-foreground: #0b1220;
+  --color-fd-border: #e5e9f2;
+  --color-fd-primary: #2563ff;
+  --color-fd-primary-foreground: #ffffff;
+  --color-fd-secondary: #f1f5fd;
+  --color-fd-secondary-foreground: #0b1220;
+  --color-fd-accent: #eef2fb;
+  --color-fd-accent-foreground: #0b1220;
+  --color-fd-ring: #2563ff;
+  --color-fd-overlay: rgb(11 18 32 / 25%);
+}
+
+.dark {
+  --color-fd-background: #0b1220;
+  --color-fd-foreground: #f1f5f9;
+  --color-fd-muted: #162032;
+  --color-fd-muted-foreground: #94a3b8;
+  --color-fd-popover: #162032;
+  --color-fd-popover-foreground: #f1f5f9;
+  --color-fd-card: #162032;
+  --color-fd-card-foreground: #f8fafc;
+  --color-fd-border: #1e293b;
+  --color-fd-primary: #93b5ff;
+  --color-fd-primary-foreground: #0b1220;
+  --color-fd-secondary: #162032;
+  --color-fd-secondary-foreground: #f1f5f9;
+  --color-fd-accent: #1d2b45;
+  --color-fd-accent-foreground: #f8fafc;
+  --color-fd-ring: #93b5ff;
+  --color-fd-overlay: rgb(0 0 0 / 50%);
+}
+
+/* Semantic, and theme-independent. Callouts read as info/warning/error before they read as brand,
+   so only the two the palette already has an opinion about are reclaimed. */
+@theme static {
+  --color-fd-info: #2563ff;
+  --color-fd-warning: oklch(76.9% 0.188 70.08);
+  --color-fd-error: #ff3b30;
+  --color-fd-success: oklch(72.3% 0.219 149.579);
+  --color-fd-idea: oklch(70.5% 0.209 60.849);
+  --color-fd-diff-remove: rgb(200 10 100 / 12%);
+  --color-fd-diff-remove-symbol: rgb(230 10 100);
+  --color-fd-diff-add: rgb(14 180 100 / 10%);
+  --color-fd-diff-add-symbol: rgb(10 200 100);
+}
+
+/* shadcn's token contract, pointed at the brand rather than at a second palette.
+ *
+ * Components copied from a registry are written against `bg-background`, `border-border`,
+ * `bg-primary` and so on. `shadcn init` supplies those by appending its own `@theme inline` block
+ * with its own neutrals, chart ramp and radius scale, which is how a copied component drags a
+ * visual identity in behind it. These are the same names resolved to the values already above, so
+ * there is one palette on the page and a registry component inherits the brand on arrival. */
+@theme inline {
+  --color-background: var(--color-fd-background);
+  --color-foreground: var(--color-fd-foreground);
+  --color-card: var(--color-fd-card);
+  --color-card-foreground: var(--color-fd-card-foreground);
+  --color-popover: var(--color-fd-popover);
+  --color-popover-foreground: var(--color-fd-popover-foreground);
+  --color-primary: var(--color-fd-primary);
+  --color-primary-foreground: var(--color-fd-primary-foreground);
+  --color-secondary: var(--color-fd-secondary);
+  --color-secondary-foreground: var(--color-fd-secondary-foreground);
+  --color-muted: var(--color-fd-muted);
+  --color-muted-foreground: var(--color-fd-muted-foreground);
+  --color-accent: var(--color-fd-accent);
+  --color-accent-foreground: var(--color-fd-accent-foreground);
+  --color-border: var(--color-fd-border);
+  --color-input: var(--color-fd-border);
+  --color-ring: var(--color-fd-ring);
+  --color-destructive: var(--color-fd-error);
+  --color-destructive-foreground: #ffffff;
+
+  --color-sidebar: var(--color-fd-background);
+  --color-sidebar-foreground: var(--color-fd-foreground);
+  --color-sidebar-primary: var(--color-fd-primary);
+  --color-sidebar-primary-foreground: var(--color-fd-primary-foreground);
+  --color-sidebar-accent: var(--color-fd-accent);
+  --color-sidebar-accent-foreground: var(--color-fd-accent-foreground);
+  --color-sidebar-border: var(--color-fd-border);
+  --color-sidebar-ring: var(--color-fd-ring);
+
+  /* The brand's card is cut at one corner, so a single `--radius` cannot express it. This is the
+     scale registry components reach for; `--card-radius` stays the card language. */
+  --radius: 12px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+}

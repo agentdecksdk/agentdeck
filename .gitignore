@@ -29,3 +29,13 @@ docs/brand/*.jpg
 # make check's per-target logs (worktree-scoped, see Makefile's LOG)
 .make-*.log
 node_modules/
+
+.playwright-mcp/
+
+.headroom_wrap_marker.json
+.headroom_wrap_owners.json
+
+# The component lab: a tool for choosing between our components and registry candidates,
+# not a page of the site. See app/lab/[view]/page.tsx.
+docs-site/app/lab/
+docs-site/components/docs/lab-view.tsx

@@ -80,13 +80,15 @@ question is ever asked. Declaring the wrong type raises `ContextTypeError` namin
 
 ## Why it serves itself instead of using `Deck.asgi()`
 
-agentdeck packages an HTTP surface. This application cannot use it, for two independent reasons  -
-and finding that out is a large part of what this example exists for.
+agentdeck packages an HTTP surface as bindings. This application cannot use it, for two
+independent reasons  -  and finding that out is a large part of what this example exists for.
 
-- **A run through `asgi()` carries `context=None`.** There is no wire form for a live Python
+- **A run through a binding carries `context=None`.** There is no wire form for a live Python
   object, so the packaged surface cannot deliver one. Both tools here need the `DocsCorpus`.
-- **Its chat body is exactly `{"session_id", "message"}`**, frozen byte-for-byte by
-  `tests/golden/`. The page the reader is on has nowhere to go in it.
+- **`Native.http()` speaks a different wire.** It's AgentDeck's generic protocol (`POST /runs`,
+  `GET /runs/{id}/events`, and the rest), not a single `POST /ask` with a chat body. Adopting it
+  still means translating between this application's request and the protocol's, which is the
+  layer this route exists to avoid.
 
 So `server.py` is forty lines of FastAPI over `deck.stream()`. Each SSE frame is one canonical
 `Event`, dumped as written  -  no translation layer, so a browser switching on `event.kind` reads
@@ -133,37 +135,20 @@ like, and it is recorded as a finding rather than smoothed over  -  see
 
 ## Serving it publicly
 
-The docs site is a static bundle on GitHub Pages; this backend runs on a machine you own, reached
-through a Cloudflare Tunnel. Availability therefore depends on that machine being up, which is
-the deliberate trade for not hosting a model-calling service.
+This backend runs on a machine you own and is reached over a tunnel, so availability depends on
+that machine being up. That is the deliberate trade for not hosting a model-calling service.
 
 ```bash
-uvicorn jack.server:app --port 8100                     # binds 127.0.0.1
-cloudflared tunnel run --token <TOKEN>                    # agentdecksdk.com/ask -> :8100
+uvicorn jack.server:app --port 8100        # binds 127.0.0.1
 ```
 
-There are two ways to run the tunnel and they differ in **where the routing rules live**, which
-matters here because this README makes claims about what is exposed.
+Put a tunnel or reverse proxy in front of it with exactly one route to `:8100`, and set
+`JACK_ORIGINS` to the origin your site is served from. The URL your frontend calls must be
+`https`: a page served over TLS is blocked from calling `http://`, which is the real reason a
+tunnel is needed rather than a port forward.
 
-- **Dashboard-managed** (what AgentDeck's own instance uses). The tunnel is created in Zero Trust
-  → Networks → Tunnels, runs from a token, and its public hostname and service are configured in
-  Cloudflare. Convenient, and the rules are not in this repo  -  so nobody reviewing a change here
-  can see them. If you run it this way, the dashboard must say exactly one public hostname,
-  `agentdecksdk.com` with a `/ask` path route → `http://localhost:8100`, and nothing else.
-- **Locally-managed** (`cloudflared.yml`, committed here). The tunnel is created with
-  `cloudflared tunnel create`, and the ingress list  -  one hostname, one port, `http_status:404`
-  catch-all  -  is a reviewable file. This is the reproducible form: a reader copying this example
-  cannot copy someone else's dashboard.
-
-Both are fine. What is not fine is the two disagreeing, because everything below describes the
-rules in `cloudflared.yml`.
-
-Set `JACK_ORIGINS` to the site's origin, and the `JACK_API_URL` repository
-variable to `https://agentdecksdk.com`  -  the panel appends `/ask` itself, and the Pages
-build bakes the origin in as
-`NEXT_PUBLIC_AGENTDECK_API_URL`. **It must be `https`**: Pages is served over TLS and a browser
-hard-blocks an HTTPS page calling `http://`, which is the real reason a tunnel is required rather
-than a port forward.
+How AgentDeck's own instance is operated, including its Cloudflare Tunnel configuration and
+hostname routing, is not part of this example.
 
 ### What is exposed, and what is not
 
@@ -171,7 +156,7 @@ Worth being precise about, because this is an unauthenticated endpoint that spen
 
 | | |
 |---|---|
-| **Reachable through the tunnel** | `localhost:8100`, and nothing else  -  *provided the ingress in force says so*, which is `cloudflared.yml` locally or the public-hostname list in the dashboard. One hostname, ending in `http_status:404`, so an unlisted hostname is refused rather than proxied. The tunnel itself is an outbound connection: no inbound port, no firewall rule, nothing else you run locally becomes reachable. |
+| **Reachable through the tunnel** | `localhost:8100`, and nothing else  -  *provided the ingress in force says so*. Give it one hostname and a catch-all that refuses everything else, so an unlisted hostname is rejected rather than proxied. The tunnel itself is an outbound connection: no inbound port, no firewall rule, nothing else you run locally becomes reachable. |
 | **Bind address** | `127.0.0.1`, uvicorn's default. Do not pass `--host 0.0.0.0`  -  that publishes the assistant to your whole network *in addition* to the tunnel, and is the one way this setup leaks past what is written here. |
 | **On the wire** | An allowlist of five event kinds. `tool.call.completed` is deliberately not among them: its `result_preview` is the tool's output verbatim, so a tool that raised would put its exception text on a public wire. `usage.reported` is dropped too  -  the model name and per-turn token counts are nobody else's business. |
 | **Failure messages** | `run.failed` carries the exception's *type name* and the engine's, never its text. That is agentdeck's own design, not something this application adds. |

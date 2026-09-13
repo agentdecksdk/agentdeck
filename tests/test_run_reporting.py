@@ -1,10 +1,10 @@
 """Issue #47 end to end: a real tool reporting, through a real surface.
 
-The two claims worth proving outside the Runtime's own unit tests: an openai-agents **function
-tool** finds the reporter on the SDK's context object, and an SSE client sees its reports arrive
-in order without the surface knowing they exist. The reference CLI renderer reading them closes
-the loop, including its default case  -  the promise every consumer makes about a kind it has
-never heard of.
+The claims worth proving outside the Runtime's own unit tests: an openai-agents **function
+tool** finds the reporter on the SDK's context object, a sync ``@tool``'s reports preserve order
+against its own return, and a report is written to the log when it fires (#487) rather than
+batched at return: an ordering guarantee held under a suspended append, a storm of 200 reports, a
+report made after the run closed or after its loop closed, and a run that reports and then fails.
 
 Scripted fakes only: the SDK boundary is the one thing stubbed, so nothing here calls a model.
 """
@@ -37,7 +37,7 @@ from agentdeck.adapters.executors.stub import StubExecutor, stub_spec
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
-from agentdeck.core.events import Event, Reported, RunCompleted, Usage
+from agentdeck.core.events import Event, Reported
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.status import RunStatus, status_of
 from agentdeck.core.workers import SyncToolWorkers
@@ -49,8 +49,6 @@ if TYPE_CHECKING:
     from agentdeck.core.content import Input
     from agentdeck.core.events import KnownPayload
     from agentdeck.core.reporting import Reporter
-
-pytest.importorskip("fastapi")
 
 TS = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
 CTX = RunContext(namespace="acme", run_id="r-1", session_id="s-1")
@@ -192,41 +190,6 @@ async def test_a_sync_tools_reports_preserve_order_against_its_own_return() -> N
 
     assert [event.kind for event in events] == ["run.started", "report", "report", "run.completed"]
     assert _reports(events) == [("info", "one", {}), ("info", "two", {})]
-
-
-# --- the SSE surface and the reference renderer ----------------------------------------
-
-
-class _ReportingStub(StubExecutor):
-    """A scripted run that reports between its payloads  -  the surface must not care which
-    engine did it, so the cheapest one is the honest choice here."""
-
-    async def execute(
-        self, spec: InvocableSpec, input: Input, history: Sequence[Event], ctx: RunContext
-    ) -> AsyncGenerator[KnownPayload, None]:
-        ctx.reporter.info("Searching GitHub")
-        ctx.reporter.report("issues_reviewed", current=2, total=4)
-        async for payload in super().execute(spec, input, history, ctx):
-            yield payload
-
-
-def _runtime() -> Runtime:
-    done = RunCompleted(output=coerce_input("two issues, both open"), usage=Usage(input_tokens=1, output_tokens=1))
-    spec = stub_spec("Searcher", done)
-    return Runtime([_ReportingStub()], MemoryEventStore(), {spec.name: spec})
-
-
-def _event(payload: KnownPayload) -> Event:
-    return Event(
-        kind=payload.kind,
-        seq=0,
-        run_id="r-1",
-        session_id="s-1",
-        namespace="acme",
-        origin="Searcher",
-        ts=TS,
-        payload=payload,
-    )
 
 
 # --- written when it is made, not when the call ends (#487) --------------------------------

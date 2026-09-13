@@ -57,6 +57,13 @@ async def _discovery(ctx: WorkflowCtx, said: str) -> str:
     return str(await ctx.invoke(_places_lookup, said))
 
 
+async def _reports_then_returns(ctx: WorkflowCtx) -> str:
+    """Report twice, then return  -  the wire's own copy of #487's store-layer guarantee."""
+    ctx.reporter.info("first")
+    ctx.reporter.info("second")
+    return "done"
+
+
 def _deck() -> Deck:
     return Deck(
         agents=[Agent(name="Greeter", instructions="Greet the user.")],
@@ -173,6 +180,21 @@ def test_events_streams_raw_event_json_with_seq_as_id(no_project):
     assert [e["seq"] for e in events] == ids
     assert events[0]["kind"] == "run.started"
     assert events[-1]["kind"] == "run.completed"
+
+
+def test_a_workflows_reports_keep_their_write_order_over_the_sse_wire(no_project):
+    """#714: the store-layer ordering `test_run_reporting.py` proves is only real for an SSE
+    consumer if the wire itself never reorders or drops a `report` event on the way out. One
+    writer, one reader after the stream closes: nothing here races, so this is structural, not a
+    schedule  -  it proves the log-to-SSE pipe passes reports through unchanged."""
+    deck = Deck(workflows=[workflow(_reports_then_returns, name="Reporter")])
+    with _client(deck) as client:
+        started = client.post("/runs", json={"target": "Reporter", "input": {}, "session_id": "s1"})
+        response = client.get(f"/runs/{started.json()['run_id']}/events")
+
+    events = _events_from(response)
+    assert [e["kind"] for e in events] == ["run.started", "report", "report", "run.completed"]
+    assert [e["payload"]["message"] for e in events if e["kind"] == "report"] == ["first", "second"]
 
 
 def test_events_reconnect_with_last_event_id_resumes_after_that_seq(no_project):

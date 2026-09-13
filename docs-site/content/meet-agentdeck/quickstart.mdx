@@ -17,13 +17,13 @@ Build a Deck, start a Run, and watch its events.
 
 <Steps>
 
-### Install
+## Install
 
 ```bash
 pip install agentdeck-sdk
 ```
 
-### Build your deck
+## Build your deck
 
 Compose an agent into a Deck:
 
@@ -39,7 +39,7 @@ agent = Agent(
 deck = Deck(agents=[agent])
 ```
 
-### Start a run
+## Start a run
 
 Execute the agent within the Deck's runtime context:
 
@@ -58,7 +58,7 @@ async def main():
 log already holds, which for a run this young is one event. `run.status()` is a coroutine, not a
 property.
 
-### Watch what happened
+## Watch what happened
 
 Running the script emits an ordered sequence of lifecycle and content events:
 

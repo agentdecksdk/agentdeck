@@ -141,7 +141,7 @@ async def test_the_cooldown_is_a_deadline_and_never_a_wait(monkeypatch: pytest.M
     ``asyncio.sleep`` is an error for the duration of this test, so a cooldown written as a wait
     fails here instead of quietly turning every safe point into a stall. Nothing else catches
     that: the read *counts* are identical either way, and an elapsed-time assertion is exactly
-    what ``docs/coding-standards.md`` §8 forbids. The interval is an hour to make the point
+    what ``docs/engineering/testing.md`` §1 forbids. The interval is an hour to make the point
     unmissable  -  a waiting implementation would park this run for an hour per safe point.
     """
 

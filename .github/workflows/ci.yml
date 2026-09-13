@@ -83,7 +83,7 @@ jobs:
           strays=$(git diff --numstat 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD \
                      | awk '$1 == "-" { print $3 }' | grep -v '^\.github/assets/' || true)
           if [ -n "$strays" ]; then
-            echo "::error::binary files outside .github/assets/: see docs/coding-standards.md §11"
+            echo "::error::binary files outside .github/assets/: see docs/engineering/dependencies.md §5"
             echo "$strays"
             exit 1
           fi

@@ -1,0 +1,72 @@
+/* Branded Callouts */
+.brand-callout {
+  margin: 1.5rem 0;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--brand-border-light);
+  background: var(--brand-ice);
+  border-radius: 6px;
+  position: relative;
+}
+
+.dark .brand-callout {
+  border-color: #1e293b;
+  background: #0f172a;
+}
+
+.brand-callout.runtime {
+  border-left: 3px solid var(--brand-blue);
+}
+
+.dark .brand-callout.runtime {
+  border-left: 3px solid var(--brand-frost);
+}
+
+.brand-callout.model {
+  border-left: 3px solid #6366f1;
+}
+
+.dark .brand-callout.model {
+  border-left: 3px solid #818cf8;
+}
+
+.callout-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.callout-spark {
+  color: var(--brand-blue);
+  font-size: 0.8rem;
+}
+
+.dark .callout-spark {
+  color: var(--brand-frost);
+}
+
+.callout-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--brand-night);
+  font-family: monospace;
+}
+
+.dark .callout-title {
+  color: #f8fafc;
+}
+
+.callout-content {
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: #475569;
+}
+
+.dark .callout-content {
+  color: #94a3b8;
+}
+
+.callout-content pre {
+  margin: 0.75rem 0 0 !important;
+}

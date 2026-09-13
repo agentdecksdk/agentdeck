@@ -5,6 +5,8 @@ description: The decisions behind Jack, and the alternatives each one beat.
 
 {/* docs_sources:
   - "examples/jack/**"
+  - "agentdeck/deck.py"
+  - "agentdeck/adapters/bindings/**"
 */}
 
 # Implementation notes
@@ -57,12 +59,14 @@ Explicit composition has neither problem. Both front doors are described in [Dec
 
 ## Its own route, not `Deck.asgi()`
 
-AgentDeck packages an HTTP surface and Jack writes his own, for two structural reasons:
+AgentDeck packages an HTTP surface as [bindings](/bindings/serve): `deck.serve()` / `deck.expose()`
+take a `Binding` and open a standalone server or an ASGI app. Jack writes his own route instead,
+for two structural reasons:
 
 | | |
 |---|---|
-| **Context cannot cross HTTP** | A run started through `asgi()` carries `context=None`. There is no wire form for a live Python object, and both tools need the `DocsCorpus`. |
-| **The chat wire is frozen** | Its body is exactly `{"session_id", "message"}`, pinned byte-for-byte by `tests/golden/`. The page a reader is on has nowhere to go in it. |
+| **Context cannot cross HTTP** | A run started through a binding carries `context=None`. There is no wire form for a live Python object, and both tools need the `DocsCorpus`. |
+| **`Native.http()` speaks a different wire** | It's AgentDeck's generic protocol  -  `POST /runs`, `GET /runs/{id}/events`, and the rest  -  not a single `POST /ask` with a chat body. Adopting it still means translating between Jack's own request and the protocol's, which is the layer this route exists to avoid. |
 
 The result is about forty lines over `deck.stream()`, streaming canonical events with no
 translation layer.
@@ -91,12 +95,8 @@ only known values survive, and the delimiter is stripped from any reader selecti
 model chooses to say with that text is not guarded, and no delimiter makes it so.
 
 The full accounting is in the
-[example's README](https://github.com/agentdecksdk/agentdeck/tree/dev/examples/jack#readme).
+[example's README](https://github.com/agentdecksdk/agentdeck/tree/main/examples/jack#readme).
 
-<Contribute
-  issue={353}
-  difficulty="medium"
-  scope="guide"
-  need="These notes stop at the process boundary: nothing here says how a Deck becomes a supervised service, what a health check must actually check, or what shutdown owes aclose()."
-  because="Everything up to uvicorn is documented and everything after it is not, which is the largest gap in the docs today."
-/>
+These notes stop at the process boundary. For how a Deck becomes a supervised service, what a
+health check must actually check, and what shutdown owes `aclose()`, see
+[Deployment](/operate/deployment).

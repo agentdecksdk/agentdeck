@@ -4,6 +4,7 @@ bookkeeping against a faked `gh`/git layer (no live GitHub calls)."""
 from __future__ import annotations
 
 import json
+import subprocess
 
 import pytest
 from release_bump import (
@@ -14,6 +15,7 @@ from release_bump import (
     cmd_promote,
     latest_tag,
     referenced_issues,
+    referenced_issues_in_range,
 )
 
 PYPROJECT_FIXTURE = '[project]\nname = "agentdeck"\nversion = "5.2.0"\n'
@@ -100,6 +102,56 @@ def test_latest_tag_with_no_tags_is_rejected() -> None:
         latest_tag(lambda args: "")
 
 
+def test_referenced_issues_in_range_resolves_the_trailing_pr_reference() -> None:
+    # The leading (#N) in a squash subject is often the issue the PR closed, not a PR: only
+    # the trailing one is asked.
+    def fake_run(args: list[str]) -> str:
+        if args[:2] == ["git", "log"] and "-1" not in args:
+            return "abc\tfix(a): thing (#10) (#100)\n"
+        if args[:3] == ["gh", "pr", "view"]:
+            assert args[3] == "100"
+            return json.dumps({"closingIssuesReferences": [{"number": 10}]})
+        raise AssertionError(args)
+
+    assert referenced_issues_in_range("v1.0.0", fake_run) == [10]
+
+
+def test_referenced_issues_in_range_falls_back_to_prose_for_a_direct_push() -> None:
+    def fake_run(args: list[str]) -> str:
+        if args[:2] == ["git", "log"] and "-1" not in args:
+            return "abc\tchore: direct push\n"
+        if args[:3] == ["git", "log", "-1"]:
+            return "Fixes #12\n"
+        raise AssertionError(args)
+
+    assert referenced_issues_in_range("v1.0.0", fake_run) == [12]
+
+
+def test_referenced_issues_in_range_a_resolved_pr_with_no_closing_issues_contributes_nothing() -> None:
+    def fake_run(args: list[str]) -> str:
+        if args[:2] == ["git", "log"] and "-1" not in args:
+            return "abc\tchore: bump to 6.0.3 (#700)\n"
+        if args[:3] == ["gh", "pr", "view"]:
+            assert args[3] == "700"
+            return json.dumps({"closingIssuesReferences": []})
+        raise AssertionError(args)
+
+    assert referenced_issues_in_range("v1.0.0", fake_run) == []
+
+
+def test_referenced_issues_in_range_skips_a_trailing_reference_that_is_not_a_real_pr() -> None:
+    # gh pr view fails for a number that doesn't resolve to a PR; the scan degrades rather
+    # than aborting the whole range.
+    def fake_run(args: list[str]) -> str:
+        if args[:2] == ["git", "log"] and "-1" not in args:
+            return "abc\tfix(a): stray (#999)\n"
+        if args[:3] == ["gh", "pr", "view"]:
+            raise subprocess.CalledProcessError(1, args)
+        raise AssertionError(args)
+
+    assert referenced_issues_in_range("v1.0.0", fake_run) == []
+
+
 class FakeGh:
     """Records every `run` call and answers from a small fixed script."""
 
@@ -111,10 +163,20 @@ class FakeGh:
         self.calls.append(args)
         if args[:2] == ["git", "tag"]:
             return "v5.2.0\nv5.1.0\n"
-        if args[0] == "git" and args[1] == "log" and "--merges" in args:
-            return "Merge pull request #100 from agentdecksdk/a\nMerge pull request #101 from agentdecksdk/b\n"
+        if args[:2] == ["git", "log"] and "-1" not in args:
+            return (
+                "h1\tfix(a): thing (#10) (#100)\n"
+                "h2\tfix(b): other (#11) (#101)\n"
+                "h3\tfix(c): stray (#999)\n"
+                "h4\tchore: direct push\n"
+            )
+        if args[:3] == ["git", "log", "-1"]:
+            return {"h4": "Fixes #12\n"}[args[-1]]
         if args[:2] == ["gh", "pr"] and args[2] == "view":
-            return {"100": "Fixes #10\nFixes #11\n", "101": "Closes #12\n"}[args[3]]
+            pr = args[3]
+            if pr not in ("100", "101"):
+                raise subprocess.CalledProcessError(1, args)
+            return json.dumps({"closingIssuesReferences": [{"number": {"100": 10, "101": 11}[pr]}]})
         if args[:2] == ["gh", "api"] and "--method" in args and args[args.index("--method") + 1] == "GET":
             return json.dumps(self.milestones)
         if args[:2] == ["gh", "api"] and "--method" not in args:

@@ -15,7 +15,6 @@ on:
 
 permissions:
   contents: write
-  actions: write   # the Deploy docs step dispatches docs-pages.yml
 
 concurrency:
   group: release-${{ github.ref }}
@@ -122,13 +121,6 @@ jobs:
             flags="$flags --prerelease"
           fi
           gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" $flags
-      - name: Deploy docs
-        env:
-          GH_TOKEN: ${{ github.token }}
-        # A release created with GITHUB_TOKEN never fires the `release: published`
-        # trigger (GitHub's recursion guard), so the docs deploy is chained here;
-        # workflow_dispatch is exempt from that guard.
-        run: gh workflow run docs-pages.yml --ref "$GITHUB_REF_NAME"
 
   pypi:
     # Publishing is off until the repository variable PYPI_PUBLISH is set to "true".

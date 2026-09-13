@@ -1158,6 +1158,9 @@ async def test_a_store_failure_during_the_opening_claim_closes_the_run_and_frees
     """#470 on :meth:`Runtime.run`: the cover over this claim used to be ``except CancelledError``,
     so a store that committed the ``run.started`` and then failed left a run the log says is live
     with nobody playing it, session held for a whole staleness window.
+
+    #688: nothing cancelled this run, so the terminal event is ``run.failed``, not
+    ``run.cancelled``  -  an operator filtering on ``error_code`` sees it, not only a reason string.
     """
     spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
     store = _ClaimThenFail()
@@ -1168,11 +1171,13 @@ async def test_a_store_failure_during_the_opening_claim_closes_the_run_and_frees
             await _collect(runtime)
 
         stored = await store.read_session(CTX)
-        assert [event.kind for event in stored] == ["run.started", "run.cancelled"]
+        assert [event.kind for event in stored] == ["run.started", "run.failed"]
         assert check_terminal(stored) is None
-        # Nothing cancelled this run, and the reason an operator reads says so.
-        assert stored[-1].payload.reason == "abandoned during the claim: StoreError"
+        assert stored[-1].payload.error_code == "engine_error"
+        assert stored[-1].payload.retryable is False
+        assert stored[-1].payload.message == "abandoned during the claim: StoreError"
 
+        # And the session is free again  -  the point of closing it rather than waiting the window out.
         assert (await _collect(runtime))[-1].kind == "run.completed"
 
 
@@ -1261,6 +1266,8 @@ class _ClaimThenFailTheRead(MemoryEventStore):
 async def test_a_store_failure_after_the_answer_claim_closes_the_run_and_frees_the_session() -> None:
     """#470 on :meth:`Runtime.resume`: the same span #391 covered against a cancellation, left by
     a ``StoreError`` from the history read instead. The claim is durable either way.
+
+    #688: a ``StoreError``, not a cancellation, so the terminal event is ``run.failed``.
     """
     spec = stub_spec(
         "Approver",
@@ -1283,10 +1290,13 @@ async def test_a_store_failure_after_the_answer_claim_closes_the_run_and_frees_t
                 pass
 
         logged = await store.read_run(replace(CTX, run_id=run_id))
-        assert [event.kind for event in logged] == ["run.started", "run.interrupted", "run.resumed", "run.cancelled"]
+        assert [event.kind for event in logged] == ["run.started", "run.interrupted", "run.resumed", "run.failed"]
         assert check_terminal(logged) is None
-        assert logged[-1].payload.reason == "abandoned after the resume claim: StoreError"
+        assert logged[-1].payload.error_code == "engine_error"
+        assert logged[-1].payload.retryable is False
+        assert logged[-1].payload.message == "abandoned after the resume claim: StoreError"
 
+        # And the session is free again  -  the point of closing it rather than waiting the window out.
         next_turn = [
             event async for event in runtime.run("Approver", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
         ]
@@ -1313,6 +1323,8 @@ async def test_a_control_port_failure_after_the_resume_claim_closes_the_run_and_
     """#470's sharp case, on :meth:`Runtime.resume_run`: the claim is durable, the control read
     that follows it fails, and the event store that owes this run a terminal event is healthy the
     whole time. ``except CancelledError`` could never catch this one.
+
+    #688: a ``ControlPort`` fault, not a cancellation, so the terminal event is ``run.failed``.
     """
     spec = stub_spec("Chatty", RunPaused(reason="operator"))
     store = MemoryEventStore()
@@ -1328,10 +1340,13 @@ async def test_a_control_port_failure_after_the_resume_claim_closes_the_run_and_
                 pass
 
         logged = await store.read_run(replace(CTX, run_id=run_id))
-        assert [event.kind for event in logged] == ["run.started", "run.paused", "run.resumed", "run.cancelled"]
+        assert [event.kind for event in logged] == ["run.started", "run.paused", "run.resumed", "run.failed"]
         assert check_terminal(logged) is None
-        assert logged[-1].payload.reason == "abandoned after the resume claim: StoreError"
+        assert logged[-1].payload.error_code == "engine_error"
+        assert logged[-1].payload.retryable is False
+        assert logged[-1].payload.message == "abandoned after the resume claim: StoreError"
 
+        # And the session is free again  -  the point of closing it rather than waiting the window out.
         control.armed = False
         next_turn = [
             event async for event in runtime.run("Chatty", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
@@ -1434,6 +1449,9 @@ async def test_a_store_failure_while_a_suspended_run_is_being_cancelled_still_cl
     """The other way out of #470's third site, and the other suspended status it claims: a store
     that takes the claim and then refuses the ``control.requested`` behind it strands the run
     exactly as a cancellation there does, so the site needs the cover for both.
+
+    #688: a ``StoreError``, not the cancellation the operator asked for, so the terminal event is
+    ``run.failed``  -  the ask is still named in its message.
     """
     spec = stub_spec("Chatty", RunPaused(reason="operator"))
     store = _TerminateThenFail()
@@ -1446,12 +1464,15 @@ async def test_a_store_failure_while_a_suspended_run_is_being_cancelled_still_cl
             await runtime.signal(run_id, Signal.CANCEL, "the user closed the tab", namespace=CTX.namespace)
 
         logged = await store.read_run(replace(CTX, run_id=run_id))
-        assert [event.kind for event in logged] == ["run.started", "run.paused", "run.resumed", "run.cancelled"]
+        assert [event.kind for event in logged] == ["run.started", "run.paused", "run.resumed", "run.failed"]
         assert check_terminal(logged) is None
-        assert logged[-1].payload.reason == (
+        assert logged[-1].payload.error_code == "engine_error"
+        assert logged[-1].payload.retryable is False
+        assert logged[-1].payload.message == (
             "abandoned after the resume claim: StoreError, cancel requested: the user closed the tab"
         )
 
+        # And the session is free again  -  the point of closing it rather than waiting the window out.
         next_turn = [
             event async for event in runtime.run("Chatty", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
         ]

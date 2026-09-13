@@ -3,8 +3,6 @@
 Which event moves a run's state, what is true of each state, which operation is legal in one, and
 what a pending signal does when it is read.
 
-`design/agentdeck-v2-architecture.md` §4.4 summarises this file; on the lifecycle this file wins.
-
 **The rule underneath all of it:** the log *is* the state. `core/status.py` folds a run's lifecycle
 events, there is no status table, and appending is the only way a decision becomes true. Nothing
 holds a status field and nothing caches a fold.
@@ -118,7 +116,7 @@ Five steps, in this order.
 A `Ruling` carries what to append, **what becomes of the intent** (`consume` or `leave`), and one
 sentence of why, which doubles as the error message and the test name. `consume` needs
 `ControlPort.consume(run_id, expected) -> bool`, recorded as missing in
-`agentdeck-v2-architecture.md` §4.5; `resume_run` hand-rolls it today and documents why an
+the v2 architecture record §4.5; `resume_run` hand-rolls it today and documents why an
 unconditional write "would overwrite, and silently destroy, a cancel that arrived while the run was
 suspended".
 

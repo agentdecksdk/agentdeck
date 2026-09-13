@@ -68,6 +68,14 @@ jobs:
         if: steps.changed.outputs.run == 'true'
         run: test -f out/index.html
 
-      - name: Verify search index
+      # Pagefind indexes only what carries `data-pagefind-body`, and it emitted a working index
+      # either way: with the attribute missing it silently indexed the navigation instead, and
+      # with it on the wrong element it indexed nothing. The file existing never caught either,
+      # so the count does. `nextra-theme-docs` used to emit the attribute; the routes do now.
+      - name: Verify search index covers every page
         if: steps.changed.outputs.run == 'true'
-        run: test -f out/_pagefind/pagefind.js
+        run: |
+          test -f out/_pagefind/pagefind.js
+          indexed=$(python3 -c "import json; print(json.load(open('out/_pagefind/pagefind-entry.json'))['languages']['en']['page_count'])")
+          pages=$(find content -name '*.mdx' | wc -l)
+          test "$indexed" -eq "$pages" || { echo "Pagefind indexed $indexed of $pages pages"; exit 1; }

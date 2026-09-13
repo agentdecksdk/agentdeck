@@ -1,17 +1,13 @@
-"""``agentdeck runs signal <run_id> <cancel|pause|resume>``  -  the second terminal's way to
-reach a run's ``ControlPort`` from a different OS process than the one streaming it.
+"""``agentdeck runs signal <run_id> <cancel|pause|resume>``: reach a run's ``ControlPort``
+from a different OS process than the one streaming it.
 
     agentdeck runs signal <run_id> cancel --control-db path/to/control.sqlite3 --reason "typo"
 
-A recorded ``resume`` here only lifts a pause that has not landed yet: continuing a run that
-already stopped means playing it on, which needs the event log and so belongs to a process
-holding a Runtime (``Deck.runs.resume``, ``POST /runs/{id}/resume``), not to this file.
+A recorded ``resume`` only lifts a pause that has not landed yet; continuing a run that already
+stopped needs the event log, so it belongs to a process holding a Runtime (``Deck.runs.resume``).
 
-A top-level composition root, like ``serve.py``: it wires the SQLite ``ControlPort``
-adapter directly, which is why it lives outside ``surfaces/``  -  surfaces never import an
-adapter (they get one handed to them). There is no HTTP control route (out of scope for
-M0) and no registry of which run lives where; the caller already has ``run_id`` from the
-stream it was watching.
+A composition root: it wires the SQLite ``ControlPort`` adapter directly, which a binding may
+not do, being handed its ports rather than choosing them.
 """
 
 from __future__ import annotations

@@ -54,7 +54,7 @@ asyncio.run(main())
 A context parameter is injected by the runtime and is absent from the schema the model sees, which
 is why a tool that declares one cannot be pre-decorated with the Agents SDK's `function_tool`: that
 decorator puts every parameter into the schema, and a context has none, so it raises
-`PydanticSchemaGenerationError` at the decorator line.
+`ConfigError` at the decorator line.
 
 `billing.data` is the exact `Billing()` instance passed to `context=`, not a copy. `Deck.build`
 checks every `ToolCtx[...]`/`WorkflowCtx[...]` parameter in the catalog against the declared type

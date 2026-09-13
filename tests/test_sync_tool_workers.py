@@ -1,4 +1,4 @@
-"""``docs/delivery/plan-sync-native-tools.md``'s verification table, item by item.
+"""#530's guarantees for :class:`~agentdeck.core.workers.SyncToolWorkers`, item by item.
 
 ``SyncToolWorkers`` itself (bounded concurrency, cancel-before-execution, shutdown) is tested
 directly against the pool: deterministic, and no Deck lifecycle needed to observe it. The

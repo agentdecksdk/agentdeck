@@ -45,10 +45,11 @@ SETTINGS_PAGE = CONTENT / "settings.mdx"
 CLI_PAGE = CONTENT / "cli.mdx"
 CHANGELOG_PAGE = SITE / "resources" / "changelog.mdx"
 CHANGELOG_SOURCE = REPO_ROOT / "CHANGELOG.md"
-VERSION_PAGE = REPO_ROOT / "docs-site" / "app" / "generated-version.ts"
+VERSION_PAGE = REPO_ROOT / "docs-site" / "lib" / "version.ts"
 PUBLIC = REPO_ROOT / "docs-site" / "public"
 LLMS_PAGE = PUBLIC / "llms.txt"
 LLMS_FULL_PAGE = PUBLIC / "llms-full.txt"
+LLMS_PAGES_DIR = PUBLIC / "llms"
 SITE_URL = "https://agentdecksdk.com"
 
 _REPO_SETTINGS_URL = "https://github.com/agentdecksdk/agentdeck/blob/main/agentdeck/runtime/settings.py"
@@ -121,6 +122,10 @@ _DIRECT_ENV_SECTION = [
     "keyless or fake-model run has no account to export to, and the exporter otherwise attempts a "
     "real HTTPS call per run. Langfuse traces are built from the event stream, and are a separate "
     "switch. |",
+    "| `OPENAI_USE_RESPONSES` | `bool` | `True` | Use the SDK's Responses transport "
+    "(`runtime/settings.py`). Set it false for a Chat-Completions-only model server. The default "
+    "gives every message a real response id, which is what avoids the `FAKE_RESPONSES_ID` "
+    "collision. |",
     "",
 ]
 
@@ -433,6 +438,26 @@ def render_llms_txt(generated: Mapping[Path, str] | None = None) -> str:
     return "\n".join(out)
 
 
+def _page_markdown_body(path: Path, generated: Mapping[Path, str] | None = None) -> str:
+    """A page's own Markdown, frontmatter and JSX-only lines stripped  -  shared by
+    `llms-full.txt` (embedded per page) and `public/llms/<slug>.md` (the same text alone, for
+    the page-actions "Copy as Markdown" control)."""
+    page = _page_text(path, generated)
+    return _DOCS_SOURCES.sub("", _JSX_ONLY.sub("", _FRONTMATTER.sub("", page, count=1))).strip()
+
+
+def render_llms_pages(generated: Mapping[Path, str] | None = None) -> dict[Path, str]:
+    """`public/llms/<slug>.md` per docs page, for `components/docs/page-actions.tsx`'s
+    `MarkdownCopyButton`/`ViewOptionsPopover`. Skips `index` (the landing page), which carries
+    no such control and so has no reader for the file.
+    """
+    return {
+        LLMS_PAGES_DIR / f"{slug}.md": _page_markdown_body(path, generated) + "\n"
+        for slug, path in _site_pages()
+        if slug != "index"
+    }
+
+
 def render_llms_full_txt(generated: Mapping[Path, str] | None = None) -> str:
     """`/llms-full.txt`  -  every page's Markdown in one file, in reading order.
 
@@ -450,9 +475,8 @@ def render_llms_full_txt(generated: Mapping[Path, str] | None = None) -> str:
         "",
     ]
     for slug, path in _site_pages():
-        page = _page_text(path, generated)
         title, description = _page_meta(path, generated)
-        body = _DOCS_SOURCES.sub("", _JSX_ONLY.sub("", _FRONTMATTER.sub("", page, count=1))).strip()
+        body = _page_markdown_body(path, generated)
         url = f"{SITE_URL}/{'' if slug == 'index' else slug}"
         out += [f"# {title}", "", f"*{description}*" if description else "", f"Source: {url}", "", body, "", "---", ""]
     # The loop leaves a separator and a blank line after the last page, which `end-of-file-fixer`
@@ -477,8 +501,12 @@ def main(argv: list[str] | None = None) -> int:
     args = argv if argv is not None else sys.argv[1:]
     check = "--check" in args
     pages = _generated_pages()
+    # Per-page markdown lives outside `_generated_pages()`'s own manifest: that dict is what
+    # `test_every_generated_page_has_a_drift_test` polices as an exact set, and one file per docs
+    # page would turn every new or renamed page into a change to that test.
+    all_pages = {**pages, **render_llms_pages(pages)}
     if check:
-        drifted = [path for path, content in pages.items() if not path.is_file() or path.read_text() != content]
+        drifted = [path for path, content in all_pages.items() if not path.is_file() or path.read_text() != content]
         if drifted:
             print(
                 "generated reference pages are stale  -  run `python scripts/generate_docs_reference.py`:",
@@ -488,9 +516,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  {path}", file=sys.stderr)
             return 1
         return 0
-    CONTENT.mkdir(parents=True, exist_ok=True)
-    PUBLIC.mkdir(parents=True, exist_ok=True)
-    for path, content in pages.items():
+    for path, content in all_pages.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
     return 0
 
@@ -503,6 +530,7 @@ __all__ = [
     "CHANGELOG_PAGE",
     "LLMS_FULL_PAGE",
     "LLMS_PAGE",
+    "LLMS_PAGES_DIR",
     "CHANGELOG_SOURCE",
     "CLI_PAGE",
     "SETTINGS_PAGE",
@@ -512,6 +540,7 @@ __all__ = [
     "render_changelog_mdx",
     "render_generated_version_ts",
     "render_llms_full_txt",
+    "render_llms_pages",
     "render_llms_txt",
     "render_cli_mdx",
     "render_settings_mdx",

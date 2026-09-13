@@ -1,0 +1,123 @@
+# Running a Deck as a service
+
+Everything up to `uvicorn app:server` is covered elsewhere on this site.
+This page is what comes after: a worked systemd deployment that starts on boot, restarts on
+failure, and shuts down without losing a run in flight.
+
+## What has to be durable before you deploy
+
+Three settings default to in-process state, and each is a real trap on a restart. Opening a
+`Deck` with the defaults logs all three:
+
+```text
+AGENTDECK_EVENTS is 'memory://': the event log never evicts and is lost on restart. Set
+AGENTDECK_EVENTS=sqlite:///<path> for a durable log, or redis://.../postgresql://... for one
+several workers can share.
+AGENTDECK_CONTROL is 'memory://': a signal written in one process is invisible to another -
+'agentdeck runs signal' and a second worker cannot reach a run. Set AGENTDECK_CONTROL=sqlite:///<path>
+to cross process boundaries.
+AGENTDECK_CONTROL is 'memory://': run leases are visible only inside this process, so a worker
+killed outright still holds its session for AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS (an hour by
+default). Set AGENTDECK_CONTROL=sqlite:///<path> to free it within one lease TTL instead.
+```
+
+| Setting | Default | Lost on restart if left default |
+|---|---|---|
+| `AGENTDECK_EVENTS` | `memory://` | The event log, which is also the checkpoint a paused or interrupted run resumes from. A restart on the default cannot resume anything. |
+| `AGENTDECK_CONTROL` | `memory://` | Pending pause/cancel signals, and the per-run liveness lease. A worker killed outright holds its session for `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` (one hour by default) instead of the much shorter lease TTL. |
+| `AGENTDECK_SESSION` | unset | The model-visible conversation history (falls back to one in-process `SQLiteSession` per key). The event log can survive a restart while the conversation the model sees does not. |
+
+Set `AGENTDECK_EVENTS=sqlite:///<path>` and `AGENTDECK_CONTROL=sqlite:///<path>` at minimum for a
+single-instance deployment; add `AGENTDECK_SESSION=redis://<url>` (the `[redis]` extra) if a
+restart must not lose in-progress conversations. `AGENTDECK_EVENTS=redis://`/`postgresql://` and
+`AGENTDECK_SESSION=redis://` are what several workers can share; SQLite is one process's file.
+
+## A supervised process
+
+A served Deck is one you exposed: `deck.asgi(Native.http())` is the ASGI app, and
+`uvicorn module:app` runs it. An application composing its own `Deck`, like Jack, runs the same
+way.
+
+```python
+# app.py
+from agentdeck import Deck
+from agentdeck.bindings import Native
+
+app = Deck.from_project("./.agentdeck").asgi(Native.http())
+```
+
+```ini
+[Unit]
+Description=AgentDeck: Jack
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/jack
+Environment=AGENTDECK_EVENTS=sqlite:////var/lib/jack/events.sqlite3
+Environment=AGENTDECK_CONTROL=sqlite:////var/lib/jack/control.sqlite3
+ExecStart=/opt/jack/.venv/bin/uvicorn jack.server:app --host 127.0.0.1 --port 8100 --timeout-graceful-shutdown 20
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=25
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`Restart=on-failure` covers a crash; it does not cover a clean `systemctl stop`, which is what
+the next two sections are about. `TimeoutStopSec` must exceed `--timeout-graceful-shutdown`
+(next section), or systemd sends `SIGKILL` before uvicorn gets to run the shutdown it was given
+time for.
+
+## Health checks
+
+`Native.http()` has no health route: `GET /targets` is the equivalent probe, answering the
+catalog once the Deck has opened. That proves the catalog built; it does not touch the event
+store, so a Postgres event store gone unreachable *after* startup still answers `200`. Jack's own `/health`
+(`{"status": "ok", "pages": N}`) has the identical gap: it counts loaded documentation pages, not
+store connectivity.
+
+For a deployment where losing the store silently matters, add a route that does one round-trip
+against it (a store read, not a write, so a health probe never itself contends with real
+traffic) and treat a failure there as unhealthy, not a `200` with an ignored field.
+
+## Graceful shutdown
+
+`Deck.aclose()` is what a shutdown owes: it cancels every run this process still has in flight
+(each becomes a real `run.cancelled` in the log rather than nothing), then flushes and closes
+every observer and the store. `Deck.asgi()` and Jack's own `async with Deck(...)` both call it
+from the ASGI lifespan's shutdown phase, which is what `SIGTERM` triggers by default (systemd's
+default `KillSignal`, and uvicorn's own).
+
+The trap is what happens *before* uvicorn gets there. By default uvicorn's graceful shutdown
+waits for every open connection to close on its own before it ever runs the lifespan shutdown
+(and so before `aclose()` runs at all). Verified against a plain SSE endpoint under uvicorn: with
+one client still connected, `SIGTERM` logs `Shutting down` then `Waiting for connections to close
+(CTRL+C to force quit)` and the process does not move past it while the client stays open; a run
+streaming to a client that never disconnects holds the whole shutdown hostage. Setting
+`--timeout-graceful-shutdown <n>` bounds that wait: past `n` seconds uvicorn cancels the
+remaining connections itself and proceeds to the lifespan shutdown, so `aclose()` still runs.
+Without it, an operator relying on `TimeoutStopSec` alone gets a `SIGKILL` instead: `aclose()`
+never runs and in-flight runs never get their `run.cancelled`.
+
+Set `--timeout-graceful-shutdown` on uvicorn below `TimeoutStopSec`, leaving room for `aclose()`
+itself afterward.
+
+## Behind a reverse proxy
+
+`Native.http()`'s SSE route sends `Cache-Control: no-cache`. nginx also needs
+`X-Accel-Buffering: no` to stop buffering a proxied response, and no binding sends it. Without
+one or the other, nginx holds the whole SSE stream until the run ends, which looks exactly like a
+hung agent from the client's side: set `proxy_buffering off;` for that location instead. Jack's
+own hand-rolled route has the same gap.
+
+Also raise `proxy_read_timeout` past the longest idle gap a real run can have between events
+(a slow tool call, a model thinking before its first token), or the proxy closes a connection
+that was never actually stuck.
+
+## Related
+
+- [Settings](/reference/settings) - every setting named above, generated from code
+- [How Jack Is Built](/jack) - the real deployed application this page's examples are drawn from
+- [Deck](/reference/deck) - `asgi()`, `aclose()`, and every other `Deck` method

@@ -7,15 +7,17 @@ frame is one ``Event``, dumped as it was written. No translation layer, because 
 to translate to: a browser switching on ``event.kind`` is reading exactly what a later process
 reading the run back would read.
 
-**Why this is not ``Deck.asgi()``.** agentdeck packages an HTTP surface and this application
-cannot use it, for two independent reasons that are the point of #219 rather than an accident:
+**Why this is not ``Deck.asgi()``.** agentdeck packages an HTTP surface as bindings and this
+application cannot use it, for two independent reasons that are the point of #219 rather than an
+accident:
 
-1. A run started through ``asgi()`` carries ``context=None``. There is no wire form for a live
+1. A run started through a binding carries ``context=None``. There is no wire form for a live
    Python object, so the packaged surface cannot deliver one  -  and both of this agent's tools
    need the ``DocsCorpus``.
-2. Its chat body is exactly ``{"session_id", "message"}``, and that wire is frozen byte-for-byte
-   by ``tests/golden/``. Page context has nowhere to go in it, and widening it is a schema change
-   this issue may not make.
+2. ``Native.http()`` speaks AgentDeck's generic protocol (``POST /runs``, ``GET
+   /runs/{id}/events``, ...), not a single ``POST /ask`` with a chat body. Adopting it still means
+   translating between this application's request and the protocol's, which is the layer this
+   route exists to avoid.
 
 So a real embedded application writes its own route. That is a finding about the surface, not a
 complaint about it  -  forty lines is a fair price, and the alternative would have been a wire

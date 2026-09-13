@@ -1,4 +1,4 @@
-.PHONY: install build lock-check test lint typecheck lint-imports slop coverage golden docs-reference docs-impact roadmap-sync fmt clean check
+.PHONY: install build lock-check test lint typecheck lint-imports slop coverage golden docs-reference docs-impact fmt clean check
 
 # An agent reads this gate's output, so a passing step says nothing and a failing one says only
 # what failed. 1,700 progress dots and 10 kept import contracts cost more attention than they
@@ -60,14 +60,11 @@ coverage:       ## per-module coverage: audit input for #71/#131, not part of `m
 golden:         ## re-record the event-schema snapshots: deliberate, never automatic
 	AGENTDECK_GOLDEN_UPDATE=1 .venv/bin/pytest tests/core -q
 
-docs-reference: ## regenerate the five generated docs-site files from the code
+docs-reference: ## regenerate the six generated docs-site files from the code
 	.venv/bin/python scripts/generate_docs_reference.py
 
 docs-impact: ## report which documentation pages this branch's source changes affect
 	$(E).venv/bin/python scripts/check_docs_impact.py --report
-
-roadmap-sync:   ## refresh the live-status tables in docs/delivery/ from GitHub (gh required)
-	.venv/bin/python scripts/sync_roadmap.py
 
 eval-docs-agent: ## Jack grounding, exact checks only, no extra dependency (examples/jack/eval.py)
 	cd examples/jack && ../../.venv/bin/python eval.py

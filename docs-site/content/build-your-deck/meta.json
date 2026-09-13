@@ -1,0 +1,11 @@
+{
+  "title": "Build Your Deck",
+  "pages": [
+    "agents",
+    "tools",
+    "workflows",
+    "skills",
+    "context",
+    "deck"
+  ]
+}

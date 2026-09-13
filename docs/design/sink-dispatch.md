@@ -3,7 +3,7 @@
 How a run hands an event to a sink, what happens when a sink is slow, wedged, dead, or recovering,
 and the shutdown lifecycle. NFR-6's mechanism: **nothing on this path ever waits for a sink.**
 
-Split out of `design/agentdeck-v2-architecture.md` §4.6 on 2026-08-14, carrying its dated amendments
+Split out of the v2 architecture record §4.6 on 2026-08-14, carrying its dated amendments
 of 2026-08-05 (twice) and 2026-08-06 (#89/#90). §4.6 keeps the headline and links here; on the
 dispatch this file wins.
 
