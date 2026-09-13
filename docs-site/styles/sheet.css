@@ -1,0 +1,84 @@
+/* The mobile sheet: one surface, used by the docs navigation and by Ask Jack.
+ *
+ * A sheet fills the viewport from the bar to the bottom edge. It is not a floating card over a
+ * live page, and that is the whole design: pinning `top` and `bottom` gives the box a *definite*
+ * height, so percentage heights inside it resolve, one child scrolls and nothing overflows. A
+ * `max-height` box has an indefinite height, `height: 100%` inside it resolves to `auto`, and the
+ * content grows past the box and is clipped with nothing to scroll. That is the bug this replaces.
+ *
+ * Filling the screen also removes what a partial sheet needs to look deliberate: no scrim, no
+ * blur, no strip of article showing above it.
+ */
+
+@media (max-width: 767px) {
+  .ad-sheet {
+    position: fixed;
+    top: var(--ad-sheet-top, 0px);
+    right: 0;
+    left: 0;
+    /* A fixed element resolves `bottom` against the *layout* viewport, which the software keyboard
+       does not change. `--ad-kb` (lib/sheet.ts) is how much of it the keyboard covers, so the sheet
+       is lifted by it rather than sitting underneath. No transform: a transform on a fixed box is
+       what makes a composer drift during the resize. */
+    bottom: var(--ad-kb, 0px);
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-radius: 0;
+    /* The sheet swallows touch so the page behind cannot be dragged: a drag starting on the head
+       or the foot, which scroll nothing themselves, otherwise pans the document underneath. The
+       body opts back in below.
+
+       This is deliberately not `overflow: hidden` on the root. That removes the scrollport
+       `position: sticky` resolves against, so the banner and the bar stop sticking, fall back to
+       their static offsets far up the document, and the article shows in the strip above the
+       sheet. Measured: bar at -852 locked that way, 48 unlocked, same scroll position. */
+    touch-action: none;
+    animation: ad-sheet-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  /* The one scrolling region. `min-height: 0` because a flex item will not shrink below its
+     content without it; `contain` keeps a flick at either end from chaining to the page. */
+  .ad-sheet__body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    /* The one region that may pan, and it keeps the gesture: `contain` stops a flick at either
+       end from chaining out to the document. */
+    touch-action: pan-y;
+    overscroll-behavior: contain;
+  }
+
+  /* The home-indicator inset belongs under the last row only while the keyboard is down: with it
+     up the keyboard already owns that strip, so the inset is spent against `--ad-kb` and the
+     padding clamps back rather than opening a dead band above the keys. */
+  .ad-sheet__foot {
+    padding-bottom: max(
+      var(--ad-sheet-foot-pad, 0.7rem),
+      calc(var(--ad-sheet-foot-pad, 0.7rem) + env(safe-area-inset-bottom, 0px) - var(--ad-kb, 0px))
+    );
+  }
+
+  /* `.ad-bar` is `background: transparent` with a backdrop blur, so the article reads through it.
+     That is right while reading and wrong under an open sheet, where the bar is the sheet's own
+     head and the blurred page behind it is exactly the "I can still see the content" this
+     structure exists to end. Same colour as the sheet, so the two read as one surface. */
+  html:has(.ad-sheet) .ad-bar {
+    background: var(--color-fd-background);
+    backdrop-filter: none;
+  }
+
+  @keyframes ad-sheet-in {
+    from {
+      transform: translateY(-6px);
+      opacity: 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ad-sheet {
+      animation: none;
+    }
+  }
+}

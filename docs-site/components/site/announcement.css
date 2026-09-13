@@ -112,6 +112,12 @@
   .ad-announce__claim {
     display: none;
   }
+
+  /* The 34-66% clear band is sized for the claim. Without it the chevrons close in on a short
+     CTA, so the texture reads as the content. */
+  .ad-banner::before {
+    mask-image: linear-gradient(90deg, #000 0%, transparent 18%, transparent 82%, #000 100%);
+  }
 }
 /* The banner's own close control. It inherits the page's accent on hover, which paints a pale
    grey-blue box with near-black text on top of the brand blue. On this surface white is the only

@@ -79,3 +79,40 @@
     display: none;
   }
 }
+
+/* The navigation toggle's two states. Both icons are rendered and stacked in one grid cell, so the
+   swap is a crossfade with a quarter turn rather than one element being replaced by another: a
+   replacement cannot be animated, because the outgoing icon is gone before the incoming one
+   exists. The button's own `aria-expanded` drives it, so there is no second source of state. */
+.ad-navtoggle {
+  display: inline-grid;
+  place-items: center;
+}
+
+.ad-navtoggle > svg {
+  grid-area: 1 / 1;
+  transition:
+    opacity 140ms ease,
+    transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.ad-navtoggle > svg:last-child {
+  opacity: 0;
+  transform: rotate(-90deg) scale(0.7);
+}
+
+[aria-expanded='true'] > .ad-navtoggle > svg:first-child {
+  opacity: 0;
+  transform: rotate(90deg) scale(0.7);
+}
+
+[aria-expanded='true'] > .ad-navtoggle > svg:last-child {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ad-navtoggle > svg {
+    transition: none;
+  }
+}

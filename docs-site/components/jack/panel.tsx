@@ -10,7 +10,8 @@
 
 import { createPortal } from 'react-dom'
 import { usePathname } from 'next/navigation'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useSheet } from '@/lib/sheet'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -60,6 +61,20 @@ export function JackPanel({ validSlugs }: { validSlugs: string[] }) {
     document.documentElement.classList.toggle('ask-open', open)
     return () => document.documentElement.classList.remove('ask-open')
   }, [open])
+
+  // The transcript is the sheet's scrolling region, so it is the thing that has to survive a
+  // keyboard opening: distance from the bottom is what a reader reads as "where I am". Measured
+  // before the resize lands, restored after it does. Under 8px counts as pinned and re-pins.
+  const keepAnchor = useCallback(() => {
+    const box = transcript.current
+    if (!box) return
+    const gap = box.scrollHeight - box.scrollTop - box.clientHeight
+    requestAnimationFrame(() => {
+      box.scrollTop = gap < 8 ? box.scrollHeight : box.scrollHeight - box.clientHeight - gap
+    })
+  }, [])
+
+  useSheet(open, keepAnchor)
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
@@ -135,14 +150,14 @@ export function JackPanel({ validSlugs }: { validSlugs: string[] }) {
     <>
       {launcher}
       {createPortal(
-      <aside className="ask-panel" aria-label="Ask Jack">
+      <aside className="ask-panel ad-sheet" aria-label="Ask Jack">
       <header className="ask-head">
         <strong>Ask Jack</strong>
         <span className="ask-page">{slugOf(pathname)}</span>
         <button onClick={() => setOpen(false)} aria-label="Close">×</button>
       </header>
 
-      <div className="ask-transcript" ref={transcript}>
+      <div className="ask-transcript ad-sheet__body" ref={transcript}>
         {turns.length === 0 && (
           <div className="ask-empty">
             <span className="ask-empty__mark">
@@ -179,7 +194,7 @@ export function JackPanel({ validSlugs }: { validSlugs: string[] }) {
         {error && <p className="ask-error">{error}</p>}
       </div>
 
-      <form className="ask-form" onSubmit={submit}>
+      <form className="ask-form ad-sheet__foot" onSubmit={submit}>
         <input
           value={question}
           onChange={event => setQuestion(event.target.value)}

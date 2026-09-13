@@ -425,7 +425,7 @@ article:has(.landing) > .x\:float-end {
 }
 
 .deck-group-label {
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--ink-soft);
@@ -703,7 +703,7 @@ article:has(.landing) > .x\:float-end {
 
 .jack-examples-label {
   margin: 0 0 0.7rem;
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--ink-soft);
@@ -835,7 +835,7 @@ article:has(.landing) > .x\:float-end {
   align-items: center;
   gap: 0.6rem;
   margin: 0 0 0.9rem;
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--ink-soft);
@@ -1071,7 +1071,7 @@ article:has(.landing) > .x\:float-end {
 
 .movement-label {
   margin: 0;
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;

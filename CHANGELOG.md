@@ -8,6 +8,13 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Changed
+
+- **Docs navigation on a phone collapses down from the bar instead of sliding in from the side.**
+  The sheet hangs under the header, is full width, sizes to its own content and scrolls when the
+  tree is longer than the screen. The page behind it no longer scrolls while it is open, which it
+  did in the side drawer too: fumadocs' drawer is a bare element with no scroll lock.
+
 ### Fixed
 
 - **Sharing a docs page renders the social preview card instead of a blank one** (#733). The site
