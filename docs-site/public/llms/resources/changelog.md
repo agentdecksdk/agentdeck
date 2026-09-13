@@ -9,6 +9,12 @@ The current release is **v6.0.4**. Earlier releases are listed at the bottom.
 
 ## Unreleased
 
+### Added
+
+- **A public roadmap** (#723). `/resources/roadmap` states where AgentDeck is going as six arcs with
+  no dates, what is shipped today, and what is deliberately not built: sandboxing, and debugging
+  beyond inspection. Protocol sequencing stays authoritative in the repository's protocol roadmap.
+
 ### Changed
 
 - **Ask Jack says he is away before you type, rather than after** (#224). The docs site checks the

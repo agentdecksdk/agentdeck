@@ -44,7 +44,9 @@ Not shipped yet: nothing below is available in 6.0.0.
 | `A2A.http()` | [#552](https://github.com/agentdecksdk/agentdeck/issues/552) |
 | `WhatsApp.http()` | [#553](https://github.com/agentdecksdk/agentdeck/issues/553) |
 | `@agentdeck/client` | [#551](https://github.com/agentdecksdk/agentdeck/issues/551) |
-| `A2UI.http()`, `ACP.stdio()`, `MCP.stdio()`/`MCP.http()`, `WebChat.http()`, `Slack.http()`, `.agentdeck/bindings` config and CLI flags | [roadmap](https://github.com/agentdecksdk/agentdeck/blob/main/docs/design/protocols/roadmap.md) |
+| `A2UI.http()`, `ACP.stdio()`, `MCP.stdio()`/`MCP.http()`, `.agentdeck/bindings` config and CLI flags | [roadmap](https://github.com/agentdecksdk/agentdeck/blob/main/docs/design/protocols/roadmap.md) |
+
+Where the bindings sit among everything else that is coming: [the roadmap](/resources/roadmap).
 
 ## The complete setup, once it lands
 
