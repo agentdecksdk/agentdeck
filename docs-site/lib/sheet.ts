@@ -2,29 +2,53 @@
 
 import { useEffect } from 'react'
 
-/** Mounts a mobile sheet's viewport state: the root class that locks the page behind it, and
- *  `--ad-kb`, the height the software keyboard takes from the layout viewport.
+type SheetOptions = {
+  /** Runs on every visible-viewport change, for a sheet with its own scroll anchor to keep. */
+  onResize?: () => void
+  /**
+   * Stop the document scrolling behind the sheet.
+   *
+   * Only for a sheet that covers the whole viewport. The lock is `overflow: hidden` on the root,
+   * which removes the scrollport `position: sticky` resolves against: any sticky chrome falls back
+   * to its static offset, which at a scrolled position is far up the document. Under a full-screen
+   * sheet that is invisible and reverts on close. Under a partial one it is the bar disappearing
+   * and the article showing in its place, so a partial sheet takes `touch-action` (sheet.css) and
+   * leaves the document alone.
+   */
+  lockPage?: boolean
+}
+
+/** Mounts a mobile sheet's viewport state: `--ad-kb`, the height the software keyboard takes from
+ *  the layout viewport, and optionally the page lock.
  *
  *  A keyboard is a resize of the visible viewport, and `innerHeight` does not move when it opens:
- *  `visualViewport` is the only thing that reports it. Where that API is missing the variable
- *  stays 0 and the sheet still fills the layout viewport, which is the pre-keyboard behaviour
- *  rather than a broken one.
- *
- *  `onViewportChange` runs on every resize, for a sheet that has its own anchor to keep.
+ *  `visualViewport` is the only thing that reports it. Where that API is missing the variable stays
+ *  0 and the sheet fills the layout viewport, which is the pre-keyboard behaviour rather than a
+ *  broken one.
  */
-export function useSheet(open: boolean, onViewportChange?: () => void) {
+export function useSheet(open: boolean, { onResize, lockPage }: SheetOptions = {}) {
   useEffect(() => {
     if (!open) return
     const root = document.documentElement
-    root.classList.add('ad-sheet-open')
+    if (lockPage) root.classList.add('ad-sheet-locked')
 
     const viewport = window.visualViewport
     const apply = () => {
       if (viewport) {
+        // The visible box itself, not an inset to subtract from the bottom. A fixed element is
+        // positioned against the *layout* viewport, and `offsetTop`/`height` say exactly where the
+        // visible one sits inside it, keyboard and URL bar included. Deriving a keyboard height
+        // instead over-lifts on iOS, because `innerHeight` counts the strip behind the URL bar as
+        // well: that is the gap under the composer with the page showing through it.
+        root.style.setProperty('--ad-vv-top', `${viewport.offsetTop}px`)
+        root.style.setProperty('--ad-vv-h', `${viewport.height}px`)
+        // Kept for one job only: whether the keyboard is covering the home indicator, which
+        // decides the composer's safe-area padding. Over-reporting there is harmless, the padding
+        // clamps.
         const covered = window.innerHeight - viewport.height - viewport.offsetTop
         root.style.setProperty('--ad-kb', `${Math.max(0, covered)}px`)
       }
-      onViewportChange?.()
+      onResize?.()
     }
 
     apply()
@@ -33,8 +57,10 @@ export function useSheet(open: boolean, onViewportChange?: () => void) {
     return () => {
       viewport?.removeEventListener('resize', apply)
       viewport?.removeEventListener('scroll', apply)
-      root.classList.remove('ad-sheet-open')
+      root.classList.remove('ad-sheet-locked')
+      root.style.removeProperty('--ad-vv-top')
+      root.style.removeProperty('--ad-vv-h')
       root.style.removeProperty('--ad-kb')
     }
-  }, [open, onViewportChange])
+  }, [open, onResize, lockPage])
 }

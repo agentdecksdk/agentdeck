@@ -141,6 +141,7 @@ export function DocsSidebar() {
     </SidebarViewport>
   )
 
+  // No `lockPage`: this sheet stops under the bar, and the lock would take the bar with it.
   useSheet(mode === 'drawer' && open)
 
   return (

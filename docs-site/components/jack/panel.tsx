@@ -74,7 +74,8 @@ export function JackPanel({ validSlugs }: { validSlugs: string[] }) {
     })
   }, [])
 
-  useSheet(open, keepAnchor)
+  // Full screen, so nothing of the page is visible to lose: it takes the real lock.
+  useSheet(open, { onResize: keepAnchor, lockPage: true })
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()

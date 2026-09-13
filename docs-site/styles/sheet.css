@@ -1,8 +1,8 @@
 /* The mobile sheet: one surface, used by the docs navigation and by Ask Jack.
  *
- * A sheet fills the viewport from the bar to the bottom edge. It is not a floating card over a
- * live page, and that is the whole design: pinning `top` and `bottom` gives the box a *definite*
- * height, so percentage heights inside it resolve, one child scrolls and nothing overflows. A
+ * A sheet fills the visible viewport from the bar to the bottom edge. It is not a floating card
+ * over a live page, and that is the whole design: a definite height is what makes percentage
+ * heights inside it resolve, so one child scrolls and nothing overflows. A
  * `max-height` box has an indefinite height, `height: 100%` inside it resolves to `auto`, and the
  * content grows past the box and is clipped with nothing to scroll. That is the bug this replaces.
  *
@@ -13,14 +13,16 @@
 @media (max-width: 767px) {
   .ad-sheet {
     position: fixed;
-    top: var(--ad-sheet-top, 0px);
     right: 0;
     left: 0;
-    /* A fixed element resolves `bottom` against the *layout* viewport, which the software keyboard
-       does not change. `--ad-kb` (lib/sheet.ts) is how much of it the keyboard covers, so the sheet
-       is lifted by it rather than sitting underneath. No transform: a transform on a fixed box is
-       what makes a composer drift during the resize. */
-    bottom: var(--ad-kb, 0px);
+    /* The sheet *is* the visible viewport, minus whatever chrome it sits under. `--ad-vv-top` and
+       `--ad-vv-h` come from `visualViewport` (lib/sheet.ts) and already account for the keyboard
+       and the URL bar, so there is no inset to compute and nothing to over-lift. `dvh` is the
+       fallback where the API is missing. */
+    top: calc(var(--ad-vv-top, 0px) + var(--ad-sheet-top, 0px));
+    height: calc(var(--ad-vv-h, 100dvh) - var(--ad-sheet-top, 0px));
+    /* Positioned, never transformed: a transform on a fixed box is what makes a composer drift
+       through a keyboard resize. */
     z-index: 40;
     display: flex;
     flex-direction: column;
@@ -67,6 +69,14 @@
   html:has(.ad-sheet) .ad-bar {
     background: var(--color-fd-background);
     backdrop-filter: none;
+  }
+
+  /* Only a sheet that covers the whole viewport asks for this: see lib/sheet.ts. `touch-action`
+     on the sheet already stops a drag reaching the page, but a wheel, a trackpad and the keyboard
+     are not touch, and the document behind was still scrolling under an open chat. */
+  html.ad-sheet-locked,
+  html.ad-sheet-locked body {
+    overflow: hidden;
   }
 
   @keyframes ad-sheet-in {
