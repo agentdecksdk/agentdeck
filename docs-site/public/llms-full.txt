@@ -3251,9 +3251,10 @@ The current release is **v6.0.4**. Earlier releases are listed at the bottom.
 
 ### Added
 
-- **A public roadmap** (#723). `/resources/roadmap` states where AgentDeck is going as six arcs with
-  no dates, what is shipped today, and what is deliberately not built: sandboxing, and debugging
-  beyond inspection. Protocol sequencing stays authoritative in the repository's protocol roadmap.
+- **A public roadmap** (#723). `/resources/roadmap` states where AgentDeck is going: reach across
+  protocols through 6.x, programmable execution and debugging in v7, isolation and sandboxing in
+  v8, and rooms, automation, batteries and operations as directions rather than a release order. No
+  dates. Protocol sequencing stays authoritative in the repository's protocol roadmap.
 
 ### Changed
 
@@ -3584,11 +3585,11 @@ the full list on the [Settings reference](/reference/settings)), and delete the 
 
 # Roadmap
 
-*Where AgentDeck is going, as arcs rather than dates, and what is deliberately not built yet.*
+*"Where AgentDeck is going: reach across protocols now, programmable execution and debugging next, isolation after that."*
 Source: https://agentdecksdk.com/resources/roadmap
 
-AgentDeck ships in arcs, not on a calendar. This page says what each arc is for and roughly when it
-comes relative to the others. It carries no dates and no commitments.
+Direction, not dates. The version labels below say what comes before what; they are not a schedule,
+and nothing here is a commitment to ship on a given day.
 
 ## What you have today
 
@@ -3602,31 +3603,33 @@ instrumentation.
 The binding SPI is frozen at v1, so a [binding you write today](/bindings/write-your-own) keeps
 working.
 
-## The arcs
+## Where it goes
 
-| Arc | What it means | When |
+| | Arc | What it means |
 |---|---|---|
-| **Reach** | More protocols and channels, each a binding behind the frozen SPI, none of them touching the execution model: A2A, WhatsApp, A2UI, ACP and an MCP server. | in progress, across 6.x |
-| **Production runtime** | Invocation, bindings and what it takes to operate a deployment under load. | next minor |
-| **Batteries** | A tested, eval-gated standard library of agents and skills, project templates, and third-party bundles discovered over entry points. | after reach |
-| **Rooms** | Group sessions with several agents and several humans, a pluggable moderator owning turn-taking, and an agent's question to a human parking durably as an interrupt. | after batteries |
-| **Automation** | Triggers as one mechanism, whether cron, webhook, log pattern or timer, with the trigger owner as the run's principal for budget and audit. | with rooms |
-| **Operate** | An operations console over live sessions, run trees, the interrupt inbox, cost and replay, reading only the event log. | last |
+| **Now**, 6.x | **Reach** | Run the same AgentDeck execution model through more environments. Stabilize the binding SPI and ship reference integrations for Native, Terminal, AG-UI, A2A, WhatsApp, A2UI, ACP and MCP, with durable identity, reconnect, human input and multimodal behavior where the protocol supports them |
+| **Next**, v7 | **Programmable execution** | Anything executable becomes a Run. Stronger child-run and invocation semantics, capability-based execution and control, cleaner cancellation and shutdown, sync, thread and process execution, and one consistent Reporter across them. The point is to manipulate execution, not only observe it |
+| **With v7** | **Debugging agentic software** | Step through a run, replay it, fork it to compare outcomes, change parameters and state mid-flight, and turn a production failure into a regression case. The same interface serves a human developer and a coding agent |
+| **After**, v8 | **Isolation and sandboxing** | One coherent execution capability across agents, tools and skills, rather than a sandbox bolted onto each of them separately |
+| **Beyond** | Rooms, automation, batteries, operations | Group sessions with several agents and humans; triggers as one mechanism, whether cron, webhook, log pattern or timer; a tested standard library of agents and skills; an operations console reading only the event log |
 
-Operate comes last on purpose: a console is only worth building on a schema that has held under
-production use, and building it earlier would freeze the log around a viewer rather than around the
-runtime.
+Reach changes *where* AgentDeck can be used, not what a Run is. A channel translates an external
+conversation into ordinary runs; it does not bring its own execution or session model. That
+boundary is what makes the next arc a separate one.
 
-## What is not built
+Programmable execution and the debugger are one thesis, not two features: **agentic software should
+be debuggable like software.** Pausing and resuming a run is where that starts, not where it ends.
 
-Nothing here is available today, and none of it is scheduled.
+The four under **Beyond** are directions rather than a release order. Nothing about them is
+sequenced yet, and saying otherwise would claim a decision we have not made.
 
-- **Sandboxing.** Tools, skills and workflow bodies are ordinary Python in your process, and a
-  model-chosen tool call is trusted by design. [`SECURITY.md`](https://github.com/agentdecksdk/agentdeck/blob/main/SECURITY.md)
-  says so plainly.
-- **Debugging beyond inspection.** Pausing, resuming, cancelling and reading the run tree and event
-  log all work. Stepping into an invocation, replaying or substituting recorded effects, forking a
-  run to compare outcomes, and turning a production failure into a regression case do not exist.
+## What that means today
+
+Nothing is sandboxed. Tools, skills and workflow bodies are ordinary Python in your process, and a
+model-chosen tool call is trusted by design, which is what the isolation arc changes and what
+[`SECURITY.md`](https://github.com/agentdecksdk/agentdeck/blob/main/SECURITY.md) says plainly. On
+debugging, inspection works now and manipulation does not: you can pause, resume, cancel and read
+the run tree and the event log, and you cannot yet step, replay or fork.
 
 ## Where the detail lives
 

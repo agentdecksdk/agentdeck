@@ -54,7 +54,7 @@ afterwards, approvals that outlive the process that requested them.
 - [Changelog](https://agentdecksdk.com/resources/changelog): What changed in each release of AgentDeck, and what to do about it when upgrading.
 - [Known Issues](https://agentdecksdk.com/resources/known-issues): Defects in the current release that will surprise you, what happens, and what to do until each is fixed.
 - [Migration Guides](https://agentdecksdk.com/resources/migration-guides)
-- [Roadmap](https://agentdecksdk.com/resources/roadmap): Where AgentDeck is going, as arcs rather than dates, and what is deliberately not built yet.
+- [Roadmap](https://agentdecksdk.com/resources/roadmap): "Where AgentDeck is going: reach across protocols now, programmable execution and debugging next, isolation after that."
 - [Troubleshooting](https://agentdecksdk.com/resources/troubleshooting)
 - [Events](https://agentdecksdk.com/runs-and-control/events): One ordered log per run, how to stream it live, and how to read it back afterwards.
 - [Human Input](https://agentdecksdk.com/runs-and-control/human-input): Suspend a run for a human answer, validated against the question's own options when it named any.
