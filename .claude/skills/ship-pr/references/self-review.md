@@ -27,6 +27,15 @@ In each case the primary flow had a test and the adjacent path the same change c
 did not. Naming the gap is not lesser than closing it, but naming nothing is a failed answer:
 "none" only holds if you can point to the test that actually exercises the adjacent path.
 
+## The standard
+
+CONSTRAINT for a major feature, skip for a bugfix: name the questions this change implicates, from
+`docs/engineering/principles.md` Q1-Q7, and answer them. Q2 (can a developer who does not need it
+ignore it completely) and Q4 (are we absorbing complexity, or transferring it to the user) are the
+two we fail most, so a feature that touches the public surface answers those two whatever else it
+implicates. A question you cannot answer is a design that is not finished: raise it on the issue
+rather than shipping past it.
+
 ## The shape questions
 
 CONSTRAINT: answer all ten, against `git diff dev...HEAD`, honestly.

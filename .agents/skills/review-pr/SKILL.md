@@ -58,6 +58,7 @@ BLOCK / DISCUSS / DEFER / NIT replace ERROR / WARNING / NOTE. Each is defined by
 | DEFER | real, but not this PR's job, whether or not it is actionable yet | reviewer files the issue and links it | no |
 | NIT | small, cheap, optional | nobody, unless the author wants to | no |
 
+- A major feature that leaves one of Q1-Q7 (`docs/engineering/principles.md`) unanswered is a DISCUSS, and what would settle it is the answer. Q4 is the one the project fails most: a PR that moves work to the caller and does not say so has failed it whatever the diff looks like.
 - DISCUSS resolves when the author *answers*, not when the author agrees. Disagreement after an answer goes to the user; neither side rules.
 - A DISCUSS must state what would settle it. A shrug is not a DISCUSS.
 - A public API finding classifies on what you are asserting, never on what the fix touches. A choice among several valid shapes is a DISCUSS, where a reviewer holds no more authority than the author. A demonstrated broken contract is a BLOCK even when the fix changes a signature.

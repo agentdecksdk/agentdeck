@@ -19,7 +19,7 @@ Ship progress:
 - [ ] 0. Understand: spec gate, engineering docs, seed the worktree
 - [ ] 1. Design: PR body sections, then stop and wait for the design gate
 - [ ] 2. Implement: match the analog, stay in budget (references/implement.md)
-- [ ] 3. Self-review: ten shape questions plus the coverage question (references/self-review.md)
+- [ ] 3. Self-review: the standard, ten shape questions, the coverage question (references/self-review.md)
 - [ ] 4. Gate: make check green, gh pr ready
 ```
 
@@ -56,7 +56,7 @@ demote it.
 | 0. Understand | LOW / CONSTRAINT on the gate | Read the issue as spec. Spec gate below. Seed the worktree. | nothing, or a gate comment |
 | 1. Design | LOW / CONSTRAINT on format | PR body sections, then stop. `references/design.md` | draft PR, then wait |
 | 2. Implement | HIGH / JUDGMENT | Match the analog, stay in budget, test what the change exposes. `references/implement.md` | source, tests, CHANGELOG |
-| 3. Self-review | LOW / CONSTRAINT | Ten shape questions plus the coverage question, answered in writing. `references/self-review.md` | the answers, visible in your response |
+| 3. Self-review | LOW / CONSTRAINT | The standard (major features), ten shape questions, the coverage question, answered in writing. `references/self-review.md` | the answers, visible in your response |
 | 4. Gate | LOW / CONSTRAINT | `make check` green, compact the body, `gh pr ready`. Below. | ready PR |
 
 ## Stage 0: Understand

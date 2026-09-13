@@ -18,6 +18,8 @@ ALWAYS use this exact structure, written into the draft PR body before the first
 - `## Expected delta` (1 line): predicted net code LOC.
 - `## Design` (max 200 words, no subsections): what the change does. A subsection means it grew
   past what the issue ruled; split the PR instead.
+- `Q1-Q7:` one line naming the questions the change implicates and their answers, major features
+  only (`docs/engineering/principles.md`). Omit the line entirely for a bugfix.
 - `Closes #<n>`, a `## Left for the docs-site pass` list, and the docs-impact acknowledgement
   (`make check` names the affected pages; open each and either fix it or list it as reviewed).
 
