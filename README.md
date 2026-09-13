@@ -21,6 +21,14 @@ AgentDeck gives them one execution model you can observe, control and extend.
 
 </div>
 
+You write the agents, tools and workflows. AgentDeck writes what surrounds them: a run that suspends
+on a human and resumes days later on another machine, a cancel that lands on a run in another
+process, one conversation that survives turns, surfaces and restarts, and one event log that the
+HTTP wire, the terminal and AG-UI all read the same way.
+
+None of that is your application, and all of it is work. It is done once here instead of again in
+every project that needs it, and needing the next piece of it costs one call, not a redesign.
+
 ```bash
 pip install agentdeck-sdk
 ```

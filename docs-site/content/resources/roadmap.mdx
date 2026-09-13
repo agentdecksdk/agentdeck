@@ -1,0 +1,53 @@
+---
+title: Roadmap
+description: Where AgentDeck is going, as arcs rather than dates, and what is deliberately not built yet.
+---
+
+AgentDeck ships in arcs, not on a calendar. This page says what each arc is for and roughly when it
+comes relative to the others. It carries no dates and no commitments.
+
+## What you have today
+
+Agents, workflows, skills and tools compose in any direction. Every run appends to one versioned
+event log, and status is folded from it. Sessions persist across turns, surfaces and restarts. Runs
+pause, resume, cancel and answer by id, from another process, across a restart. Three bindings run
+on one Deck: [Native HTTP/SSE](/bindings/native), [the terminal](/bindings/terminal) and
+[AG-UI](/bindings/agui). Cost, traces and audit are consumers of the log rather than per-engine
+instrumentation.
+
+The binding SPI is frozen at v1, so a [binding you write today](/bindings/write-your-own) keeps
+working.
+
+## The arcs
+
+| Arc | What it means | When |
+|---|---|---|
+| **Reach** | More protocols and channels, each a binding behind the frozen SPI, none of them touching the execution model: A2A, WhatsApp, A2UI, ACP and an MCP server. | in progress, across 6.x |
+| **Production runtime** | Invocation, bindings and what it takes to operate a deployment under load. | next minor |
+| **Batteries** | A tested, eval-gated standard library of agents and skills, project templates, and third-party bundles discovered over entry points. | after reach |
+| **Rooms** | Group sessions with several agents and several humans, a pluggable moderator owning turn-taking, and an agent's question to a human parking durably as an interrupt. | after batteries |
+| **Automation** | Triggers as one mechanism, whether cron, webhook, log pattern or timer, with the trigger owner as the run's principal for budget and audit. | with rooms |
+| **Operate** | An operations console over live sessions, run trees, the interrupt inbox, cost and replay, reading only the event log. | last |
+
+Operate comes last on purpose: a console is only worth building on a schema that has held under
+production use, and building it earlier would freeze the log around a viewer rather than around the
+runtime.
+
+## What is not built
+
+Nothing here is available today, and none of it is scheduled.
+
+- **Sandboxing.** Tools, skills and workflow bodies are ordinary Python in your process, and a
+  model-chosen tool call is trusted by design. [`SECURITY.md`](https://github.com/agentdecksdk/agentdeck/blob/main/SECURITY.md)
+  says so plainly.
+- **Debugging beyond inspection.** Pausing, resuming, cancelling and reading the run tree and event
+  log all work. Stepping into an invocation, replaying or substituting recorded effects, forking a
+  run to compare outcomes, and turning a production failure into a regression case do not exist.
+
+## Where the detail lives
+
+Protocol work is sequenced per phase in
+[the protocol roadmap](https://github.com/agentdecksdk/agentdeck/blob/main/docs/design/protocols/roadmap.md),
+which is authoritative on anything protocol-shaped and wins over this page. What already shipped is
+in the [changelog](/resources/changelog), and what is broken right now is in
+[known issues](/resources/known-issues).

@@ -3,6 +3,8 @@
 An agent that answers questions about orders, and a plain Python function it calls to look one
 up. Six lines of declaration; no JSON schema, no call-parsing, no tool loop.
 
+**The rung:** one agent, one tool. This is the floor: a model that calls your own Python, with nothing else switched on.
+
 ```text
 .agentdeck/
 └── agents/order_desk/agent.py    # @tool + Agent(name="OrderDesk", tools=[...])

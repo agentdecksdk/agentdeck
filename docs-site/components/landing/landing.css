@@ -588,6 +588,13 @@ article:has(.landing) > .x\:float-end {
   color: var(--ink-soft);
 }
 
+.tree-buy__call {
+  display: block;
+  margin-bottom: 0.15rem;
+  color: var(--accent);
+  font-size: 0.82rem;
+}
+
 /* --------------------------------------------------- ask / approve / wait */
 
 .semantics {
