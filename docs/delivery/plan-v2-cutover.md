@@ -1,7 +1,7 @@
 # Plan  -  the v3 cutover: ports, engines, runtime, surfaces
 
 **Delivered, phases 0–4** · **Date:** 2026-08-08 · Executes epic Story 2 plus the `authoring/` move it
-scopes, against `docs/design/agentdeck-v2-architecture.md` §6's target layout.
+scopes, against the v2 architecture record's §6 target layout.
 
 ## Two rulings taken (2026-08-08)
 
@@ -19,7 +19,7 @@ definition of done, which ruling 1 is what makes achievable  -  at v2.x the sand
 
 **Open question this plan does not answer: v3 has no entry point yet.** Deleting `App` leaves users
 with `authoring/` and `build_runtime()`. Decide before phase 4  -  it is the v3 public API that every doc
-example and the migration guide are written against. *(Answered by `decision-v3-entry-point.md` →
+example and the migration guide are written against. *(Answered by `agentdeck-internal:planning/delivery/decision-v3-entry-point.md` →
 `plan-phase4-deck.md`.)*
 
 ## The actual gap

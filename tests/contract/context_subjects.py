@@ -59,7 +59,7 @@ def _peek(seen: list[ToolCtx[Environment]]) -> Callable[..., Any]:
         """Look at the run's environment."""
         seen.append(environment)
         await environment.safepoint()
-        await environment.reporter.info(ANSWER)
+        environment.reporter.info(ANSWER)
         # A constant, never anything read off the environment: what a tool returns is recorded,
         # and a subject that echoed its secret would defeat the "never in the log" assertions.
         return "ok"
@@ -72,7 +72,7 @@ def openai_agents_subject() -> Subject:
     agent = SDKAgent(
         name="Looker",
         instructions="use the tool",
-        tools=[compile_tool(_peek(seen))],
+        tools=[compile_tool(_peek(seen), declared_via_tool=True)],
         model=TailScriptedModel("done", tool_name="peek"),
     )
     return Subject(

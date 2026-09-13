@@ -11,6 +11,11 @@ concurrency:
   group: docs-check-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+# `Build documentation` is a required context, and a cancelled run leaves it absent, which branch
+# protection cannot tell from a failure. The next `synchronize` normally replaces it; when it stays
+# absent, close and reopen the PR, which fires a genuine `pull_request` event. `workflow_dispatch`
+# does not clear it: GitHub does not associate a dispatch run with a pull request (#408).
+
 jobs:
   build:
     name: Build documentation
@@ -23,7 +28,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -45,7 +50,7 @@ jobs:
 
       - name: Set up Node.js
         if: steps.changed.outputs.run == 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -63,6 +68,14 @@ jobs:
         if: steps.changed.outputs.run == 'true'
         run: test -f out/index.html
 
-      - name: Verify search index
+      # Pagefind indexes only what carries `data-pagefind-body`, and it emitted a working index
+      # either way: with the attribute missing it silently indexed the navigation instead, and
+      # with it on the wrong element it indexed nothing. The file existing never caught either,
+      # so the count does. `nextra-theme-docs` used to emit the attribute; the routes do now.
+      - name: Verify search index covers every page
         if: steps.changed.outputs.run == 'true'
-        run: test -f out/_pagefind/pagefind.js
+        run: |
+          test -f out/_pagefind/pagefind.js
+          indexed=$(python3 -c "import json; print(json.load(open('out/_pagefind/pagefind-entry.json'))['languages']['en']['page_count'])")
+          pages=$(find content -name '*.mdx' | wc -l)
+          test "$indexed" -eq "$pages" || { echo "Pagefind indexed $indexed of $pages pages"; exit 1; }

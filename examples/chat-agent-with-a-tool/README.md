@@ -5,7 +5,7 @@ up. Six lines of declaration; no JSON schema, no call-parsing, no tool loop.
 
 ```text
 .agentdeck/
-└── agents/order_desk/agent.py    # @function_tool + Agent(name="OrderDesk", tools=[...])
+└── agents/order_desk/agent.py    # @tool + Agent(name="OrderDesk", tools=[...])
 run.py                            # deck.run("OrderDesk", "where is order A-1001?")
 ```
 
@@ -29,9 +29,9 @@ Chat-Completions-only servers also want `OPENAI_USE_RESPONSES=false`.
 
 ## What to look at
 
-- **`@function_tool`** is the Agents SDK's, not agentdeck's. It reads the parameter schema off
-  the type hints and the description off the docstring; `tools=[...]` hands the list straight
-  through. agentdeck does not sit between the model and your function.
+- **`@tool`** is agentdeck's. The parameter schema comes off the type hints and the description
+  off the docstring, and `build()` compiles the function into the tool the model is offered. The
+  body may be sync or async; a sync one runs on a worker thread rather than the event loop.
 - **The instructions tell the model to call the tool rather than guess.** That is the whole
   contract  -  there is no rule engine enforcing it.
 - **The tool runs in this process with these privileges**, on arguments the model chose. Keep

@@ -73,6 +73,7 @@ The lifecycle is `NEW -> build() -> BUILT -> (async with) -> OPEN -> CLOSED`:
   observers and tears down what this `Deck` itself opened  -  an `MCP(...)` it holds, always, and the event
   store it built from settings, but never one passed in through construction. Reopening a closed
   `Deck` raises; construct a new one instead.
+- **`deck.is_open`** reports whether `async with`/`__aenter__` has run and `aclose()` has not.
 
 **One `Deck` per process.** Constructing a second one while the first is still live raises
 `ConfigError`, naming both projects. The restriction is real rather than stylistic: every project
@@ -106,7 +107,8 @@ below. Declaring the type is what lets `build()` check it against every `ToolCtx
 the catalog before anything runs:
 
 ```python run
-from agentdeck import Agent, ToolCtx, ContextTypeError, Deck
+from agentdeck import Agent, Deck, ToolCtx, tool
+from agentdeck.errors import ContextTypeError
 
 
 class Calendar:
@@ -118,6 +120,7 @@ class Warehouse:
     """A different application environment entirely."""
 
 
+@tool
 def find_slots(day: str, environment: ToolCtx[Calendar]) -> str:
     """Find free appointment slots on a given day."""
     return environment.data.find(day)
@@ -170,8 +173,8 @@ defer and the parameter would promise something it never delivered.
 | `runs.start` | `(name, input, *, context=None, session_id=None, namespace=None, key=None)` | a [`Run`](#run) handle  -  the same admission as `run`/`stream`, without waiting for or reading it |
 
 `run`/`stream`/`runs.start` resolve `name` against whichever catalog holds it  -  an agent or a
-workflow  -  and play it on the Runtime, recorded exactly as `POST /agents/{name}/chat` or
-`POST /workflows/{name}` would record it. Pass `session_id=` for a conversational agent turn: the
+workflow  -  and play it on the Runtime, recorded exactly as `POST /runs` would record it. Pass
+`session_id=` for a conversational agent turn: the
 same id means the same history across calls. `key=` is an optional stable
 application identifier  -  for lookup (`runs.get(namespace=, key=)`) and idempotency, never the
 run's address: the run's own `id` is always minted, never derived from it, and reusing a
@@ -205,7 +208,7 @@ block; see [Workflows](/build-your-deck/workflows) for what a body does with it.
 ```python no-test reason="needs an image file and a live model that accepts one"
 import base64
 
-from agentdeck.core import ImageBlock, TextBlock
+from agentdeck import ImageBlock, TextBlock
 
 photo = base64.b64encode(open("receipt.png", "rb").read()).decode()
 result = await deck.run(
@@ -214,7 +217,7 @@ result = await deck.run(
 )
 ```
 
-Inline blocks are capped at **1 MB decoded**, enforced at construction rather than documented and
+Inline blocks are capped at **8 MB decoded**, enforced at construction rather than documented and
 hoped for: base64 in an event lands in an append-only log and replays down every SSE connection
 for the life of that run. Anything larger belongs in a `ResourceBlock`.
 
@@ -228,6 +231,27 @@ send its bytes as a text, image, audio or data block instead. `DataBlock` **is**
 sent: it renders as its own part, `json.dumps(data, ensure_ascii=False)` with nothing wrapped
 around it, since it is already a separate entry in the model's content list rather than text
 concatenated into a caller's own prompt.
+
+### What a completed run carries back
+
+The terminal `run.completed` event carries `output: list[ContentBlock]`, the same boundary `input`
+uses. It is the whole user-facing result: the artifacts the run produced (a hosted
+`ImageGenerationTool` image, a rich tool's image or file) come first, in the order the run made
+them, and the final text or structured output closes the list  -  artifact, then caption, which is
+what a channel sends. A text-only run is unchanged:
+
+```python no-test reason="illustrative run.completed output, not a call"
+[TextBlock(text="Hello")]                                        # a text run
+[ImageBlock(...), TextBlock(text="Here is the generated image")]  # a run that drew something
+```
+
+Nothing else from the transcript is promoted: tool results stay `tool.call.completed` events, and
+the final message is not repeated as a second block. An artifact over the inline cap is dropped
+with a warning rather than failing the run at its last event.
+
+A `TurnResult` from `await deck.run(...)` still reports `output` as the run's text or structured
+data; the blocks are on the event, which is what `stream`, observers and bindings read. A
+`@workflow` that returns a list of blocks gets exactly those blocks back from `run`.
 
 `stream` yields the same `Event` objects a run's log would hand back after the fact  -  `text.delta`
 per token for an agent, a terminal event last  -
@@ -299,7 +323,7 @@ waiting = await deck.runs.list(namespace="acme", status=RunStatus.WAITING_ANSWER
 
 `get()` never mutates: it does not create, start, resume, claim ownership or move lifecycle
 state, and it takes no `context=`  -  a run recovered this way has durable identity and durable
-state, never the ephemeral value a live process held for it (see `context=` [below](#context)).
+state, never the ephemeral value a live process held for it (see `context=` [below](#run)).
 It returns a run in any state, terminal included.
 
 ### `Run`
@@ -323,7 +347,7 @@ two handles on one run always agree: the durable store is the only thing either 
 | `resume` | `() -> None` | continue a paused run; `RunStateError` when it is waiting for an answer instead |
 | `cancel` | `(reason=None) -> None` | ask it to stop for good; a suspended run ends immediately rather than waiting for a safe point |
 | `pending` | `() -> InterruptResult \| None` | what it is waiting to be answered about, or `None` if it is not `WAITING_ANSWER` |
-| `answer` | `(value) -> None` | answer the interrupt it is paused on |
+| `answer` | `(value) -> None` | answer the interrupt it is paused on; `RunStateError` if it isn't waiting, `ValueError` if the log can't carry `value`  -  an ask that named `options` refuses anything outside them, one that named none hands `value` to the body unvalidated |
 | `events` | `(*, from_seq=0, follow=False) -> AsyncIterator[Event]` | this run's own events  -  a snapshot by default, tailed live with `follow=True` |
 | `await run` | | the result: a `TurnResult` for an agent, the body's own return value for a workflow |
 
@@ -368,29 +392,62 @@ A caller who wants to wait polls `status()`/`pending()` instead of awaiting.
 is parked in memory with the `ctx` it already holds, so it reads the original value when it
 continues on its next line.
 
-## Serving over HTTP
+## Serving through bindings
 
-`asgi()` returns an ASGI application  -  a FastAPI app whose lifespan **opens the deck on startup
-and closes it on shutdown**, so a served deck needs no separate `async with`:
+`deck.serve(binding, *bindings)` validates a set of bindings and serves them, owning their
+lifecycle. It is synchronous and blocking: it owns the event loop until the server exits, so it
+runs from plain application code with no `asyncio.run(...)` of your own. A binding is one external
+protocol, channel or surface over one transport. The first one is the terminal:
 
 ```python
 from agentdeck import Deck
+from agentdeck.bindings import Terminal
 
 deck = Deck.from_project("./.agentdeck")
-app = deck.asgi()                          # uvicorn yourmodule:app
+deck.serve(Terminal.stdio())   # what `agentdeck chat` runs
 ```
 
-That is all `agentdeck serve` is. It also means you can mount a deck inside an existing service
-and have it open and close with the host app.
+Already inside asyncio  -  embedding AgentDeck serving in an application that owns its own event
+loop  -  use `await deck.serve_async(binding, *bindings)` instead: same behaviour, without owning
+the loop. Embedding as an ASGI app uses `deck.asgi(binding, *bindings)` instead of either.
 
-Two details worth knowing. The FastAPI import is deferred inside the method, so `agentdeck.deck`
-stays importable without the `[serve]` extra  -  you only need it to actually serve. And requests
-arriving before the lifespan has run get `503 {"status": "starting"}` rather than touching a deck
-that is not open yet.
+## Serving over HTTP
 
-A third, if any of this catalog's callables declare a context: **it does not reach a served run.**
-A context is a live Python object with no wire form, so an HTTP-started run always carries `None`
- -  [see below](#where-a-context-does-not-reach).
+A Deck does not serve itself: a binding does, and `Native.http()` is AgentDeck's own HTTP/SSE
+protocol.
+
+```python
+from agentdeck import Deck
+from agentdeck.bindings import Native
+
+deck = Deck.from_project("./.agentdeck")
+deck.serve(Native.http(), port=8000)
+```
+
+`deck.asgi(binding, *bindings)` returns the ASGI application instead, for mounting inside a service you
+already run. Its lifespan **opens the deck on startup and closes it on shutdown**, so a served
+deck needs no separate `async with`, and a deck you opened yourself is left alone.
+
+```python
+app = deck.asgi(Native.http(path="/api"))   # uvicorn yourmodule:app
+```
+
+Several bindings share one listener, so the same runs are reachable over more than one protocol at
+once:
+
+```python
+app = deck.asgi(Native.http(path="/api"), Terminal.stdio())
+```
+
+`deck.expose(*bindings)` is the lower-level call: it returns the `Exposure` object itself, for
+callers who need that object.
+
+The routes, the SSE frames and the status codes are the
+[native wire spec](https://github.com/agentdecksdk/agentdeck/blob/main/docs/design/protocols/native-wire.md).
+
+If any of this catalog's callables declare a context: **it does not reach a served run.** A
+context is a live Python object with no wire form, so an HTTP-started run always carries `None`
+ - [see below](#where-a-context-does-not-reach).
 
 ## Observers
 
@@ -452,7 +509,7 @@ what a tool actually received  -  and leave it off when you want one clean trace
 An observer implements `Observer`  -  one required method, two optional lifecycle hooks:
 
 ```python
-from agentdeck.core.ports import Observer
+from agentdeck import Observer
 
 
 class CostObserver(Observer):
@@ -521,8 +578,8 @@ is never serialized, so it exists only for as long as some caller is holding it.
 **A context cannot cross the HTTP surface at all.** There is no wire form for a live object, and
 `asgi()` invents none. An agent or workflow whose callables require a context is therefore
 reachable from an embedded Python caller  -  `deck.run(...)`, a `Run` from `runs.start(context=...)`
- -  and **not** from a served deck. `POST /agents/{name}/chat` will run it with `ctx.data` set to
-`None`. If a root needs a context, do not serve it; drive it from the process that holds the
+ -  and **not** from a served deck. `POST /runs` will run it with `ctx.data` set to `None`. If a
+root needs a context, do not serve it; drive it from the process that holds the
 object.
 
 **The headless runner passes no context.** `Agent.run()` calls the SDK's own `Runner.run` with no

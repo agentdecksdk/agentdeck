@@ -1,0 +1,396 @@
+/* The Jack panel: brand palette from base.css, no new tokens. */
+
+/* The assistant, as a small pill in the bar: a secondary CTA rather than another icon. */
+.ask-launch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  height: 34px;
+  padding: 0 0.85rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--brand-blue) 34%, transparent);
+  background: color-mix(in srgb, var(--brand-blue) 7%, #fff);
+  color: var(--brand-night);
+  font-family: var(--font-display), sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+
+/* The spark is the one accent on the bar, in Ace Red as it is everywhere else. */
+.ask-launch svg {
+  height: 13px;
+  width: 13px;
+  color: var(--brand-ace);
+}
+
+.ask-launch:hover,
+.ask-launch.is-open {
+  border-color: var(--brand-blue);
+  background: color-mix(in srgb, var(--brand-blue) 13%, #fff);
+}
+
+.dark .ask-launch {
+  border-color: rgb(148 163 184 / 30%);
+  background: var(--brand-slate);
+  color: #f8fafc;
+}
+
+.dark .ask-launch:hover,
+.dark .ask-launch.is-open {
+  background: #1d2b45;
+}
+
+@media (max-width: 767px) {
+  /* The spark alone. At this size a border and a fill read as a second card in a bar that already
+     has enough edges; the 44px target stays. */
+  .ask-launch {
+    min-height: 44px;
+    padding: 0 0.55rem;
+    border-color: transparent;
+    background: transparent;
+  }
+
+  .dark .ask-launch {
+    border-color: transparent;
+    background: transparent;
+  }
+
+  .ask-launch__label {
+    display: none;
+  }
+}
+
+:root {
+  --ask-width: min(30rem, 100vw);
+}
+
+.ask-panel {
+  position: fixed;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  width: var(--ask-width);
+  border: 0;
+  border-inline-start: 1px solid var(--brand-soft-gray);
+  border-radius: 0;
+  background: var(--brand-canvas);
+  overflow: hidden;
+  animation: ask-slide-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes ask-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+}
+
+/* The page is pushed rather than covered: `--ask-width` is the figure the panel is sized from, and
+   everything in flow moves with it, the sticky bar included. Below the breakpoint there is no room
+   to give, so the panel overlays instead. */
+body {
+  transition: padding-inline-end 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@media (min-width: 1100px) {
+  :root.ask-open body {
+    padding-inline-end: var(--ask-width);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ask-panel {
+    animation: none;
+  }
+
+  body {
+    transition: none;
+  }
+}
+
+.dark .ask-panel {
+  background: var(--brand-slate);
+  border-inline-start-color: rgb(148 163 184 / 25%);
+}
+
+.ask-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid var(--brand-soft-gray);
+  font-family: var(--font-display), sans-serif;
+}
+
+.dark .ask-head {
+  border-color: rgb(148 163 184 / 25%);
+}
+
+.ask-page {
+  flex: 1;
+  font-family: ui-monospace, monospace;
+  font-size: 0.72rem;
+  color: var(--color-fd-muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ask-head button {
+  border: 0;
+  background: none;
+  font-size: 1.35rem;
+  line-height: 1;
+  color: var(--color-fd-muted-foreground);
+  cursor: pointer;
+}
+
+.ask-transcript {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.9rem;
+  font-size: 0.875rem;
+}
+
+.ask-hint,
+.ask-reading {
+  color: var(--color-fd-muted-foreground);
+  font-size: 0.8rem;
+}
+
+.ask-reading {
+  font-family: ui-monospace, monospace;
+  margin: 0.2rem 0 0.4rem;
+}
+
+.ask-turn + .ask-turn {
+  margin-top: 1.1rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--brand-soft-gray);
+}
+
+.ask-question {
+  font-weight: 600;
+  margin: 0;
+}
+
+.ask-error {
+  color: var(--brand-ace);
+  font-size: 0.8rem;
+}
+
+/* The answer is model-written markdown, so every element it can emit needs a rule: an
+   unstyled table or code block in a 30rem panel is unreadable. */
+.ask-answer :is(p, ul, ol, table) {
+  margin: 0.5rem 0;
+}
+
+.ask-answer :is(ul, ol) {
+  padding-left: 1.2rem;
+  list-style: revert;
+}
+
+.ask-answer code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.82em;
+  background: rgb(148 163 184 / 18%);
+  padding: 0.1em 0.3em;
+  border-radius: 0.25rem;
+}
+
+.ask-answer pre {
+  overflow-x: auto;
+  padding: 0.7rem;
+  border-radius: 0.4rem;
+  background: rgb(15 23 42 / 92%);
+  color: #e2e8f0;
+}
+
+.ask-answer pre code {
+  background: none;
+  padding: 0;
+}
+
+.ask-answer table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.ask-answer :is(th, td) {
+  border: 1px solid var(--brand-soft-gray);
+  padding: 0.25rem 0.4rem;
+  text-align: left;
+}
+
+.ask-answer a {
+  color: var(--brand-blue);
+  text-decoration: underline;
+}
+
+.dark .ask-answer a {
+  color: var(--brand-frost);
+}
+
+.ask-form {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.7rem;
+  border-top: 1px solid var(--brand-soft-gray);
+}
+
+.dark .ask-form {
+  border-color: rgb(148 163 184 / 25%);
+}
+
+.ask-form input {
+  flex: 1;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--brand-soft-gray);
+  border-radius: 0.4rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.ask-form button {
+  padding: 0.45rem 0.9rem;
+  border: 0;
+  border-radius: 7px 7px 3px 7px;
+  background: var(--brand-blue);
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ask-form button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ------------------------------------------------- the panel on a phone */
+
+/* A popover anchored to a corner is a desktop shape. On a phone it left a strip of the page
+   showing around it and read as something that had come loose; here it is a sheet that owns the
+   bottom of the screen, which is what a phone conversation looks like. */
+@media (max-width: 640px) {
+  .ask-panel {
+    right: 0;
+    left: 0;
+    /* `top`, `bottom` and `height` together over-constrain the box, and CSS resolves from `top`,
+       so the sheet anchored to the top of the viewport and left the page showing beneath it. */
+    top: auto;
+    bottom: 0;
+    width: 100%;
+    height: min(86vh, 100% - 2.5rem);
+    border-radius: 16px 16px 0 0;
+    border-bottom: 0;
+  }
+
+  .ask-head {
+    padding: 0.9rem 1rem;
+  }
+
+  .ask-transcript {
+    padding: 1rem;
+  }
+
+  .ask-form {
+    padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
+  }
+
+  .ask-launch {
+    right: 1rem;
+    bottom: 1rem;
+  }
+}
+
+/* The sheet owns the bottom edge here, so it enters from there too. Scoped to `no-preference`
+   rather than nested under the reduced-motion query above: the two can never both match the same
+   viewer, so which one is later in the file can't matter. */
+@keyframes ask-slide-in-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@media (max-width: 640px) and (prefers-reduced-motion: no-preference) {
+  .ask-panel {
+    animation: ask-slide-in-up 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+}
+
+/* The empty state: the mark, one question, and three ways in. What a reader sees before they have
+   asked anything is the whole first impression of the assistant. */
+.ask-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 2.75rem 0.5rem 0;
+  text-align: center;
+}
+
+.ask-empty__mark {
+  color: var(--brand-blue);
+}
+
+.dark .ask-empty__mark {
+  color: var(--brand-frost);
+}
+
+.ask-empty__title {
+  margin: 0;
+  font-family: var(--font-display), sans-serif;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.ask-empty__note {
+  margin: 0;
+  max-width: 22rem;
+  font-size: 0.8rem;
+  line-height: 1.55;
+  color: var(--color-fd-muted-foreground);
+}
+
+.ask-empty__suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  width: 100%;
+  margin-top: 0.4rem;
+}
+
+.ask-empty__suggestions button {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--brand-border-light);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 0.8rem;
+  text-align: center;
+  cursor: pointer;
+}
+
+.dark .ask-empty__suggestions button {
+  border-color: var(--brand-border-dark);
+}
+
+.ask-empty__suggestions button:hover {
+  border-color: var(--brand-blue);
+  color: var(--brand-blue);
+}
+
+.dark .ask-empty__suggestions button:hover {
+  border-color: var(--brand-frost);
+  color: var(--brand-frost);
+}

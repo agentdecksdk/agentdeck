@@ -25,6 +25,15 @@ class InvocableKind(StrEnum):
     TOOL = "tool"
 
 
+class NativeExecution(StrEnum):
+    """How the native executor calls a definition's body: awaited directly, or bridged through
+    a worker thread. Settled once, at ``@tool``/``@workflow`` decoration time, so ``_play`` never
+    re-derives it via ``inspect.iscoroutinefunction`` on every call."""
+
+    ASYNC = "async"
+    THREAD = "thread"
+
+
 class InvocableSpec(CoreModel):
     """Engine-neutral description: the authoring layer compiles to this, engines read it.
 
@@ -80,3 +89,5 @@ class NativeInvocable(Protocol):
     """Which context it asked for: ``ToolCtx`` or ``WorkflowCtx``."""
     parameters: tuple[str, ...]
     """The body's own parameters, in order, context excluded  -  what an input binds to."""
+    execution: NativeExecution
+    """Whether the body is awaited directly or run on a worker thread."""

@@ -1,0 +1,22 @@
+[importlinter]
+root_packages =
+    agentdeck
+    tests
+include_external_packages = True
+
+# #547: the out-of-tree proof for `bindings-spi-is-deck-facing-only` (root `.importlinter`).
+# `allow_indirect_imports` is required for the same reason the root contract sets it: this
+# fixture is allowed to import `agentdeck.bindings`, and `agentdeck.bindings.gateway` itself
+# imports `agentdeck.deck` under `TYPE_CHECKING` for typing  -  without it, that legitimate
+# indirect edge would trip the very modules this contract forbids.
+[importlinter:contract:fixture-plugin-is-spi-facing-only]
+name = the fixture plugin reaches a Deck through the public SPI only, never runtime, adapters or Deck itself
+type = forbidden
+source_modules =
+    tests.bindings.fixture_plugin
+forbidden_modules =
+    agentdeck.runtime
+    agentdeck.adapters
+    agentdeck.deck
+    agentdeck.core
+allow_indirect_imports = True

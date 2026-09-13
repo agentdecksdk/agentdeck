@@ -1,0 +1,113 @@
+# Tools
+
+Tools allow agents to perform actions and fetch external information.
+
+## Defining a Tool
+
+`@tool` declares a leaf capability. The body is your own Python, sync or async, and the docstring
+is what the model reads. A sync body runs on a bounded worker pool the deck owns, never on the
+event loop; see [Context: what each context can do](/build-your-deck/context#what-each-context-can-do)
+for what that changes about `ctx.safepoint()`.
+
+```python run tool="lookup_order" tool_arguments='{"order_id":"A-1003"}'
+import asyncio
+
+from agentdeck import Agent, Deck, tool
+
+
+@tool
+async def lookup_order(order_id: str) -> str:
+    """Fetch status for an order."""
+    return f"Order {order_id} is in transit."
+
+
+agent = Agent(name="order_bot", instructions="Look up customer orders.", tools=[lookup_order])
+deck = Deck(agents=[agent])
+
+
+async def main() -> None:
+    async with deck:
+        result = await deck.run("order_bot", "where is order A-1003?")
+        print(result.output)
+
+
+asyncio.run(main())
+```
+
+## The plain function
+
+A context-free callable in `tools=` is compiled the same way, with less ceremony:
+
+```python
+def lookup_order(order_id: str) -> str:
+    """Fetch status for an order."""
+    return f"Order {order_id} is in transit."
+```
+
+Both forms get the same schema and the same failure attribution. What `@tool` adds is a catalog
+entry: it yields a `NativeDefinition` the deck holds, so a workflow can start it as a child run of
+its own with `ctx.invoke(lookup_order, "A-1003")`. A plain function is not a target `ctx.invoke`
+can resolve.
+
+| | `@tool` | plain function |
+|---|---|---|
+| Called by a model | yes | yes |
+| Sync or async body | yes | yes |
+| `ToolCtx[T]` injected | yes | no  -  `build()` refuses it |
+| Started as its own child run | yes | no |
+| Name and description | `name=`, `description=`, else the function's | the function's |
+
+A callable that declares [`ToolCtx[T]`](/build-your-deck/context) has to be `@tool`. The parameter
+is injected by the runtime and must stay off the schema the model sees, so `@tool` is what makes
+"this callable receives a live dependency" part of its own declaration rather than something a
+reader has to notice from the annotation alone. A plain function carrying one fails `build()`,
+naming the fix:
+
+```text
+lookup_order takes a ToolCtx parameter ('shop') but is not declared @tool. Only @tool carries
+a context into a tool  -  add the decorator: ...
+```
+
+## You already have SDK tools
+
+A tool already decorated with `function_tool` from the OpenAI Agents SDK (`agents`) is accepted in
+`tools=` and passed through untouched. That passthrough has three consequences:
+
+- It cannot take a `ToolCtx` parameter. The decorator puts every parameter into the schema the
+  model sees, and a context has none, so it raises `ConfigError` at the decorator line.
+- It keeps whatever `failure_error_function` it was given, so its exceptions never reach
+  `tool.call.completed.error`.
+- It is engine-native and carries no portability guarantee.
+
+Reach for it to adopt tools you already have. Write new ones with `@tool`.
+
+## Handling Failures
+
+A tool can return a user-facing failure like any other result. Do that when the model can recover
+and continue the conversation:
+
+```python
+@tool
+async def lookup_shift(date: str) -> str:
+    """Return the nurse on duty for a date."""
+    row = SHIFTS.get(date)
+    if row is None:
+        return f"no shift on record for {date}"
+    return row
+```
+
+If a tool raises instead, `agentdeck` records the call as `tool.call.completed` with the exception
+type and message on its `error` field, and hands the model the Agents SDK's standard tool-error
+string. The run is not failed, so it can still complete: `Deck.run()` returns the model's final
+answer, and a client watching the run's events sees it end in `run.completed`.
+
+An exception that escapes the SDK runner is a different outcome, and a pre-decorated
+`function_tool` whose own failure handling re-raises is the way to get one. Then the log records
+`run.failed` with `error_code="engine_error"`, `Deck.run()` raises the exception, and `Deck.stream()`
+yields `run.failed` and then raises.
+
+## Tools do not carry images
+
+A tool returns text. Returning a `data:` URI, a file path or base64 from a tool does not let the
+model see an image: it sees the string. Images travel as content blocks on the way *in*, not as
+tool results on the way back. See [sending an agent an image](/build-your-deck/agents).

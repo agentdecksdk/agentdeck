@@ -1,11 +1,11 @@
 # ADR-D11  -  The store assigns `seq` and `ts`
 
 **Status:** accepted
-**Date:** 2026-08-08 · **Amended:** 2026-08-08 (#149) · **Relates to:** ADR-D5, design doc §4.2 ·
+**Date:** 2026-08-08 · **Amended:** 2026-08-08 (#149), 2026-08-22 (#421), 2026-09-04 (#471) · **Relates to:** ADR-D5, design doc §4.2 ·
 §5, `core/ports/store.py`, `runtime/service.py`, coding-standards §6
 **Supersedes:**
 
-- coding-standards §6 (`docs/coding-standards.md:113`)  -  *"the Runtime is the **only** assigner of
+- coding-standards §6, since deleted from `docs/engineering/coding-standards.md`  -  *"the Runtime is the **only** assigner of
   `seq`, one counter per run, recovered from `max(seq)` on resume"*.
 - ADR-D5's *Explicitly unchanged* clause (`adr-d5-two-stores.md:151`)  -  *"`Runtime` still stamps and
   appends every event"*. D5's two-store rule itself is untouched.
@@ -130,6 +130,21 @@ decide the run was stale (`memory:74`, `sqlite:199`, `postgres:250`, all iterati
 `RunContext` from it and calls the ordinary `append`. No foreign addressing, no second query, and
 `claim_start` keeps exactly one job.
 
+**Amended 2026-08-22 (#421): `append` refuses a run that is already `CANCELLED`.** A spent `seq`
+no longer refuses anything, and a cancel is written from outside a run whose task is still alive, so
+one of that run's writes can already be suspended inside `append` when the terminal event lands. The
+condition is folded into each backend's own write step, beside the `seq` read it already makes there.
+The takeover's `run.failed` above deliberately seals nothing: it is written for a run only *believed*
+dead, and one that turns out to be alive goes on writing and may reclaim its own session.
+
+**Amended 2026-09-04 (#471): the refusal covers `COMPLETED` too.** A cancel written from outside a
+live run could otherwise land behind that run's own `run.completed`, and `run_status` would then
+report `CANCELLED` for a run that completed: wrong about the outcome, not just about the shape of
+the log. Whichever of the two commits first is the run's outcome. The two callers that write a
+terminal event for a run that is not their own, `close_cancelled` and `_close_abandoned`, take the
+refusal as the benign branch each already has for a run that closed itself first. `run.failed`
+still seals nothing, for the reason above.
+
 **The two claims stay, as named methods.** They are not extra operations  -  they are conditional
 appends, and they are the only place mutual exclusion can live without adding a second piece of
 infrastructure. Measured: two workers that read "session idle" and then append both open a run on
@@ -167,7 +182,7 @@ as one test, not two.
 
 ## 7. Consequences to land with the change
 
-**All applied 2026-08-08**; the ledger is `00-project-index.md` §3.
+**All applied 2026-08-08**; the ledger is `agentdeck-internal:planning/project-index.md` §3.
 
 - `test_runtime_service.py:890`'s gap assertion flips `== [2]` → `== []`, and `_drain`'s
   *"not this arm's to close"* paragraph is deleted  -  it stops being true.

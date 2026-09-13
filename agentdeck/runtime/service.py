@@ -24,11 +24,13 @@ from uuid import uuid4
 from agentdeck.core.content import as_answer
 from agentdeck.core.context import RunContext
 from agentdeck.core.control import CONTROL_POLL_INTERVAL, Gate, Signal
+from agentdeck.core.errors import DOCS_URL
 from agentdeck.core.events import (
     TERMINAL_KINDS,
     AnswerRefused,
     ControlRequested,
     Event,
+    Reported,
     RunCancelled,
     RunCompleted,
     RunFailed,
@@ -49,12 +51,12 @@ from agentdeck.core.status import (
     can_resume,
     decide,
 )
-from agentdeck.errors import DOCS_URL, ConfigError, NotFoundError, RunStateError, SessionBusyError, StoreError
+from agentdeck.errors import ConfigError, InputError, NotFoundError, RunStateError, SessionBusyError, StoreError
 from agentdeck.runtime.dispatch import SinkDispatch
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, AsyncIterator, Mapping, Sequence
-    from typing import Any
+    from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Mapping, Sequence
+    from typing import Any, Literal
 
     from agentdeck.core.content import Input
     from agentdeck.core.control import ControlSignal
@@ -62,6 +64,9 @@ if TYPE_CHECKING:
     from agentdeck.core.invocable import InvocableSpec
     from agentdeck.core.ports import ControlPort, EventStorePort, Executor, LeasePort, Observer
     from agentdeck.core.ports.store import RunSummary
+
+    type _Settle = Callable[[], Awaitable[None]]
+    """Wait for the reports a run already made, so the event that seals its log can follow them."""
 
 logger = logging.getLogger(__name__)
 
@@ -94,11 +99,15 @@ class _Delegation:
     ``spent`` is what this run's *settled children* have used, folded into its own total when it
     ends; ``children`` counts every one it started, not the ones still running, because the bound
     is on the tree a run can build and not on how much of it is in flight at once.
+
+    ``session`` is the conversation the run at the top of this edge was started on, carried down
+    it so a child's events can name the conversation they came from (:meth:`Runtime._attributed`).
     """
 
     parent: str | None
     depth: int
     invocable: str
+    session: str | None = None
     children: int = 0
     spent: Usage | None = None
 
@@ -110,11 +119,14 @@ class PendingRun:
     run_id: str
     session_id: str | None
     invocable: str
+    """The catalog name of what this run is waiting inside. General because one catalog holds
+    agents, workflows and tools, so every run names its target the same way whatever kind it is."""
+
     thread_id: str
     payload: dict[str, Any]
     reason: InterruptReason = "human"
-    """What kind of answer this run is waiting for. An ``approval`` takes a yes or a no and
-    nothing else, which is checked before the answer is recorded rather than after."""
+    """What kind of answer this run is waiting for. The shape, if any, is in ``payload["options"]``:
+    an answer outside them is refused before it is recorded, same as :func:`_refuses`."""
 
 
 class Runtime:
@@ -217,18 +229,17 @@ class Runtime:
         One turn per session at a time: opening the run is a conditional append that fails if
         the session already has one in flight, so a second concurrent turn raises
         ``SessionBusyError`` instead of running against a conversation that is still changing.
-
         The engine's exception, if any, reaches the caller  -  but ``run.failed`` is recorded
         first, so the log tells the whole story even when nobody was listening. Every exit
         closes the run in the log: a consumer that walks away gets ``run.cancelled``, whether it
         closed this generator or had its own task cancelled under it.
         """
         spec, executor = self._resolve(name)
-        ctx, reports = self._bind(
+        ctx, recorded, settle = self._bind(
             self._new_run_context(run_id=run_id, key=key, session_id=session_id, namespace=namespace, data=context),
             spec,
         )
-        self.delegate(ctx.run_id, parent_run_id, spec.name)
+        self.delegate(ctx.run_id, parent_run_id, spec.name, session_id)
         # ponytail: whole log per run  -  window it (or hand the engine a summary) once a
         # session's history outgrows one read, which a real store will notice long before this does
         history = await self._history(ctx)
@@ -241,18 +252,18 @@ class Runtime:
         )
         try:
             claimed = await self._claim_session(opening, spec, ctx, history)
-        except asyncio.CancelledError:
-            # The claim commits this run before anything is yielded, and it is awaited in the
-            # caller's own coroutine  -  the one an ASGI server cancels when a client disconnects
-            # before the response starts. A cancellation landing between the two would leave the
-            # run open in the log and its session held for a whole staleness window.
-            # Anything not None is a run the claim opened, and it is owed a terminal event.
-            if await self._store.run_status(ctx) is not None:
-                await self._close_cancelled(spec, ctx, "cancelled during the claim")
+        except SessionBusyError:
+            # A refused claim is not a stranded one: this raise happens only where ``claim_start``
+            # returned no event, so there is no run of this id to owe anything to.
+            raise
+        except (Exception, asyncio.CancelledError) as exc:
+            # Awaited in the caller's own coroutine  -  the one an ASGI server cancels when a
+            # client disconnects before the response starts.
+            await self._abandon_claim(spec, ctx, exc, "during the claim")
             raise
 
         async with aclosing(
-            self._play(claimed, executor.execute(spec, input, history, ctx), spec, ctx, executor, reports)
+            self._play(claimed, executor.execute(spec, input, history, ctx), spec, ctx, executor, recorded, settle)
         ) as run:
             async for event in run:
                 yield event
@@ -293,7 +304,7 @@ class Runtime:
         the reason :meth:`resume_run` gives: this claim is the only thing that will ever look.
         """
         spec, executor = self._resolve(name)
-        ctx, reports = self._bind(
+        ctx, recorded, settle = self._bind(
             self._context(run_id=run_id, session_id=session_id, namespace=namespace, data=context), spec
         )
         status = await self._store.run_status(ctx)
@@ -317,29 +328,34 @@ class Runtime:
         opened = next((event.payload for event in events if isinstance(event.payload, RunStarted)), None)
         if opened is None:
             return
-        self.delegate(ctx.run_id, opened.parent_run_id, spec.name)
+        self.delegate(ctx.run_id, opened.parent_run_id, spec.name, await self._inherited(opened, ctx, ctx.session_id))
         if (why := _refuses(events, value)) is not None:
             # Recorded, then raised, and both before the claim: the run is still waiting, so the
             # answerer can send a real one  -  and the log keeps the fact that somebody tried.
             await self._record(AnswerRefused(reason=why), spec, ctx)
-            raise ValueError(why)
-        opening = await self._claim_resume(spec, ctx, value)
-        if opening is None:
-            return
-        ruling, pending = await self._route(ctx.id, status)
-        if ruling.action is Action.TERMINATE and pending is not None:
-            yield opening
-            yield await self._record(ControlRequested(verb="cancel", reason=pending.reason), spec, ctx)
-            yield await self._record(RunCancelled(reason=pending.reason), spec, ctx)
-            return
-        # Any other ruling plays the run on, including a pause that landed inside the window the
-        # peek left open: the answer is recorded by now, so the run resumes and meets that pause
-        # at its first safe point instead.
-        # Read after the claim, so the ``run.resumed`` carrying the answer is in it: that event
-        # is how the executor learns there is an answer at all, and what it is.
-        history = await self._history(ctx)
+            raise InputError(why)
+        try:
+            opening = await self._claim_resume(spec, ctx, value)
+            if opening is None:
+                return
+            ruling, pending = await self._route(ctx.id, status)
+            if ruling.action is Action.TERMINATE and pending is not None:
+                closing = await self._terminate(spec, ctx, pending.reason)
+                yield opening
+                for event in closing:
+                    yield event
+                return
+            # Any other ruling plays the run on, including a pause that landed inside the window
+            # the peek left open: the answer is recorded by now, so the run resumes and meets that
+            # pause at its first safe point instead.
+            # Read after the claim, so the ``run.resumed`` carrying the answer is in it: that
+            # event is how the executor learns there is an answer at all, and what it is.
+            history = await self._history(ctx)
+        except (Exception, asyncio.CancelledError) as exc:
+            await self._abandon_claim(spec, ctx, exc, "after the resume claim")
+            raise
         stream = executor.execute(spec, opened.input, history, ctx)
-        async with aclosing(self._play(opening, stream, spec, ctx, executor, reports)) as resumed:
+        async with aclosing(self._play(opening, stream, spec, ctx, executor, recorded, settle)) as resumed:
             async for event in resumed:
                 yield event
 
@@ -389,25 +405,27 @@ class Runtime:
             return
         session_id, opened = started
         spec, executor = self._resolve(opened.invocable)
-        run_ctx, reports = self._bind(replace(ctx, run_id=run_id, session_id=session_id), spec)
-        self.delegate(run_id, opened.parent_run_id, spec.name)
-        opening = await self._claim_resume(spec, run_ctx, None, reason)
-        if opening is None:
-            return
-        # Read control only after the claim: the claim is what makes this caller the one actor
-        # on the run, so an answer read before it could belong to somebody else's turn.
-        ruling, pending = await self._route(run_ctx.id, summary.status)
-        if ruling.action is Action.TERMINATE and pending is not None:
-            yield opening
-            # No ``control.observed``: that event says the run reached a safe point and acted
-            # there, and this run reached none  -  it was already stopped when the cancel landed.
-            # The request and the effect are the whole honest story of a cancel served here.
-            yield await self._record(ControlRequested(verb="cancel", reason=pending.reason), spec, run_ctx)
-            yield await self._record(RunCancelled(reason=pending.reason), spec, run_ctx)
-            return
-        history = await self._history(run_ctx)
+        run_ctx, recorded, settle = self._bind(replace(ctx, run_id=run_id, session_id=session_id), spec)
+        self.delegate(run_id, opened.parent_run_id, spec.name, await self._inherited(opened, ctx, session_id))
+        try:
+            opening = await self._claim_resume(spec, run_ctx, None, reason)
+            if opening is None:
+                return
+            # Read control only after the claim: the claim is what makes this caller the one actor
+            # on the run, so an answer read before it could belong to somebody else's turn.
+            ruling, pending = await self._route(run_ctx.id, summary.status)
+            if ruling.action is Action.TERMINATE and pending is not None:
+                closing = await self._terminate(spec, run_ctx, pending.reason)
+                yield opening
+                for event in closing:
+                    yield event
+                return
+            history = await self._history(run_ctx)
+        except (Exception, asyncio.CancelledError) as exc:
+            await self._abandon_claim(spec, run_ctx, exc, "after the resume claim")
+            raise
         stream = executor.execute(spec, opened.input, history, run_ctx)
-        async with aclosing(self._play(opening, stream, spec, run_ctx, executor, reports)) as resumed:
+        async with aclosing(self._play(opening, stream, spec, run_ctx, executor, recorded, settle)) as resumed:
             async for event in resumed:
                 yield event
 
@@ -486,12 +504,76 @@ class Runtime:
             return False
         session_id, opened = started
         spec, _ = self._resolve(opened.invocable)
-        run_ctx, _ = self._bind(replace(ctx, run_id=run_id, session_id=session_id), spec)
-        if await self._claim_resume(spec, run_ctx, None, reason) is None:
-            return False
-        await self._record(ControlRequested(verb="cancel", reason=reason), spec, run_ctx)
-        await self._record(RunCancelled(reason=reason), spec, run_ctx)
+        run_ctx, _, _ = self._bind(replace(ctx, run_id=run_id, session_id=session_id), spec)
+        try:
+            if await self._claim_resume(spec, run_ctx, None, reason) is None:
+                return False
+            await self._terminate(spec, run_ctx, reason)
+        except (Exception, asyncio.CancelledError) as exc:
+            # ``reason`` through: this is the one abandonment an operator asked for, and the
+            # ``control.requested`` that would have carried their text is the write that failed.
+            await self._abandon_claim(spec, run_ctx, exc, "after the resume claim", reason)
+            raise
         return True
+
+    async def _terminate(self, spec: InvocableSpec, ctx: RunContext, reason: str | None) -> list[Event]:
+        """Serve a cancel found pending against a run this caller has just claimed: the request
+        and the effect, in that order, both recorded before either is handed to a consumer.
+
+        No ``control.observed`` between them: that event says the run reached a safe point and
+        acted there, and a run served here reached none  -  it was already stopped when the cancel
+        landed. The request and the effect are the whole honest story of a cancel served this way.
+
+        Both writes land before the caller yields anything, because a consumer that stops reading
+        between them strands the claim exactly as a cancellation across it would (#391).
+        """
+        return [
+            await self._record(ControlRequested(verb="cancel", reason=reason), spec, ctx),
+            await self._record(RunCancelled(reason=reason), spec, ctx),
+        ]
+
+    async def _abandon_claim(
+        self,
+        spec: InvocableSpec,
+        ctx: RunContext,
+        exc: Exception | asyncio.CancelledError,
+        span: str,
+        asked: str | None = None,
+    ) -> None:
+        """Close a run whose claim committed and whose play never started.
+
+        Every exit from the claim to :meth:`_play` strands the run live with nobody playing it.
+        A cancellation writes ``run.cancelled``, shielded; any other exception is an infrastructure
+        fault and writes ``run.failed`` instead, unshielded, with the same ``error_code``
+        :func:`_failed` gives the identical fault inside ``_play`` (#688). Guarded on ``RUNNING``
+        since the same span also serves a pending cancel (#391).
+
+        Args:
+            span: which claim was stranded, for the reason this writes.
+            asked: an operator's own reason, when the stranded span was serving their cancel.
+        """
+        if isinstance(exc, asyncio.CancelledError):
+            stranded = f"cancelled {span}"
+        else:
+            stranded = f"abandoned {span}: {type(exc).__name__}"
+        reason = stranded if asked is None else f"{stranded}, cancel requested: {asked}"
+        try:
+            status = await self._store.run_status(ctx)
+            if status is RunStatus.RUNNING:
+                if isinstance(exc, asyncio.CancelledError):
+                    await self._close_cancelled(spec, ctx, reason)
+                else:
+                    await self._record(
+                        RunFailed(error_code=_error_code(exc), message=reason, retryable=False), spec, ctx
+                    )
+            elif status is None:
+                logger.debug("run %s has no events: its claim never committed, so nothing was written", ctx.run_id)
+            else:
+                logger.debug("run %s is %s, not RUNNING; its terminal event is already written", ctx.run_id, status)
+        except (StoreError, RunStateError):
+            # The caller's own failure is the one worth raising, and this read or write goes to the
+            # store that just failed for it, or to a log another writer sealed under it (#680).
+            logger.exception("could not close run %s whose claim never reached its play", ctx.run_id)
 
     async def _play(
         self,
@@ -500,7 +582,8 @@ class Runtime:
         spec: InvocableSpec,
         ctx: RunContext,
         executor: Executor,
-        reports: deque[KnownPayload],
+        reports: deque[Event],
+        settle: _Settle,
     ) -> AsyncGenerator[Event, None]:
         """Yield ``opening``, then everything ``stream`` produces  -  and close the run in the
         log whichever way it ends.
@@ -522,10 +605,17 @@ class Runtime:
                 yield opening
                 async with aclosing(stream) as payloads:
                     async for payload in payloads:
-                        async for report in self._drain(reports, spec, ctx):
-                            yield report
-                        yield await self._record(payload, spec, ctx)
+                        if payload.kind in TERMINAL_KINDS:
+                            # The one write reports cannot follow: this seals the log (#471), so
+                            # the ones this run already made are waited for rather than refused.
+                            await settle()
+                        for _ in range(len(reports)):
+                            yield reports.popleft()
+                        event = await self._record(payload, spec, ctx)
+                        # Before the yield, which is where a consumer's walkaway lands: read
+                        # after it, ``last`` still names the payload before this one (#471).
                         last = payload.kind
+                        yield event
                         if last in TERMINAL_KINDS:
                             # Terminal means terminal: stop reading so nothing can follow it
                             # into the log. An engine yielding more after this gets it
@@ -534,6 +624,9 @@ class Runtime:
         except GeneratorExit:
             # Nobody is listening any more, so there is no event to yield  -  but an unclosed
             # run in the log is indistinguishable from one still in flight.
+            if last in TERMINAL_KINDS:
+                logger.debug("run %s was let go after %r, which already closed it", ctx.run_id, last)
+                raise
             logger.info("run %s abandoned by its consumer after %r", ctx.run_id, last)
             await self._record(RunCancelled(reason="consumer stopped reading"), spec, ctx)
             raise
@@ -542,20 +635,42 @@ class Runtime:
             # cancels the task streaming the response rather than closing the generator. This
             # arm exists because ``CancelledError`` is a BaseException, so the one below never
             # saw it and the run stayed open in the log forever.
+            if last in TERMINAL_KINDS:
+                logger.debug("run %s was cancelled after %r, which already closed it", ctx.run_id, last)
+                raise
             logger.info("run %s cancelled after %r", ctx.run_id, last)
             await self._close_cancelled(spec, ctx, "consumer cancelled")
             raise
         except Exception as exc:
             # The exception is the caller's, the event is the record  -  both, always. The type
-            # name only: an exception message can carry content that must not reach a sink.
+            # name only, `InputError` excepted: its message is written for the caller.
             logger.exception("run %s failed in engine %r", ctx.run_id, executor.name)
-            yield await self._record(_failed(exc, executor.name), spec, ctx)
+            async for event in self._sealing(_failed(exc, executor.name), spec, ctx, reports, settle):
+                yield event
             raise
 
         if last not in TERMINAL_KINDS and last not in SUSPENDED_KINDS:
             # An engine that just stops leaves consumers waiting forever; close the run for it.
             logger.error("engine %r ended run %s after %r, not a terminal event", executor.name, ctx.run_id, last)
-            yield await self._record(_engine_failed(f"engine {executor.name!r} ended after {last!r}"), spec, ctx)
+            ended = _engine_failed(f"engine {executor.name!r} ended after {last!r}")
+            async for event in self._sealing(ended, spec, ctx, reports, settle):
+                yield event
+
+    async def _sealing(
+        self, payload: KnownPayload, spec: InvocableSpec, ctx: RunContext, reports: deque[Event], settle: _Settle
+    ) -> AsyncGenerator[Event, None]:
+        """Close a run the engine did not close itself, behind the reports it already made.
+
+        The two arms that end a run for it owe the log what the terminal-payload arm owes it: a
+        report fired before the engine raised is one this run made, so it goes in front of
+        ``run.failed`` rather than behind it. Recorded before either is yielded, because a
+        consumer walking away mid-report must not leave the run open.
+        """
+        await settle()
+        closing = await self._record(payload, spec, ctx)
+        for _ in range(len(reports)):
+            yield reports.popleft()
+        yield closing
 
     @asynccontextmanager
     async def _holding(self, run_id: str) -> AsyncIterator[None]:
@@ -712,7 +827,7 @@ class Runtime:
                 # whole window. The abandoned run stays open instead, and the next turn  -  which
                 # finds it just as stale  -  closes it then.
                 logger.exception("could not close abandoned run %s; leaving it for the next turn", tail.run_id)
-        await self._fan_out(event)
+        await self._fan_out(event, self._attributed(ctx.run_id))
         return event
 
     async def _session_busy_message(self, ctx: RunContext, held_by: str | None) -> str:
@@ -767,8 +882,14 @@ class Runtime:
             retryable=False,
         )
         abandoned = replace(ctx, run_id=tail.run_id, session_id=tail.session_id)
-        event = (await self._store.append([payload], abandoned, tail.origin))[0]
-        await self._fan_out(event)
+        try:
+            event = (await self._store.append([payload], abandoned, tail.origin))[0]
+        except RunStateError:
+            # It was alive after all and sealed its own log while this was written, so the
+            # takeover was wrong about it (#471). Not raised on: the lease prune below still applies.
+            logger.debug("run %s ended itself as this takeover closed it; nothing was written", tail.run_id)
+        else:
+            await self._fan_out(event)
         if self._lease is not None:
             # The dead worker's expired row has done its job and nothing else prunes it. Not
             # required for correctness  -  the run is terminal now, so no claim ever consults it
@@ -807,12 +928,22 @@ class Runtime:
                 run_id,
             )
             return
-        if await self._store.run_status(ctx) is not RunStatus.RUNNING:
+        if (status := await self._store.run_status(ctx)) is not RunStatus.RUNNING:
+            # The benign half of the same branch: the run closed itself between the deck giving up
+            # on it and this read, so there is nothing to write  -  said out loud, because the
+            # caller has already logged that it abandoned this run (#419).
+            logger.debug("run %s is %s, not RUNNING; it closed itself and nothing was written", run_id, status)
             return
         session_id, opened = started
         closing = replace(ctx, session_id=session_id)
-        event = (await self._store.append([RunCancelled(reason=reason)], closing, opened.invocable))[0]
-        await self._fan_out(event)
+        try:
+            event = (await self._store.append([RunCancelled(reason=reason)], closing, opened.invocable))[0]
+        except RunStateError:
+            # The same benign half one turn later: the run's own terminal event was suspended
+            # inside the store when the read above saw RUNNING, and committed first (#471).
+            logger.debug("run %s closed itself while this cancel was in flight; nothing was written", run_id)
+            return
+        await self._fan_out(event, self._attributed(run_id))
 
     async def _claim_resume(
         self, spec: InvocableSpec, ctx: RunContext, value: Any, reason: str | None = None
@@ -840,7 +971,7 @@ class Runtime:
         event = await self._store.claim_resume(resumed, ctx, spec.name)
         if event is None:
             return None
-        await self._fan_out(event)
+        await self._fan_out(event, self._attributed(ctx.run_id))
         return event
 
     async def pending(self, *, namespace: str | None = None) -> list[PendingRun]:
@@ -963,27 +1094,79 @@ class Runtime:
         """
         return RunContext(run_id=run_id or str(uuid4()), key=key, session_id=session_id, namespace=namespace, data=data)
 
-    def _bind(self, ctx: RunContext, spec: InvocableSpec) -> tuple[RunContext, deque[KnownPayload]]:
-        """Give this run its control gate, its report buffer and the agent it plays.
+    def _bind(self, ctx: RunContext, spec: InvocableSpec) -> tuple[RunContext, deque[Event], _Settle]:
+        """Give this run its control gate, its report writer and the agent it plays.
 
-        The Runtime, not the caller, decides whether a run is cancellable and where its status
-        and progress reports go  -  a caller builds a plain ``RunContext`` and never has to know
-        that a ``ControlPort`` or a buffer exists. The buffer is per run and returned rather than
-        stored, so two concurrent runs on one Runtime can never drain into each other.
+        A caller builds a plain ``RunContext`` and never has to know that a ``ControlPort`` or a
+        store exists. Both the recorded reports and the wait for the ones still in flight are per
+        run and returned rather than stored, so two runs can never take each other's.
 
-        ``ctx.agent`` comes off the resolved spec rather than from whoever called in, which is
-        what makes it the same instance on a fresh play, a lifted pause and an answered interrupt:
-        every one of those resolves the spec, and none of them could be relied on to pass it.
+        ``ctx.agent`` comes off the resolved spec, not from whoever called in, which is what makes
+        it the same instance on a fresh play, a lifted pause and an answered interrupt.
         """
-        reports: deque[KnownPayload] = deque()
+        recorded: deque[Event] = deque()
         gate = (
             ctx.gate
             if self._control is None
             else Gate(self._control, ctx.id, poll_interval=self._control_poll_interval)
         )
-        return replace(ctx, gate=gate, reporter=Reporter(reports), agent=spec.metadata.get("agent")), reports
+        bound = replace(ctx, gate=gate, agent=spec.metadata.get("agent"))
+        write, settle = self._reporting(spec, bound, recorded)
+        return replace(bound, reporter=Reporter(write)), recorded, settle
 
-    def delegate(self, run_id: str, parent_run_id: str | None, invocable: str) -> None:
+    def _reporting(
+        self, spec: InvocableSpec, ctx: RunContext, recorded: deque[Event]
+    ) -> tuple[Callable[[Reported], None], _Settle]:
+        """One run's report writer, and the wait that lets its terminal event follow the reports.
+
+        Handed over from whichever thread made it and written on the run's own loop one hop later:
+        the deque is that hand-off, not a backlog, and ``writing`` keeps two writes in order.
+        ``settle`` is the same write awaited rather than scheduled, so a run about to seal its log
+        takes the reports it already made with it (#487). Unbounded otherwise: the ceiling is the
+        store refusing an append (#471), said once rather than once per report behind it.
+        """
+        loop = asyncio.get_running_loop()
+        # No lock on the hand-off: a deque's ``append`` and ``popleft`` are each atomic under the
+        # GIL, and the writer runs on one loop, so only the write itself needs ordering.
+        pending: deque[Reported] = deque()
+        writing = asyncio.Lock()
+        closed = False
+
+        async def settle() -> None:
+            nonlocal closed
+            async with writing:
+                # Counted once, and every report made before this call is in the count: a report
+                # made *during* it belongs to the next write, so a loop cannot starve this one.
+                for _ in range(len(pending)):
+                    payload = pending.popleft()
+                    if closed:
+                        continue
+                    try:
+                        recorded.append(await self._record(payload, spec, ctx))
+                    except RunStateError:
+                        closed = True
+                        logger.info("run %s is closed; the report it made and any behind it are dropped", ctx.run_id)
+                    except (Exception, asyncio.CancelledError):
+                        # Caught here or nowhere: nothing awaits the scheduled write, so an
+                        # exception leaving it is only ever "never retrieved" noise on the loop.
+                        logger.warning("run %s could not record its %s; dropping the report", ctx.run_id, payload.kind)
+
+        def fire(payload: Reported) -> None:
+            if closed:
+                return
+            pending.append(payload)
+            writing_it = settle()
+            try:
+                asyncio.run_coroutine_threadsafe(writing_it, loop)
+            except RuntimeError:
+                # The loop the run was played on is gone: a context outliving its run still reports.
+                writing_it.close()
+                pending.pop()
+                logger.warning("run %s reported after its loop closed; dropping the report", ctx.run_id)
+
+        return fire, settle
+
+    def delegate(self, run_id: str, parent_run_id: str | None, invocable: str, session_id: str | None = None) -> None:
         """Place ``run_id`` in the delegation tree, refusing it if that puts the tree past a bound.
 
         Called wherever a run is played, so a child answered or resumed in a later segment is
@@ -1019,7 +1202,12 @@ class Runtime:
                     f"a workflow that starts them as runs of its own."
                 )
             above.children += 1
-        self._tree[run_id] = _Delegation(parent=parent_run_id, depth=depth, invocable=invocable)
+        self._tree[run_id] = _Delegation(
+            parent=parent_run_id,
+            depth=depth,
+            invocable=invocable,
+            session=above.session if above is not None else session_id,
+        )
 
     def _rolling_up(self, payload: KnownPayload, ctx: RunContext) -> KnownPayload:
         """A terminal payload with what this run delegated folded into it, and its own total
@@ -1042,31 +1230,6 @@ class Runtime:
             above.spent = total if above.spent is None else _summed(above.spent, total)
         return payload if placed.spent is None else payload.model_copy(update={"usage": total})
 
-    async def _drain(
-        self, reports: deque[KnownPayload], spec: InvocableSpec, ctx: RunContext
-    ) -> AsyncGenerator[Event, None]:
-        """Record whatever the run reported about itself since the last event.
-
-        Called just *before* each engine payload, never after: that payload may be terminal, and
-        nothing may follow a terminal event into the log. So a report is always in order and
-        always inside the run, and one emitted after the engine's final payload is dropped  -  the
-        ceiling ``core/reporting.py`` states.
-
-        The count is taken once. A report arriving while these are being written belongs to the
-        next payload's batch, so an emitter in a loop cannot starve the engine's own event.
-
-        A store that refuses a report costs the report, never the run: an advisory event is not
-        worth a run, and the alternative is a store that dislikes one *kind* turning a run that
-        would have completed into ``run.failed``. It costs the report only  -  a refused append
-        never took a number, so the log this leaves behind is dense.
-        """
-        for _ in range(len(reports)):
-            payload = reports.popleft()
-            try:
-                yield await self._record(payload, spec, ctx)
-            except StoreError:
-                logger.warning("run %s could not record its %s; dropping the report", ctx.run_id, payload.kind)
-
     def _resolve(self, name: str) -> tuple[InvocableSpec, Executor]:
         spec = self._invocables.get(name)
         if spec is None:
@@ -1086,8 +1249,9 @@ class Runtime:
         A run :meth:`close_cancelled` abandoned is cancelled here instead, at its next write. The
         check is synchronous and every writer for such a run shares this event loop, so no append
         that starts here can land past the terminal event written for it. One that started before
-        the mark and is still suspended inside the store can, which is #421 and needs the store's
-        own conditional append rather than a second guard above it.
+        the mark and is still suspended inside the store is past this guard already, and the store
+        refuses it there: an append to a ``CANCELLED`` run raises ``RunStateError`` inside the same
+        step that would have written it (#421).
 
         Every terminal event in this class is written here, which is why the delegation roll-up
         hangs off this one call rather than off the engine loop: a run that failed or was
@@ -1097,19 +1261,61 @@ class Runtime:
         """
         if ctx.run_id in self._abandoned:
             raise asyncio.CancelledError(f"run {ctx.run_id} was abandoned by the deck closing")
+        # Read before the roll-up, which retires this run's place in the tree along with its
+        # total: the terminal event is the one a consumer most needs attributed.
+        session = self._attributed(ctx.run_id)
         event = (await self._store.append([self._rolling_up(payload, ctx)], ctx, spec.name))[0]
-        await self._fan_out(event)
+        await self._fan_out(event, session)
         return event
 
-    async def _fan_out(self, event: Event) -> None:
-        """Sinks get a copy of the stream and no say in it: never called inline, never fatal.
+    async def _fan_out(self, event: Event, session: str | None = None) -> None:
+        """Sinks get a copy of the stream and no say in it: never called inline, never fatal  -
+        with ``session`` stamped on that copy when the run has one to inherit
+        (:meth:`_attributed`), which is the one place a sink's envelope differs from the log's.
 
         Each sink gets a queue put rather than an ``emit``, and a full queue costs one loop
         turn before it starts dropping  -  so the run is never waiting on a sink, only ever on
         the loop it already shares with one.
         """
+        emitted = event if session is None else event.model_copy(update={"session_id": session})
         for dispatch in self._sinks:
-            await dispatch.submit(event)
+            await dispatch.submit(emitted)
+
+    async def _inherited(self, opening: RunStarted, ctx: RunContext, session_id: str | None) -> str | None:
+        """The session a run being played belongs to: ``session_id``, its own, unless it is a
+        child  -  then the conversation above it, walked up the recorded delegation edge.
+
+        Walked rather than read once, because an invoker that is itself a child has a
+        session-less opening by this design, so one hop up answers only at depth 1. For the
+        worker that never played the parent and so has no tree entry to inherit from; one this
+        worker *is* playing carries the answer already, which :meth:`delegate` prefers.
+        """
+        parent_run_id = opening.parent_run_id
+        if parent_run_id is None or parent_run_id in self._tree:
+            return session_id
+        for _ in range(MAX_DELEGATION_DEPTH):
+            found = await self._opening_of(parent_run_id, ctx)
+            if found is None:
+                return None
+            inherited, above = found
+            if inherited is not None:
+                return inherited
+            if above.parent_run_id is None:
+                return None
+            parent_run_id = above.parent_run_id
+        return None
+
+    def _attributed(self, run_id: str) -> str | None:
+        """The conversation a delegated run's events name  -  ``None`` for a run that is nobody's
+        child, which already carries its own session on every envelope the store writes.
+
+        Stamped as the event goes out rather than written, because a child written under the
+        conversation would be *in* it: that log is the transcript its executor is played with
+        and the set its claim scans, so the child would be prompted with the conversation and
+        refused for the very run that invoked it (#491).
+        """
+        placed = self._tree.get(run_id)
+        return placed.session if placed is not None and placed.parent is not None else None
 
 
 def _summed(one: Usage, other: Usage) -> Usage:
@@ -1123,14 +1329,25 @@ def _summed(one: Usage, other: Usage) -> Usage:
     )
 
 
+def _error_code(exc: Exception) -> Literal["invalid_input", "engine_error"]:
+    """The closed ``error_code`` an exception maps to, apart from any message: read from
+    ``type(exc)`` alone, so a caller with no engine in scope (:meth:`Runtime._abandon_claim`) gets
+    the same code :func:`_failed` would give the identical fault inside ``_play`` (#688).
+    """
+    return "invalid_input" if isinstance(exc, InputError) else "engine_error"
+
+
 def _failed(exc: Exception, engine: str) -> RunFailed:
     """The record for an exception the Runtime caught. The type name only  -  an exception message
-    can carry content that must not reach a sink.
+    can carry content that must not reach a sink, ``InputError`` excepted: its own contract is
+    that its message is written for the caller.
 
     A log that could not be written is not the engine misbehaving, so the record does not say it
     was. ``error_code`` stays ``engine_error`` either way: the closed set has no entry for a store
     fault, and minting one is a schema change rather than this line's business.
     """
+    if isinstance(exc, InputError):
+        return RunFailed(error_code=_error_code(exc), message=str(exc), retryable=False)
     if isinstance(exc, StoreError):
         return _engine_failed(f"{type(exc).__name__} recording this run")
     return _engine_failed(f"{type(exc).__name__} in engine {engine!r}")

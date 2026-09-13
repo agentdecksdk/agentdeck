@@ -8,6 +8,402 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Sharing a docs page renders the social preview card instead of a blank one** (#733). The site
+  declared `twitter:card=summary_large_image` and an Open Graph block with no image in either, so
+  every crawler that honoured the declaration reserved a large card and had nothing to put in it.
+  The site now serves a rendered PNG at `/brand/social-card.png`, because no crawler renders SVG
+  for a preview, and the card artwork is the light landing-page treatment in both `docs/brand/`
+  and `docs-site/public/brand/`.
+
+### Removed
+
+- **Docs no longer deploy to GitHub Pages** (#724). The real site is served from its own domain;
+  the Pages mirror hadn't worked since the Fumadocs migration. `docs-pages.yml` is deleted, and
+  `next.config.mjs` no longer branches on `GITHUB_ACTIONS` to add a `/agentdeck` prefix, so CI's
+  `Build documentation` now builds the same output prod serves.
+
+### Fixed
+
+- **`scripts/check_docs_impact.py` accepts an indented docs-impact acknowledgement** (#719). The
+  checklist line was anchored at column 0, so a Markdown list-continuation indent (identical when
+  rendered) failed silently, listing every affected page as unacknowledged. Leading whitespace is
+  now accepted, and the failure output now also names the `gh run rerun` / stale `PR_BODY` gotcha.
+- **`scripts/release_bump.py issues` finds a squash-merged release's milestone issues again**
+  (#699). It looked for `Merge pull request #N` commits, a shape this repo's squash-merge
+  workflow never produces, so it silently milestoned nothing; it now resolves each commit's
+  merged PR and reads GitHub's own `closingIssuesReferences`.
+- **A run that fails between its claim and its play now folds to `failed`, not `cancelled`**
+  (#688). An infrastructure fault there (a store write, a control-signal read) used to close the
+  run with `run.cancelled`, the same terminal kind a real cancellation gets, with the true cause
+  readable only in the reason prose. It now writes `run.failed` with `error_code="engine_error"`,
+  the same code the identical fault gets inside a run's own engine loop, so an operator's failure
+  listing or an incident metric keyed on `run.failed` sees it. A cancellation between the claim
+  and the play still folds to `cancelled`, unchanged. Any consumer that filtered on a run's folded
+  status will now see these runs move from its cancelled set to its failed set.
+
+### Added
+
+- **The docs site nav states which version it documents** (#686), sourced from
+  `generated-version.ts` so it follows the release bump automatically.
+
+### Changed
+
+- **The documentation site runs on Fumadocs instead of Nextra 4** (#683). Same 44 URLs, same
+  Pagefind search, same pages. Nextra's loader routed every fenced block through `twoslash`,
+  whose peer range pinned TypeScript below 7 (#664); nothing does now.
+- **`brand.css` targets Fumadocs' own DOM and tokens instead of Nextra's leftovers** (#691). The
+  sidebar and table-of-contents active states now recolor through Fumadocs' own
+  `--color-fd-primary` token; the announcement bar reads 4.88:1 white-on-blue (AA, disclosed on
+  #691); the docs-site build has zero remaining `.nextra-*` selectors.
+
+## [6.0.3] - 2026-09-04
+
+### Fixed
+
+- **`ctx.reporter` writes each report to the log when it fires** (#487). A report used to wait in
+  a 64-deep buffer the runtime drained at the engine's next payload, so one made inside a long
+  tool call surfaced only when that call ended, one made after the engine's last payload was
+  never written at all, and a call reporting more than 64 times lost the reports nearest its end.
+  Every report is now appended as it is made. `MAX_PENDING_REPORTS` is gone with the buffer and
+  nothing replaces it: how many reports a run may make is the log's business, and a report made
+  after the run completed or was cancelled is refused by the store (#471) rather than discarded
+  on a guess. Whichever event ends a run  -  its own terminal payload, or the `run.failed` written
+  for an engine that raised or one that just stopped  -  now waits for the reports the run already
+  fired, so no report is lost to its own run ending. That wait is one store write per pending report: a run that fires
+  thousands of reports takes thousands of writes to close, and its completion arrives that much
+  later. The old 64-deep buffer capped the wait by dropping reports instead, which was the bug.
+  A store that refuses a report still costs the report, never the run, and a sealed log is said
+  once rather than once per report behind it. A report made after the run
+  wrote its own `run.failed` can still land behind it, because a takeover's `run.failed`
+  deliberately seals nothing (ADR-D11 §5); #685 owns that. A consumer streaming
+  `runtime.run(...)` directly still sees reports at the engine's next payload, and an async body
+  that reports and returns without ever awaiting still has its append land after its own call:
+  both are #487's second half.
+- **A claim that never reaches the run's play is closed at every site that takes one, however the
+  span is left** (#470). A resume or answer whose claim committed and then met a failing
+  `ControlPort`, a failing store read, or a cancellation used to leave a run the log says is
+  `RUNNING` with nobody playing it, holding its session until the staleness window passed.
+  `Runtime.signal(CANCEL)` against a suspended run had no cover at all, so a caller whose own
+  task was cancelled mid-`Run.cancel()` wedged the very run it asked to stop. All four claim
+  sites now record `run.cancelled` and free the session.
+- **A run that completed no longer reads back as cancelled** (#471). A cancel could land behind
+  that run's own `run.completed` and leave `run.status()` reporting `CANCELLED` for a run that
+  finished its work: written by `Deck.aclose` giving up on it, by a session takeover, or by the
+  run's own stream when a consumer broke out of `async for` at the completion, which needs
+  neither of the other two. Whichever of the two events commits first is now the run's outcome on
+  every store, and the loser is refused with `RunStateError` inside the write step that would
+  have appended it. A takeover's `run.failed` still seals nothing: it is written for a run only
+  *believed* dead, and one that turns out to be alive goes on writing (ADR-D11 §5).
+
+## [6.0.2] - 2026-09-04
+
+### Fixed
+
+- **A `ctx.invoke` child run's events reach an `Observer` under its parent's session** (#491). A
+  sink bucketing by conversation now sees the child's `run.started` / `usage.reported` /
+  `run.completed` under it, instead of losing them to a process-wide session-less bucket shared
+  with every other conversation's children. Live sinks only, and attribution only: the child's
+  stored rows stay session-less, so it still claims no session, is still played with its own
+  history, and still contributes nothing to the conversation's transcript. Read a stored child
+  back through `run.started.parent_run_id`.
+- **A workflow sharing a conversation's `session_id` no longer duplicates its input into the
+  agent's next prompt** (#490). Only an agent turn is a conversational turn: a workflow or tool
+  run passed the same `session_id` joins that conversation's event stream, so an operator
+  surface keyed by the session sees it, but its input is an orchestration argument and never
+  reaches the model as something the user said. "Enrich, then answer" on one session is now the
+  one obvious path, with no derived `<session>|step` id to invent.
+  One limit, for a conversation that already ran a workflow on a shared `session_id` under an
+  earlier release: that release replayed the workflow's input into the engine's session, which
+  the transcript no longer counts, so the two disagree from that message on. Such a session
+  reports `openai_agents.session_diverged` on every later turn and skips crash repair, the
+  reconciliation that replays a message the log recorded and a killed process never wrote. Turns
+  themselves are unaffected, and nothing is written into a session AgentDeck cannot account for.
+  Reset one with `await deck.session_for("<session-id>").clear_session()`, which drops that
+  conversation's engine-side memory (the event log is untouched), or move the conversation to a
+  new `session_id`. A session that never shared a workflow run is unaffected.
+
+## [6.0.1] - 2026-09-04
+
+### Changed
+
+- **A completed run reports the artifacts it produced** (#636). `run.completed`'s
+  `output: list[ContentBlock]` now leads with the media the run made  -  a hosted
+  `ImageGenerationTool` image, a rich tool's image or file  -  and closes with the final text or
+  structured block, so a channel can send the image and caption it from one result instead of
+  reassembling it from executor events. Nothing else from the transcript is promoted, and a
+  text-only run is byte for byte what it was. The inline cap on `ImageBlock`/`AudioBlock` moves
+  from 1 MB to 8 MB decoded, because a generated PNG does not fit under 1 MB.
+
+### Fixed
+
+- **A `@workflow` returning content blocks crashed its own run** (#636). Anything other than a
+  `TextBlock` or `DataBlock` was wrapped in a `DataBlock` that could not hold it; a body may now
+  return any list of blocks and `run` hands back exactly those blocks.
+
+- **`ctx.invoke`'s return shape was undocumented.** `await ctx.invoke(<agent>)` resolves to a
+  `TurnResult` (value at `.output`), `await ctx.invoke(<tool|workflow>)` resolves to the body's
+  return value directly, and `ctx.parallel(...)` resolves to a list of each handle's own result,
+  never to handles. `build-your-deck/workflows` now states all three, and
+  `WorkflowCtx.invoke`'s docstring no longer claims the body's return value unconditionally
+  (#489).
+
+## [6.0.0] - 2026-09-03
+
+### Added
+
+- **The protocol SPI is frozen at v1** (#554): `DeckGateway`, `Binding`/`BindingInfo`,
+  `GatewayError`/`GatewayFailureCode`, `HttpEndpoint`/`StdioEndpoint`, and `Exposure`
+  (`deck.serve`/`deck.asgi`/`deck.expose`) are stable. A plugin author builds against them without
+  an SPI major bump until one of those types breaks; a new capability name or a new binding is not
+  a version bump (`docs/design/protocols/spi.md`).
+- **`agentdeck.bindings`, the protocol SPI** (#545): `DeckGateway` (`targets()`,
+  `capabilities`, `start`/`get_run`/`list_runs`), `GatewayError`/`GatewayFailureCode`, `Binding`,
+  `BindingInfo`, `HttpEndpoint`/`StdioEndpoint`. No concrete binding ships yet; this is the
+  contract the first one (#548) builds against.
+- **`Deck.expose(*bindings) -> Exposure`** (#546): validates duplicate HTTP paths, more than one
+  stdio binding, a repeated binding name, an unsupported `spi_version`, and a missing prerequisite
+  binding, all before anything opens. `exposure.asgi()` mounts every
+  `HttpEndpoint` on one Starlette app with the lifecycle bound to its lifespan;
+  `exposure.serve(host=, port=)` runs standalone, closing the Deck only if it opened it. A failed
+  `start()` on binding N stops N..1 in reverse, N included, and raises. `Deck.is_open` is new too.
+
+- **`Native.http()`, the AgentDeck protocol** (#548): `from agentdeck.bindings import
+  Native`, then `deck.serve(Native.http())`. Ten routes over `DeckGateway` and public `Run`
+  methods (targets, start, get/list runs, an SSE tail with `Last-Event-ID`/`from_seq` reconnect,
+  cancel/pause/resume, pending/answer), frames as `Event.model_dump_json()` verbatim, and a
+  versioned wire spec at `docs/design/protocols/native-wire.md`. The implementation lives under
+  `agentdeck/adapters/bindings/native/`; `adapters` is not a user import path.
+- **`RunStatus` is exported from `agentdeck`.** `deck.runs.list(status=...)` takes one and every
+  Native run summary reports one, so a caller reading runs needs the type.
+- **`InputError`** (#579): a public `AgentdeckError` for content or an answer the caller supplied
+  that AgentDeck cannot take, raised by `coerce_input` and by an answer outside an ask's own
+  `options`. A binding maps it to its own bad-request code (Native: 422); an unrelated
+  `TypeError`/`ValueError` from a store or an executor stays internal. Catch `InputError` (or
+  `AgentdeckError`) where you caught `TypeError` or `ValueError` from those calls before.
+- **`AGUI.http()`, the AG-UI protocol binding** (#595/#596, slices AGUI-0 through AGUI-3):
+  `pip install agentdeck-sdk[agui]`, then `from agentdeck.bindings import AGUI` and
+  `deck.serve(AGUI.http("/agui"), port=8000)` for the whole catalog, or `AGUI.http(
+  "/support", target="Support")` pinned. Official `ag-ui-protocol` models and `EventEncoder` over HTTP/SSE:
+  target routing via `forwardedProps.agentdeck.target`, text/reasoning/backend-tool projection,
+  HITL ask/resume through the official `RunFinishedInterruptOutcome`/`resume` shapes, multimodal
+  input, and a client disconnect mapped to `Run.cancel()`. Frontend tools, shared state, and
+  steering are refused by name until their AgentDeck primitives exist
+  (`docs/design/protocols/agui.md`).
+
+- **A terminal chat example needing no API key** (`examples/chat-in-the-terminal/`): one
+  `@workflow` asking the questions, driven by `agentdeck chat`. The first example that runs with
+  no credentials at all.
+- **`Terminal.stdio()`, the first surface** (#549): `from agentdeck.bindings import
+  Terminal`, then `deck.serve(Terminal.stdio(target="Research"))`. One session per process over
+  stdin and stdout: prompts, streams the run's text back, renders a numbered prompt for
+  `ctx.ask` and re-asks on a refused answer, and cancels an in-flight run on Ctrl-C.
+  `agentdeck chat [TARGET]` runs it, where `TARGET` is any agent or workflow in the deck and may
+  be omitted when the deck holds exactly one.
+- **A run event stream example** (#396, `examples/run-events-stream/`): iterates
+  `deck.stream(...)` and prints every event kind and payload in order. Scripts the model with
+  `agentdeck.testing`, so it needs no API key and prints one fixed output.
+- **`Deck.serve(*bindings, host=, port=)` and `Deck.asgi(*bindings)`** (#606): the front door,
+  one-line delegations to `expose(*bindings).serve()`/`.asgi()`. `agentdeck.bindings` now
+  lazily exports `Native` and `Terminal` too, so `from agentdeck.bindings import Native, Terminal`
+  works without importing either module until named. `expose()` is the lower-level call, returning
+  the `Exposure` object itself.
+
+### Removed
+
+- **The v1 HTTP wire is gone** (#550): `agentdeck/serve.py`, all of `agentdeck/surfaces/`, the
+  `agentdeck-serve` console script, `Deck.asgi()` and the byte-for-byte goldens under
+  `tests/golden/`. A Deck no longer serves itself: expose a binding.
+
+  ```python
+  # before
+  app = Deck.from_project().asgi()          # agentdeck-serve
+  # after
+  app = Deck.from_project().asgi(Native.http())
+  ```
+
+  The v1 routes (`/agents/{name}/chat`, `/v2/invocables/{name}/chat`, `/health`) are replaced by
+  the [native wire](https://github.com/agentdecksdk/agentdeck/blob/main/docs/design/protocols/native-wire.md):
+  `POST /runs`, `GET /runs/{run_id}/events`, `GET /targets`. The `[serve]` extra now installs
+  starlette rather than fastapi, which nothing in `agentdeck/` imports any more.
+
+### Changed
+
+- **`Deck.serve()` is synchronous and blocking** (#623), breaking versus the unreleased #606
+  shape: it owns the event loop (`asyncio.run` internally) instead of returning a coroutine, so
+  it runs from plain application code with no `asyncio.run(deck.serve(...))` of your own. The
+  previous coroutine is now `Deck.serve_async()`, for a caller already running inside asyncio.
+  Ctrl-C stops the server and returns quietly, matching `uvicorn.run`; `serve_async()` leaves its
+  own `KeyboardInterrupt` handling to the caller. `agentdeck chat` calls `deck.serve(...)`
+  directly. `Deck.asgi()` is unchanged.
+- **`DeckGateway.start` drops `context`** (#599): no binding ever passed one, and a served run
+  has no live Python execution context to hand it. `DeckGateway` no longer stores or directly
+  exposes the `Deck` it was built from.
+- **`agentdeck.errors` is the one import path for the error taxonomy.** `AgentdeckError`,
+  `ConfigError`, `ContextTypeError`, `NotFoundError`, `SessionBusyError`, `SkillError` and
+  `StoreError` are no longer exported from `agentdeck` itself: `from agentdeck.errors import
+  AgentdeckError` for a catch-all. `agentdeck.errors` has always carried the complete set.
+- **`Event` is exported from `agentdeck`.** `run.events()` yields them, so a caller that reads a
+  run needs the type; it was already documented as a public import for binding authors.
+
+  The root keeps the everyday vocabulary, a feature namespace keeps its own, and no public name
+  lives at two paths (`docs/engineering/architecture.md` 3).
+- **`InterruptReason` drops `"approval"`** (#468): nothing ever produced it  -  `RunInterrupted`
+  is built in one place with `reason="human"` hardcoded, and refusal always came from
+  `payload["options"]`, never from `reason`. `PendingRun.reason`'s docstring now states that rule
+  instead of an approval check that didn't exist.
+
+### Fixed
+
+- **A `@tool` is never a top-level target** (#488): a `.agentdeck/workflows/<name>/workflow.py`
+  exporting a `@tool` alongside its `@workflow` (e.g. so `ctx.invoke` can reach it) used to
+  sweep the tool into `deck.workflows` too, as a runnable entry it never was. `deck.workflows`,
+  `deck.run`/`.stream`, `Runs.start` and `GET /targets` no longer show or accept it by name (a
+  direct `deck.run("the_tool", ...)` now raises `InputError`, 422 over HTTP); `ctx.invoke`
+  from inside a workflow keeps working. A workflow bundle contributing no `@workflow` at all
+  still names what it found ("workflow bundle 'x' exports no workflow; found tool 'y'").
+  **Breaking:** a code-first `Deck(workflows=[a_tool])` naming no `@workflow` that could
+  `ctx.invoke` it now raises `ConfigError` at construction instead of silently becoming a
+  runnable-by-name entry.
+- **A workflow's own `InputError` after `run.started` reaches every wire as itself** (#621):
+  `RunFailed.error_code` gains `"invalid_input"`, and its `message` carries the exception's own
+  caller-safe text instead of being stripped to `"InputError in engine ..."`. Every other
+  exception's shape is unchanged.
+- **`Deck.__aenter__` rolls back a late failure** (#572): a failure after observers started  -  building the runtime, connecting MCP servers  -  used to leave every started observer open and the process claim held, blocking a second `Deck(...)` in the same process. It now closes what it started and releases the claim before re-raising, same as an observer-start failure already did.
+- **A workflow's input mapping that doesn't match its declared parameters raises `InputError`,
+  not `ConfigError`** (#583). It is caller-supplied content the target can't take, not a
+  configuration fault. A same-process caller now catches `InputError` instead of `ConfigError`;
+  `_map_failure` already maps `InputError` to `INVALID_INPUT`.
+
+## [5.2.1] - 2026-08-29
+
+### Changed
+
+- **Release bookkeeping is now scripted** (`scripts/release_bump.py`), and the docs-site footer
+  shows the current version instead of a stale mid-page marker (#560, #564).
+
+## [5.2.0] - 2026-08-29
+
+### Added
+
+- **A deployment guide for running a Deck as a service** (#353): the
+  `AGENTDECK_EVENTS`/`AGENTDECK_CONTROL`/`AGENTDECK_SESSION` durability defaults, a systemd unit,
+  `aclose()` on `SIGTERM`, uvicorn's graceful-shutdown behavior against an open SSE connection,
+  and reverse-proxy buffering. See [Deployment](https://agentdecksdk.com/operate/deployment).
+
+### Changed
+
+- **`Reporter` is always synchronous.** `ctx.reporter.info()`/`.warning()`/`.error()`/`.report()`
+  are plain methods now, not coroutines  -  drop the `await` at every call site. `SyncReporter` is
+  gone; `ToolCtx.reporter` returns the same `Reporter` whether the body runs on the event loop or
+  a worker thread. The buffer it enqueues into is thread-safe either way.
+
+## [5.1.0] - 2026-08-28
+
+### Added
+
+- **`@tool` accepts a sync body.** Only `@workflow` still requires `async def`, because every
+  orchestration primitive on `WorkflowCtx` is awaited and a sync body cannot reach one. A tool has
+  nothing to await, and both paths that play one now put a sync body on a worker thread: the
+  model-facing path already did, and `ctx.invoke()` does now. The refusal previously applied to
+  both kinds, so the richer form was also the more restrictive one.
+- **Content blocks and `Observer` import from the package root.** `ImageBlock`, `TextBlock`,
+  `ContentBlock`, `ResourceBlock`, `AudioBlock`, `DataBlock` and `Observer` are exported from
+  `agentdeck` alongside `Agent` and `Deck`, rather than only from `agentdeck.core.content` and
+  `agentdeck.core.ports`. Sending an agent an image and watching a deck's events are both
+  first-contact tasks, and both previously required knowing an internal path to reach a public
+  capability.
+
+### Removed
+
+- **A plain function carrying a `ToolCtx[...]`/`WorkflowCtx[...]` parameter in `tools=` is
+  refused.** Only `@tool` may declare one now; `build()` names the callable and shows the
+  decorator to add. `instructions=` and `hooks=` callables are unaffected, and a context-free
+  plain function still compiles exactly as before.
+
+### Changed
+
+- **A durable event log now says what it does not make durable.** Setting `AGENTDECK_EVENTS` to
+  anything other than `memory://` while `AGENTDECK_SESSION` is unset logs a warning: the log
+  survives a restart, the conversation the model sees does not. The old warning fired only for
+  `memory://`, so configuring a durable log silenced the one message and left the reader believing
+  recall was handled.
+- **Sending an agent an image is documented where agents are.** `build-your-deck/agents` gains a
+  section on content blocks, and `build-your-deck/tools` states that a tool cannot carry an image:
+  tool results are text, so a returned `data:` URI reaches the model as a string.
+- **The error taxonomy moved to `agentdeck/core/errors.py`.** `agentdeck.errors` re-exports the
+  same class objects, so every `from agentdeck.errors import ...` and `except ConfigError` is
+  unchanged. What changes is what a traceback prints: `agentdeck.core.errors.ConfigError`,
+  not `agentdeck.errors.ConfigError`. Core raises these now, which is where `CLAUDE.md` §2
+  already placed the taxonomy.
+
+### Fixed
+
+- **`Deck.build()` no longer rejects a model for a missing provider env var.** The credential
+  check only ever recognized `anthropic`/`gemini`/`ollama`/`openrouter` and otherwise demanded
+  `OPENAI_API_KEY`/`OPENAI_BASE_URL`, so a `litellm/...` or `any-llm/...` model authenticated
+  through its own provider's own convention (Vertex ADC, an IAM role, ...) failed to build over a
+  credential it would never use. Model authentication belongs to the wrapped Agents SDK and the
+  selected provider, not `Deck.build()`; a real auth failure now surfaces at the actual call,
+  as the provider's own error.
+- **`ctx.reporter` now works from a sync `@tool` body.** It previously did nothing: `Reporter.info`
+  and friends are `async def`, and a worker thread has no event loop to await one on, so a bare
+  call built an unawaited coroutine and quietly reported nothing. `ctx.reporter` from a sync body
+  is now a sync-callable facade that marshals the report onto the run's own loop and blocks until
+  it lands, preserving order against the tool's own return. `ctx.safepoint()` from a sync body now
+  raises `ConfigError` naming the constraint, instead of the same silent no-op.
+- **A sync `@tool` body now runs on a bounded, deck-owned worker pool**, not the interpreter-global
+  default `asyncio.to_thread()` executor. A `Run` cancelled while its sync body is still on a
+  worker now ends `CANCELLED`, never flipped back to `COMPLETED` by the body's eventual,
+  uninterruptible return; a queued-but-not-started call is cancelled outright and its body never
+  runs. The pool drains on `Deck.aclose()` along with everything else this Deck owns.
+- **`@function_tool` over a `ToolCtx` parameter now says what to do about it.** The Agents SDK
+  decorator builds its argument schema from every parameter it does not recognise, so a context
+  one used to fail at decoration with `PydanticSchemaGenerationError: Unable to generate
+  pydantic-core schema for <class 'agentdeck.core.control.Gate'>`, naming a private type and no
+  fix. It now raises `ConfigError` naming the fix: use agentdeck's own `@tool`.
+
+## [5.0.3] - 2026-08-23
+
+### Changed
+
+- **A cancelled run's log is closed for good.** Appending to a run that already has its
+  `run.cancelled` raises `RunStateError` on every store instead of landing behind that event, which
+  is what a write already in flight when `Deck.aclose()` abandoned the run used to do. A takeover's
+  `run.failed` still seals nothing: it is written for a run only believed dead, and one that turns
+  out to be alive goes on writing and may reclaim its own session.
+
+### Fixed
+
+- **A cancelled `answer()` or `resume()` no longer leaves a run claimed but unplayed.** Both claim
+  the run before there is anything to hand back, and a cancellation in between left the log saying
+  the run was live with nothing playing it and its session held until the staleness window passed.
+  The run is closed with `run.cancelled` instead, so the record says what happened and the session
+  is free at once.
+- **`Deck(agents=[...])` refuses a raw Agents SDK agent at construction.** It was admitted
+  silently, because a catalog entry only had to have a `.name`, and `build()` then died on
+  `AttributeError: 'Agent' object has no attribute 'skills'`. The refusal is a `ConfigError`
+  naming the object and pointing at `handoffs=`, which does take a raw SDK agent.
+- **Asking two questions at once is refused instead of losing the branch that was already
+  waiting.** One run holds one answer, so two `ctx.ask(...)` calls raced under `asyncio.gather`
+  overwrote the first branch's future and left it waiting for the life of the run with no error
+  and no event. Only the workflow body itself may suspend its run now, so the first such
+  `ctx.ask(...)` (or `ctx.safepoint()`) raises `ConfigError` and the run fails without ever
+  parking. Fan out with `ctx.parallel(ctx.invoke(...), ...)` instead, where each child run holds
+  its own answer. Not a permanent rule: concurrent questions on one run wait on the answer inbox
+  ([#413](https://github.com/agentdecksdk/agentdeck/issues/413)).
+- **Correction to 5.0.0: no executor is named `"langgraph"`.** The "engine port is `Executor`"
+  entry below lists `LangGraphEngine` becoming `LangGraphExecutor` and keeps `"langgraph"` among
+  the wire values. Both went with the engine in that same release; the executors a 5.x deck names
+  are `"native"`, `"openai-agents"` and `"stub"`.
+- **Known Issues no longer documents removed machinery.** The restart entry named
+  `AGENTDECK_CHECKPOINT`, a setting 5.0 removed along with the checkpointer, and one row described
+  a graph `interrupt()`. Both are gone from [Known Issues](/resources/known-issues).
+- **`run.answer()` says what an ask without options does with the value.** An ask that named
+  `options` refuses anything outside them; one that named none hands the value to the body, which
+  is the only thing that can judge it. `PendingRun.invocable` now says why the name is general.
+
 ## [5.0.0] - 2026-08-22
 
 ### Added
@@ -287,8 +683,8 @@ run-scoped API, and the control plane. Read **Upgrading** before you bump.
   `(namespace, run_id, seq)`, so one logical run can no longer be split across two log keys. An
   existing SQLite events database is migrated in place on open (`key` column added, the tightened
   index rebuilt); a database with rows that genuinely violate the tighter constraint raises
-  `StoreError` naming the conflict instead of silently picking a survivor. `list_runs` gains a
-  `limit` parameter across all four stores.
+  `StoreError` naming the conflict instead of silently picking a survivor. `EventStorePort.list_runs`
+  gains a `limit` parameter across all four stores.
 - **Breaking: `deck.run(...)`/`deck.stream(...)` now raises `SessionBusyError` on a session
   held by a run parked `PAUSED` or `WAITING_ANSWER`, however long ago it went quiet** (#311).
   Every store's `claim_start` applied `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` to *any* open
@@ -365,7 +761,7 @@ run-scoped API, and the control plane. Read **Upgrading** before you bump.
   index over `events`' own `namespace`/`run_id` columns (`CREATE INDEX IF NOT EXISTS`, so it
   applies cleanly to a database an earlier build already created), and memory/Redis keep a
   derived `(namespace, run_id) -> log_key` mapping a replay of the log rebuilds. `Deck._status`
-  (behind `deck.runs.status`) uses it now instead of walking `list_runs`.
+  (behind `Run.status`) uses it now instead of walking `EventStorePort.list_runs`.
 - **Breaking: `deck.run(...)`/`deck.stream(...)` no longer stop a run when its caller stops
   reading it** (#325). Execution used to *be* consuming the event generator, so closing
   `stream()`'s frame (or having the task reading it cancelled, as a real HTTP disconnect does)
@@ -2452,7 +2848,15 @@ documentation platform and its CI.
   `runtime/tools.py`, `PluginRegistry.pick`, `skill_runtime` LLM/batch
   helpers; deps typer, rich, prompt-toolkit.
 
-[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v5.0.0...HEAD
+[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.3...HEAD
+[6.0.3]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.2...v6.0.3
+[6.0.2]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.1...v6.0.2
+[6.0.1]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.0...v6.0.1
+[6.0.0]: https://github.com/agentdecksdk/agentdeck/compare/v5.2.1...v6.0.0
+[5.2.1]: https://github.com/agentdecksdk/agentdeck/compare/v5.2.0...v5.2.1
+[5.2.0]: https://github.com/agentdecksdk/agentdeck/compare/v5.1.0...v5.2.0
+[5.1.0]: https://github.com/agentdecksdk/agentdeck/compare/v5.0.3...v5.1.0
+[5.0.3]: https://github.com/agentdecksdk/agentdeck/compare/v5.0.0...v5.0.3
 [5.0.0]: https://github.com/agentdecksdk/agentdeck/compare/v4.0.5...v5.0.0
 [4.0.5]: https://github.com/agentdecksdk/agentdeck/compare/v4.0.4...v4.0.5
 [4.0.4]: https://github.com/agentdecksdk/agentdeck/compare/v4.0.3...v4.0.4

@@ -1,22 +1,44 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { Inter, Poppins } from 'next/font/google'
-import { Footer, Layout, Navbar } from 'nextra-theme-docs'
-import { Head } from 'nextra/components'
-import { Mark } from './mark'
-import { getPageMap } from 'nextra/page-map'
+import { Agentation } from 'agentation'
+import { Announcement } from '@/components/site/announcement'
+import { SiteProviders } from '@/components/site/providers'
 import type { ReactNode } from 'react'
-import { docsSlugs } from './docs-slugs'
-import { JackPanel } from './jack'
-import { SITE } from './site'
-import 'nextra-theme-docs/style.css'
-import './brand.css'
-import './landing.css'
-import './hero.css'
-import './jack.css'
+import { CURRENT_VERSION } from '@/lib/version'
+import { SITE } from '@/lib/site'
+import '@/styles/global.css'
+import '@/styles/base.css'
+import '@/styles/docs.css'
+import '@/components/site/header.css'
+import '@/components/site/announcement.css'
+import '@/components/site/footer.css'
+import '@/components/docs/callout.css'
+import '@/components/docs/contribute.css'
+import '@/components/docs/diagram.css'
+import '@/components/docs/page-feedback.css'
+import '@/components/docs/toc.css'
+import '@/components/landing/install-line.css'
+import '@/components/landing/landing.css'
+import '@/components/landing/hero.css'
+import '@/components/jack/jack.css'
 
 // Self-hosted at build time  -  the static export makes no external font request.
 const body = Inter({ subsets: ['latin'], variable: '--font-body', display: 'swap' })
 const display = Poppins({ subsets: ['latin'], weight: ['500', '600'], variable: '--font-display', display: 'swap' })
+
+// The browser chrome's colour on mobile, matched to the page background in each theme.
+// `nextra-theme-docs`'s <Head backgroundColor> emitted these two; nothing else does.
+export const viewport: Viewport = {
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: 'rgb(250,251,254)' },
+    { media: '(prefers-color-scheme: dark)', color: 'rgb(11,18,32)' }
+  ]
+}
+
+// Tracked in `.github/assets/`, where CI requires every binary to live
+// (docs/engineering/dependencies.md §5); `prebuild` copies it into `public/`.
+const CARD = '/brand/social-card.png'
+const CARD_ALT = 'AgentDeck SDK: agentic software should feel like software.'
 
 export const metadata: Metadata = {
   // Every relative URL in metadata  -  canonical tags, OG images  -  resolves against this, so the
@@ -30,9 +52,15 @@ export const metadata: Metadata = {
     title: 'AgentDeck SDK  -  a production runtime for AI agents',
     description:
       'Durable human-in-the-loop approvals, sessions, streaming, run control and one ordered '
-      + 'event log per run  -  wrapping the OpenAI Agents SDK rather than replacing it.'
+      + 'event log per run  -  wrapping the OpenAI Agents SDK rather than replacing it.',
+    // PNG, not the SVG beside it: no crawler renders SVG for a preview card.
+    images: [{ url: CARD, width: 1280, height: 640, alt: CARD_ALT }]
   },
-  twitter: { card: 'summary_large_image', title: 'AgentDeck SDK' },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'AgentDeck SDK',
+    images: [{ url: CARD, alt: CARD_ALT }]
+  },
   title: {
     default: 'AgentDeck SDK  -  a production runtime for AI agents',
     template: '%s | AgentDeck SDK'
@@ -43,28 +71,9 @@ export const metadata: Metadata = {
     + 'event log per run  -  wrapping the OpenAI Agents SDK rather than replacing it.'
 }
 
-const navbar = (
-  <Navbar
-    logo={
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
-        <Mark />
-        <strong style={{ fontFamily: 'var(--font-display)', fontWeight: 600, letterSpacing: '-0.02em' }}>AgentDeck</strong>
-      </span>
-    }
-    projectLink="https://github.com/agentdecksdk/agentdeck"
-  />
-)
-
-const footer = (
-  <Footer>
-    AgentDeck SDK · Compose. Observe. Ship.
-  </Footer>
-)
-
-export default async function RootLayout({ children }: { children: ReactNode }) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" dir="ltr" className={`${body.variable} ${display.variable}`} suppressHydrationWarning>
-      <Head backgroundColor={{ light: '#fafbfe', dark: '#0b1220' }} color={{ hue: { light: 222.9, dark: 221.1 }, saturation: { light: 100, dark: 100 }, lightness: { light: 57.3, dark: 78.8 } }} />
       <body style={{ fontFamily: 'var(--font-body), sans-serif' }}>
         {/* What the site *is*, in the form a search engine reads. Without it a crawler has to
             infer the entry point from links alone, and a documentation page that answers a query
@@ -99,16 +108,15 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
             })
           }}
         />
-        <Layout
-          navbar={navbar}
-          pageMap={await getPageMap()}
-          docsRepositoryBase="https://github.com/agentdecksdk/agentdeck/tree/dev/docs-site"
-          footer={footer}
-          sidebar={{ autoCollapse: true }}
-        >
+        <SiteProviders>
+          <Announcement id="v6-launch" href="/meet-agentdeck/whats-new-6">
+            AgentDeck 6.0 is here: serve one deck over HTTP, AG-UI or the terminal.
+          </Announcement>
           {children}
-        </Layout>
-        <JackPanel validSlugs={docsSlugs()} />
+        </SiteProviders>
+        {/* Annotate the running site in the browser; the overlay talks to the agent over the
+            agentation MCP server. Dead code in a production build, where NODE_ENV is inlined. */}
+        {process.env.NODE_ENV === 'development' && <Agentation />}
       </body>
     </html>
   )

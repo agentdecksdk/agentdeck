@@ -25,12 +25,14 @@ from pydantic import (
 
 from agentdeck.core.base import CoreModel, JsonData
 
-INLINE_BYTES_CAP = 1024 * 1024
-"""1 MB decoded, enforced on every inline block (:class:`ImageBlock`, :class:`AudioBlock`).
+INLINE_BYTES_CAP = 8 * 1024 * 1024
+"""8 MB decoded, enforced on every inline block (:class:`ImageBlock`, :class:`AudioBlock`).
 
 Base64 in an event lands in an append-only log and replays down every SSE connection for the
-life of that run, so a documented-only limit is a limit that ships violated. Deliberately low:
-raising the cap later is compatible, lowering it is not."""
+life of that run, so a documented-only limit is a limit that ships violated. Sized for one
+generated image (a 1024x1024 PNG from ``ImageGenerationTool`` runs past the 1 MB this started
+at, and a run result that cannot hold its own image is the bug #636 fixes); raising the cap
+again is compatible, lowering it is not."""
 
 
 def _capped_inline(value: str) -> str:
@@ -163,7 +165,11 @@ def coerce_input(value: str | Input) -> Input:
         return [TextBlock(text=value)]
     if isinstance(value, list) and all(isinstance(block, _BLOCK_TYPES) for block in value):
         return list(value)
-    raise TypeError(f"expected str or list[ContentBlock], got {type(value).__name__}")
+    # Imported here, not at module scope: `status.py` imports `answer_of` from this module, so
+    # content -> errors -> status -> content would close a cycle.
+    from agentdeck.core.errors import InputError
+
+    raise InputError(f"expected str or list[ContentBlock], got {type(value).__name__}")
 
 
 def as_answer(value: Any) -> Input | None:
@@ -186,14 +192,16 @@ def as_answer(value: Any) -> Input | None:
     # A type check, not a comparison: `!=` runs the caller's own `__ne__`, and an array-like
     # answer (ndarray, Series) returns elementwise and then raises on `bool()`.
     if not (isinstance(value, list) and not value):
+        from agentdeck.core.errors import InputError
+
         try:
             return coerce_input(value)
-        except TypeError:
+        except InputError:
             pass
     try:
         return [DataBlock(data=value)]
     except ValidationError as invalid:
-        raise ValueError(
+        raise InputError(
             f"an answer of type {type(value).__name__} cannot be recorded, and an answer the log "
             "cannot hold is one no resume can read back. Pass something JSON can carry: a string, "
             "a number, a bool, a list or a dict."

@@ -12,17 +12,18 @@ agentdeck/
     runtime/       # settings, plugin discovery, the Runtime's own primitives
     authoring/     # Agent, @tool, @workflow: the declarative construction API, compiles to InvocableSpec
     skills/        # Skills: SKILL.md discovery, validation, disclosure text
-    adapters/      # executors (openai-agents, native), event stores, control ports, tool sources
-    surfaces/      # thin readers over the canonical event stream (HTTP compat, CLI)
+    adapters/      # executors, event stores, control ports, tool sources, bindings
+    bindings/      # the protocol SPI, and the public path to each in-tree binding
     deck.py        # Deck: the composition root: build a catalog, open it, run turns on it
     mcp.py         # MCP: .mcp.json parsing and validation
-    serve.py       # the FastAPI app agentdeck-serve runs
 ```
 
 `Deck` is the one class application code needs directly: see the top-level
 [README](../README.md) for how to use it, and [`docs-site/`](../docs-site/) for the full guide.
-The rest of this package is composition plumbing `Deck` wires together; nothing else here is
-meant to be imported on its own except `agentdeck.authoring` (`Agent`, `@workflow`, `@tool`).
+The rest of this package is composition plumbing `Deck` wires together. Application code
+imports from `agentdeck` itself (`Agent`, `Deck`, `tool`, `workflow`, ...) and from a feature
+namespace when it needs one; `agentdeck.authoring` is where those objects are defined, not a
+second import path to teach. See [`docs/engineering/architecture.md`](../docs/engineering/architecture.md).
 
 ## Plug-in discovery
 
@@ -36,15 +37,8 @@ silently discovering nothing.
 
 ## Settings
 
-Layered Pydantic-Settings models. See [`runtime/settings.py`](runtime/settings.py) for
-definitions, or the generated `docs-site/content/reference/settings.mdx` for every
-`AGENTDECK_*`/`OPENAI_*`/`TAVILY_*` env var.
+Layered Pydantic-Settings models, internal: the user-facing surface is the env vars
+themselves, generated into `docs-site/content/reference/settings.mdx`. See
+[`runtime/settings.py`](runtime/settings.py) for the definitions. `get_settings()` is for code
+inside this package, not for application code.
 
-```python
-from agentdeck.runtime.settings import get_settings
-
-s = get_settings()  # cached
-s.openai.model
-s.runner.max_turns
-s.events.url  # e.g. "sqlite://.agentdeck/events.sqlite3"  -  the scheme names the backend
-```

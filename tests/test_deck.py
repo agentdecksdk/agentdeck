@@ -15,10 +15,11 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from agents import Agent as SDKAgent
 from agents import WebSearchTool, function_tool
 from pydantic import BaseModel
 
-from agentdeck import WorkflowCtx, workflow
+from agentdeck import ToolCtx, WorkflowCtx, tool, workflow
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.tools.mcp.lifecycle import MCPLifecycle
 from agentdeck.authoring import Agent
@@ -26,6 +27,7 @@ from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext  # noqa: TC001  -  the node below resolves it at runtime
 from agentdeck.core.control import Signal
 from agentdeck.core.events import RunStarted
+from agentdeck.core.ports import Observer
 from agentdeck.core.status import RunStatus
 from agentdeck.deck import _CLOSE_ATTEMPTS, _CLOSE_GRACE, Deck, TurnResult, _new_context, _turn_result
 from agentdeck.errors import (
@@ -324,6 +326,162 @@ async def test_a_sequential_deck_reads_its_own_bundles_not_the_previous_projects
     await second.aclose()
 
 
+# --- __aenter__ rolls back everything it started when a later step fails (#572) --------------
+
+
+class _Recorder(Observer):
+    """A caller's own observer: only the start/close counts the rollback assertions need."""
+
+    def __init__(self, order: list[str] | None = None) -> None:
+        self.starts = 0
+        self.closes = 0
+        self._order = order
+
+    async def start(self) -> None:
+        self.starts += 1
+
+    async def emit(self, event: Any) -> None:
+        pass
+
+    async def close(self) -> None:
+        self.closes += 1
+        if self._order is not None:
+            self._order.append("recorder")
+
+
+class _BrokenClose(Observer):
+    """An observer whose own close() also fails  -  rollback must survive it and keep closing
+    the rest, and it must never replace the exception the open was already dying of."""
+
+    def __init__(self, order: list[str] | None = None) -> None:
+        self.closes = 0
+        self._order = order
+
+    async def emit(self, event: Any) -> None:
+        pass
+
+    async def close(self) -> None:
+        self.closes += 1
+        if self._order is not None:
+            self._order.append("broken")
+        raise RuntimeError("close is broken too")
+
+
+@pytest.mark.asyncio
+async def test_aenter_failing_in_mcp_startup_closes_observers_and_releases_the_claim(no_project, monkeypatch):
+    """Only the observer-start step used to roll back; a failure past it left every already-
+    started observer open, the runtime's own store connected and unclosed, and the process claim
+    held  -  blocking a second ``Deck()`` in the same process, since there is no ``__aexit__``
+    for a raised ``__aenter__``."""
+    from agentdeck.adapters.stores.memory import MemoryEventStore
+
+    class _SpyStore(MemoryEventStore):
+        def __init__(self) -> None:
+            super().__init__()
+            self.aclose_calls = 0
+
+        async def aclose(self) -> None:
+            self.aclose_calls += 1
+
+    recorder = _Recorder()
+    store = _SpyStore()
+
+    async def _raise(*_a: Any, **_k: Any) -> None:
+        raise RuntimeError("MCP host unreachable")
+
+    monkeypatch.setattr(MCPLifecycle, "startup", _raise)
+    monkeypatch.setattr("agentdeck.deck.resolve_event_store", lambda: store)
+    deck = Deck(agents=[_greeter()], observers=[recorder])
+
+    with pytest.raises(RuntimeError, match="MCP host unreachable"):
+        async with deck:
+            pass
+
+    assert recorder.starts == 1
+    assert recorder.closes == 1
+    assert store.aclose_calls == 1
+    assert deck.is_open is False
+
+    second = Deck(agents=[_greeter()])  # the claim was released; this must not raise ConfigError
+    await second.aclose()
+
+
+@pytest.mark.asyncio
+async def test_a_failed_aenter_is_terminal_like_a_closed_deck(no_project, monkeypatch):
+    """A Deck whose open failed is single-use, the same as one that was closed: retrying
+    ``__aenter__()`` on it must not silently succeed after the claim was already released to
+    whoever asked for it next."""
+
+    async def _raise(*_a: Any, **_k: Any) -> None:
+        raise RuntimeError("MCP host unreachable")
+
+    monkeypatch.setattr(MCPLifecycle, "startup", _raise)
+    deck = Deck(agents=[_greeter()])
+
+    with pytest.raises(RuntimeError, match="MCP host unreachable"):
+        async with deck:
+            pass
+
+    with pytest.raises(ConfigError, match="already closed"):
+        await deck.__aenter__()
+
+    second = Deck(agents=[_greeter()])
+    await second.aclose()
+
+
+@pytest.mark.asyncio
+async def test_aenter_failing_in_build_runtime_closes_observers_and_releases_the_claim(no_project, monkeypatch):
+    recorder = _Recorder()
+
+    def _raise(**_kwargs: Any) -> Any:
+        raise RuntimeError("runtime assembly failed")
+
+    monkeypatch.setattr("agentdeck.deck.build_runtime", _raise)
+    deck = Deck(agents=[_greeter()], observers=[recorder])
+
+    with pytest.raises(RuntimeError, match="runtime assembly failed"):
+        async with deck:
+            pass
+
+    assert recorder.starts == 1
+    assert recorder.closes == 1
+    assert deck.is_open is False
+
+    second = Deck(agents=[_greeter()])
+    await second.aclose()
+
+
+class _RefusesToStart(Observer):
+    """The third observer in the rollback test below: its own start() never succeeds, so the
+    runtime is never built and the rollback falls back to closing what did start, by hand."""
+
+    async def start(self) -> None:
+        raise RuntimeError("no thanks")
+
+    async def emit(self, event: Any) -> None:
+        pass
+
+
+@pytest.mark.asyncio
+async def test_aenter_rollback_survives_an_observer_whose_close_also_raises(no_project):
+    """Mirrors ``Exposure._lifecycle``'s reverse-order stop: one observer's close() failing
+    during rollback must not stop the rest from closing, and must not mask the original error."""
+    order: list[str] = []
+    broken = _BrokenClose(order)
+    recorder = _Recorder(order)
+    deck = Deck(agents=[_greeter()], observers=[broken, recorder, _RefusesToStart()])
+
+    with pytest.raises(RuntimeError, match="no thanks"):
+        async with deck:
+            pass
+
+    assert order == ["recorder", "broken"]  # closed in reverse of start order
+    assert deck.is_open is False
+
+    second = Deck(agents=[_greeter()])
+    await second.aclose()
+
+
 # --- context= is a type on the constructor and a value per run --------------------------------
 
 
@@ -395,7 +553,7 @@ def test_agent_and_workflow_sharing_a_name_fails_build_naming_both():
 
     # a bare `match="Twin"` would still pass a regression to a message naming only one kind  -
     # pin that both are named, not just that the shared name appears somewhere in the text.
-    with pytest.raises(ConfigError, match=r"agent.*Twin.*workflow|workflow.*Twin.*agent"):
+    with pytest.raises(ConfigError, match=r"Twin.*agent.*workflow|Twin.*workflow.*agent"):
         deck.build()
 
 
@@ -431,8 +589,10 @@ def test_declaring_mcp_with_no_mcp_configured_at_all_fails_build():
 
 
 # --- a plain callable in tools= is compiled, and one that cannot be is refused loudly ------
-# (#172 rejected every bare callable; #166 makes one the canonical declaration, because a
-# callable annotated ToolCtx[...] cannot be pre-decorated without leaking that parameter)
+# (#172 rejected every bare callable; #166 made one the canonical declaration for every tool.
+# A callable annotated ToolCtx[...] narrowed that: it cannot be pre-decorated with @function_tool
+# without leaking that parameter, and now cannot be left undecorated either  -  only @tool carries
+# a context into a tool, tested below.)
 
 
 def test_agent_tool_that_is_a_bare_named_function_is_compiled():
@@ -488,6 +648,56 @@ def test_agent_tool_that_is_not_callable_at_all_fails_build():
     with pytest.raises(ConfigError, match="Greeter") as exc_info:
         deck.build()
     assert "neither a callable nor an Agents SDK tool object" in str(exc_info.value)
+
+
+class Calendar:
+    """The sort of thing an application hands a run: a live object, never serialized."""
+
+    def find(self, day: str) -> str:
+        return f"{day} 09:00"
+
+
+def test_a_plain_function_carrying_a_context_fails_build_naming_tool():
+    """The rule this whole slice narrowed to: a ``ToolCtx[...]`` parameter needs a visible
+    declaration site, and ``@tool`` is it."""
+
+    async def find_slots(day: str, environment: ToolCtx[Calendar]) -> str:
+        """Find free slots."""
+        return day
+
+    deck = Deck(agents=[_greeter(name="Booking", tools=[find_slots])])
+
+    with pytest.raises(ConfigError, match="Booking") as exc_info:
+        deck.build()
+    message = str(exc_info.value)
+    assert "find_slots" in message
+    assert "@tool" in message
+
+
+def test_the_same_function_declared_tool_compiles_and_injects():
+    """The other half: nothing about carrying a context is refused, only carrying it undeclared."""
+
+    @tool
+    async def find_slots(day: str, environment: ToolCtx[Calendar]) -> str:
+        """Find free slots."""
+        return environment.data.find(day)
+
+    deck = Deck(agents=[_greeter(tools=[find_slots])])
+    deck.build()
+
+    (compiled,) = deck._invocables["Greeter"].native.tools
+    assert compiled.name == "find_slots"
+    assert sorted(compiled.params_json_schema["properties"]) == ["day"]
+
+
+def test_a_raw_sdk_agent_in_the_catalog_is_refused_at_construction():
+    """agentdeck #451: a raw SDK agent has a ``.name``, so the catalog admitted it and ``build()``
+    died on ``.skills``. It is legitimate as a handoff target, which is where the refusal points."""
+    raw = SDKAgent(name="raw", instructions="hi")
+
+    with pytest.raises(ConfigError, match="raw") as exc_info:
+        Deck(agents=[raw])
+    assert "handoffs=" in str(exc_info.value)
 
 
 def test_agent_tool_wrapped_with_function_tool_builds_cleanly():
@@ -812,40 +1022,6 @@ def test_engines_seam_accepts_the_matching_default_engines(no_project):
     deck.build()  # no raise
 
 
-# --- asgi() opens and closes through the ASGI lifespan --------------------------------------
-
-
-def test_asgi_opens_and_closes_the_deck_through_the_lifespan(no_project, scripted):
-    from fastapi.testclient import TestClient
-
-    deck = Deck(agents=[_greeter()])
-    api = deck.asgi()
-
-    assert deck._state == "NEW"
-    with TestClient(api) as client:
-        assert deck._state == "OPEN"
-        response = client.post("/agents/Greeter/chat", json={"session_id": "s", "message": "hi"})
-        assert response.status_code == 200
-    assert deck._state == "CLOSED"
-
-
-def test_asgi_health_reflects_this_decks_catalog(no_project, tmp_path):
-    from fastapi.testclient import TestClient
-
-    _write_skill(tmp_path, "booking")
-    deck = Deck(agents=[_greeter()], workflows=[_shout_workflow()], skills=tmp_path)
-
-    with TestClient(deck.asgi()) as client:
-        response = client.get("/health")
-
-    assert response.json() == {
-        "status": "ok",
-        "agents": ["Greeter"],
-        "workflows": ["Shout"],
-        "skills": ["booking"],
-    }
-
-
 # --- v1's convenience carried across as `run`/`stream`, behave the same on Deck ------------
 
 
@@ -1135,8 +1311,9 @@ async def test_closing_a_deck_returns_even_when_a_run_never_observes_its_cancell
     """``aclose()`` asks twice and then stops waiting (#412) rather than betting on the run taking
     a cancellation at all, and writes the abandoned run's own ``run.cancelled`` on the way past:
     left open it would be exactly the ghost state ``stale_run_after`` exists to recover. The task
-    stays alive, and the run goes on writing, so no append it starts from there may reach the log
-    past that event.
+    stays alive and the run goes on writing, and nothing it writes may reach the log past that
+    event  -  including the write already suspended inside the store when the event landed, which
+    the guard above the store cannot see and the store itself refuses (#421).
     """
 
     class _UncancellableStore(MemoryEventStore):
@@ -1180,9 +1357,9 @@ async def test_closing_a_deck_returns_even_when_a_run_never_observes_its_cancell
         with contextlib.suppress(BaseException):
             await task
         kinds = [event.kind for event in await store.read_session(_reader_ctx("s1"))]
-        # The one write already suspended inside the store when the run was abandoned still lands
-        # (#421). Every append the run starts after that is refused, so nothing else follows.
-        assert kinds[kinds.index("run.cancelled") + 1 :] == ["text.delta"]
+        # Including the one write already suspended inside the store when the run was abandoned:
+        # the store refuses it on the way out, so ``run.cancelled`` is the log's last word (#421).
+        assert kinds[kinds.index("run.cancelled") + 1 :] == []
     finally:
         store.release.set()
         if task is not None:
@@ -1207,6 +1384,24 @@ async def test_run_and_stream_share_one_session(no_project):
     # two model calls, and the second turn's input carries the first turn's history
     assert model.calls == 2
     assert "first" in str(model.inputs[-1])
+
+
+@pytest.mark.asyncio
+async def test_a_workflow_joins_a_session_without_joining_its_transcript(no_project):
+    """ "Enrich, then answer" on one conversation (#490): a workflow's input is an orchestration
+    argument, so sharing the agent's ``session_id`` puts the workflow's run on that
+    conversation's event stream without putting its argument in front of the model."""
+    said = "Hi, I run a studio in Ornit"
+    model = ScriptedModel(deltas=("hi",))
+    deck = Deck(agents=[_greeter()], workflows=[_shout_workflow()])
+
+    with patch_model(model):
+        async with deck:
+            enriched = [event async for event in deck.stream("Shout", said, session_id="s1")]
+            await deck.run("Greeter", said, session_id="s1")
+
+    assert [event.session_id for event in enriched] == ["s1"] * len(enriched)
+    assert str(model.inputs[0]).count(said) == 1
 
 
 def test_sessions_keyed_by_id(no_project):
@@ -1907,6 +2102,21 @@ async def test_a_paused_run_offers_resume_instead_of_pause(no_project):
         [event async for event in stream]
 
         assert await run.status() is RunStatus.PAUSED
+        assert (run.can.pause, run.can.resume, run.can.cancel) == (False, True, True)
+
+
+@pytest.mark.asyncio
+async def test_pausing_an_already_paused_run_keeps_can_current(no_project):
+    deck = Deck(agents=[_greeter()])
+    async with deck:
+        stream = deck.stream("Greeter", "hi there", session_id="s-can-paused-twice")
+        started = await anext(stream)
+        run = await deck.runs.get(started.run_id)
+        await run.pause("operator stepped away")
+        [event async for event in stream]
+
+        await run.pause("operator is still away")
+
         assert (run.can.pause, run.can.resume, run.can.cancel) == (False, True, True)
 
 

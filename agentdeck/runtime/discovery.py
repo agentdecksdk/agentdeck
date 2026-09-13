@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
     from agentdeck.authoring.compile import Delegate
     from agentdeck.core.ports import Executor
+    from agentdeck.core.workers import SyncToolWorkers
 
 # Which executor plays which bundle shape: a bundle names no executor of its own, the shape it
 # was authored in decides. Written as strings rather than read off the adapters, because an
@@ -74,6 +75,7 @@ class InvocableRegistry:
         bundle_of: Mapping[str, str] | None = None,
         context_type: object | None = None,
         delegate: Delegate | None = None,
+        workers: SyncToolWorkers | None = None,
     ) -> Mapping[str, InvocableSpec]:
         """Compile every agent and workflow to an ``InvocableSpec``.
 
@@ -102,7 +104,13 @@ class InvocableRegistry:
             agents = list(registry.list().values())
             bundle_of.update(registry.bundle_files())
         if workflows is None:
-            registry = self._discover(NativeDefinition, type_dir="workflows", module_name="workflow", label="workflow")
+            registry = self._discover(
+                NativeDefinition,
+                type_dir="workflows",
+                module_name="workflow",
+                label="workflow",
+                kind=InvocableKind.WORKFLOW,
+            )
             workflows = list(registry.list().values())
             bundle_of.update(registry.bundle_files())
         specs: dict[str, InvocableSpec] = {}
@@ -116,6 +124,7 @@ class InvocableRegistry:
                     context_type=context_type,
                     catalog=catalog,
                     delegate=delegate,
+                    workers=workers,
                 )
             except Exception as exc:
                 bundle_file = bundle_of.get(agent.name)
@@ -129,10 +138,18 @@ class InvocableRegistry:
             self._add(specs, workflow.name, workflow.kind, workflow, executor=NATIVE_EXECUTOR)
         return specs
 
-    def _discover(self, base_class: type, *, type_dir: str, module_name: str, label: str) -> PluginRegistry[Any]:
+    def _discover(
+        self,
+        base_class: type,
+        *,
+        type_dir: str,
+        module_name: str,
+        label: str,
+        kind: InvocableKind | None = None,
+    ) -> PluginRegistry[Any]:
         package = mount_project_dir()
         registry = PluginRegistry(
-            package, base_class=base_class, module_name=module_name, type_dir=type_dir, label=label
+            package, base_class=base_class, module_name=module_name, type_dir=type_dir, label=label, kind=kind
         )
         registry.list(refresh=True)
         return registry
@@ -150,8 +167,8 @@ class InvocableRegistry:
         # exposing the same invocable name) already raised inside the scan that fed this.
         if name in specs:
             raise ConfigError(
-                f"an agent and a workflow are both named {name!r} (kinds: {specs[name].kind.value} and "
-                f"{kind.value}); one name is one invocable  -  rename one of them."
+                f"{name!r} is registered under two kinds: {specs[name].kind.value} and {kind.value}; "
+                "one name is one invocable  -  rename one of them."
             )
         executor = executor or EXECUTOR_FOR_KIND[kind]
         if executor not in self._executors:

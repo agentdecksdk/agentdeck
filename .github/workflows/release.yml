@@ -15,7 +15,6 @@ on:
 
 permissions:
   contents: write
-  actions: write   # the Deploy docs step dispatches docs-pages.yml
 
 concurrency:
   group: release-${{ github.ref }}
@@ -54,8 +53,8 @@ jobs:
       AGENTDECK_TEST_REDIS_URL: redis://127.0.0.1:6379/15
       AGENTDECK_TEST_POSTGRES_DSN: postgresql://postgres:postgres@127.0.0.1:5432/agentdeck_test
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
           enable-cache: true
@@ -70,9 +69,9 @@ jobs:
           fi
       - name: Install and check
         # Same extras as ci.yml: a release build must run the same gate as a merge, not a
-        # narrower one.
+        # narrower one. --locked: fails loudly if `uv.lock` is stale (#605).
         run: |
-          uv pip install -e ".[dev,serve,postgres,observability]"
+          uv sync --locked --all-extras
           .venv/bin/python -c "import fastapi, uvicorn, langfuse, psycopg, redis"
           .venv/bin/ruff check agentdeck/ tests/
           .venv/bin/ty check agentdeck
@@ -122,13 +121,6 @@ jobs:
             flags="$flags --prerelease"
           fi
           gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" $flags
-      - name: Deploy docs
-        env:
-          GH_TOKEN: ${{ github.token }}
-        # A release created with GITHUB_TOKEN never fires the `release: published`
-        # trigger (GitHub's recursion guard), so the docs deploy is chained here;
-        # workflow_dispatch is exempt from that guard.
-        run: gh workflow run docs-pages.yml --ref "$GITHUB_REF_NAME"
 
   pypi:
     # Publishing is off until the repository variable PYPI_PUBLISH is set to "true".

@@ -1,14 +1,16 @@
 """Regenerate-and-diff for every generated reference page (`docs-site/content/reference/
 {settings,cli}.mdx`, `docs-site/content/changelog.mdx`, `docs-site/public/{llms.txt,
-llms-full.txt}`): a generated page that can silently drift from the source it was generated from
-is worse than a hand-written one, because nobody suspects it. Run
-`python scripts/generate_docs_reference.py` to refresh the committed pages after changing
+llms-full.txt}`, `docs-site/lib/version.ts`): a generated page that can silently drift
+from the source it was generated from is worse than a hand-written one, because nobody suspects
+it. Run `python scripts/generate_docs_reference.py` to refresh the committed pages after changing
 `agentdeck/runtime/settings.py`, `agentdeck/cli.py`, `CHANGELOG.md`, or any `docs-site/content/**/*.mdx`
 page, and this suite fails loudly if that step was skipped.
 
-Three of the five are pinned byte for byte: `settings.mdx`, `cli.mdx` and `llms.txt`. They
-derive from `agentdeck/runtime/settings.py`, `agentdeck/cli.py` and the set of docs pages, none
-of which two PRs edit at once by accident.
+Four of the six are pinned byte for byte: `settings.mdx`, `cli.mdx`, `llms.txt` and
+`lib/version.ts`. The first three derive from `agentdeck/runtime/settings.py`,
+`agentdeck/cli.py` and the set of docs pages, none of which two PRs edit at once by accident.
+`lib/version.ts` derives from `CHANGELOG.md`'s newest *released* heading, which only a
+release-cut commit adds  -  never two concurrent PRs at once, unlike an `## [Unreleased]` entry.
 
 **`changelog.mdx` and `llms-full.txt` are asserted regenerable, not byte-equal, and that is
 deliberate.** Both derive from `CHANGELOG.md`, which is `merge=union` in `.gitattributes`
@@ -20,6 +22,9 @@ regenerate. That trades a rare stale page for constant friction on every branch.
 What is still caught: a generator that cannot produce them at all, which is the failure that
 would leave the pages frozen at whatever was last committed. Regenerating them at docs-build
 time would remove the tradeoff entirely and deserves its own issue.
+
+`test_every_generated_page_has_a_drift_test` guards the list itself: a page the generator starts
+or stops writing without a matching change above fails by name instead of shipping uncovered.
 """
 
 from __future__ import annotations
@@ -33,8 +38,10 @@ from generate_docs_reference import (
     LLMS_FULL_PAGE,
     LLMS_PAGE,
     SETTINGS_PAGE,
+    VERSION_PAGE,
     render_changelog_mdx,
     render_cli_mdx,
+    render_generated_version_ts,
     render_llms_full_txt,
     render_llms_txt,
     render_settings_mdx,
@@ -44,6 +51,11 @@ if TYPE_CHECKING:
     from pytest import MonkeyPatch
 
 _REGEN_HINT = "run `python scripts/generate_docs_reference.py` to regenerate it"
+
+# Every page a test above asserts something about. `_generated_pages()` is the generator's own
+# manifest, so a page it starts or stops writing without a matching change here is the #416 gap:
+# a test that iterates the manifest directly can't say that, since it never has an "expected six."
+_DRIFT_CHECKED_PAGES = frozenset({SETTINGS_PAGE, CLI_PAGE, CHANGELOG_PAGE, VERSION_PAGE, LLMS_PAGE, LLMS_FULL_PAGE})
 
 
 def test_settings_reference_page_matches_the_generator() -> None:
@@ -56,6 +68,10 @@ def test_cli_reference_page_matches_the_generator() -> None:
 
 def test_llms_txt_matches_the_generator() -> None:
     assert LLMS_PAGE.read_text() == render_llms_txt(), f"{LLMS_PAGE} is stale  -  {_REGEN_HINT}"
+
+
+def test_version_page_matches_the_generator() -> None:
+    assert VERSION_PAGE.read_text() == render_generated_version_ts(), f"{VERSION_PAGE} is stale  -  {_REGEN_HINT}"
 
 
 def test_the_changelog_page_can_be_regenerated() -> None:
@@ -85,3 +101,13 @@ def test_aggregate_pages_use_content_from_the_same_generator_pass(monkeypatch: M
     pages = reference._generated_pages()
 
     assert marker in pages[LLMS_FULL_PAGE]
+
+
+def test_every_generated_page_has_a_drift_test() -> None:
+    actual = set(reference._generated_pages())
+    missing = _DRIFT_CHECKED_PAGES - actual
+    new = actual - _DRIFT_CHECKED_PAGES
+    assert not missing and not new, (
+        f"generate_docs_reference.py's output changed (no longer writes: {sorted(missing)}, "
+        f"now also writes: {sorted(new)})  -  add or remove its drift test in this file"
+    )

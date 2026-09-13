@@ -1,0 +1,9 @@
+{
+  "title": "Resources",
+  "pages": [
+    "changelog",
+    "migration-guides",
+    "troubleshooting",
+    "known-issues"
+  ]
+}

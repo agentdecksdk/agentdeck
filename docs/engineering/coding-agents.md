@@ -23,6 +23,9 @@ Additional rules:
 - Never use the ` - ` (em dash) character in code, comments, documentation, or commit messages.
 - Do not weaken tests, lint, typing, goldens, or CI to make the implementation pass.
 - Do not hide a design/reality conflict with a workaround.
+- A PR body closing more than one issue uses one `Fixes #N` (or `Closes #N`) per line, never a
+  comma-separated list after one keyword: GitHub's closing-keyword parser only recognizes the
+  first reference in a list, so anything after the first comma is silently left open.
 
 ## When blocked
 

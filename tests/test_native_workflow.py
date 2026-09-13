@@ -9,14 +9,16 @@ makes it Python rather than a state machine wearing Python's syntax.
 from __future__ import annotations
 
 import asyncio
+import base64
 from typing import Any
 
 import pytest
 
 from agentdeck import Deck, ToolCtx, WorkflowCtx, tool, workflow
+from agentdeck.core.content import ContentBlock, DataBlock, ImageBlock, ResourceBlock, TextBlock
 from agentdeck.core.control import CONTROL_POLL_INTERVAL
 from agentdeck.core.status import RunStatus
-from agentdeck.errors import ConfigError
+from agentdeck.errors import ConfigError, InputError, NotFoundError
 
 
 @pytest.fixture(autouse=True)
@@ -46,6 +48,23 @@ async def boom(ctx: WorkflowCtx) -> None:
     raise ZeroDivisionError("the body raised")
 
 
+_RECEIPT_BLOCKS: list[ContentBlock] = [
+    TextBlock(text="Here is the receipt"),
+    ImageBlock(media_type="image/png", data_b64=base64.b64encode(b"not really a png").decode()),
+    ResourceBlock(uri="https://example.test/receipt.pdf", media_type="application/pdf"),
+]
+
+
+@workflow
+async def receipt(ctx: WorkflowCtx) -> list[ContentBlock]:
+    return list(_RECEIPT_BLOCKS)
+
+
+@workflow
+async def wrapped(ctx: WorkflowCtx) -> list[ContentBlock]:
+    return [DataBlock(data={"total": 12})]
+
+
 # --- what it returns, and how its input reaches it ---------------------------------------
 
 
@@ -61,6 +80,24 @@ async def test_one_parameter_takes_the_input_whole() -> None:
         assert await deck.run("whole", {"b": 2, "a": 1}) == ["a", "b"]
 
 
+async def test_a_body_that_returns_blocks_gets_every_one_of_them_back() -> None:
+    """#636: the mixed media a body assembled is the run's result, unchanged and in order  -  an
+    ``ImageBlock`` used to crash the run on the way out, wrapped in a ``DataBlock`` that could
+    not hold it."""
+    async with Deck(workflows=[receipt]) as deck:
+        assert await deck.run("receipt", None) == _RECEIPT_BLOCKS
+        # The handle reads its own ``run.completed`` back, so it has to agree with the call above.
+        assert await (await deck.runs.start("receipt", None)) == _RECEIPT_BLOCKS
+
+
+async def test_one_data_block_is_still_the_wrapped_return_value_not_a_block_list() -> None:
+    """The one ambiguity the block passthrough accepts: a body returning exactly one
+    ``DataBlock`` is indistinguishable from the executor wrapping a plain value in one, so it
+    reads as the value it carries."""
+    async with Deck(workflows=[wrapped]) as deck:
+        assert await deck.run("wrapped", None) == {"total": 12}
+
+
 async def test_several_parameters_bind_by_name() -> None:
     async with Deck(workflows=[joined]) as deck:
         assert await deck.run("joined", {"left": "a", "right": "b"}) == "a+b"
@@ -68,7 +105,7 @@ async def test_several_parameters_bind_by_name() -> None:
 
 async def test_a_mismatched_input_says_what_the_body_wanted() -> None:
     async with Deck(workflows=[joined]) as deck:
-        with pytest.raises(ConfigError, match="left, right"):
+        with pytest.raises(InputError, match="left, right"):
             await deck.run("joined", "just a string")
 
 
@@ -76,13 +113,13 @@ async def test_an_input_key_may_not_name_the_context_parameter() -> None:
     """The context is AgentDeck's to fill; a mapping key of the same name is refused rather than
     silently overwriting the injected ``WorkflowCtx``."""
     async with Deck(workflows=[joined]) as deck:
-        with pytest.raises(ConfigError, match="ctx"):
+        with pytest.raises(InputError, match="ctx"):
             await deck.run("joined", {"left": "a", "right": "b", "ctx": "not a context"})
 
 
 async def test_an_unknown_input_key_is_refused_by_name() -> None:
     async with Deck(workflows=[joined]) as deck:
-        with pytest.raises(ConfigError, match="left, right"):
+        with pytest.raises(InputError, match="left, right"):
             await deck.run("joined", {"left": "a", "middle": "b"})
 
 
@@ -98,6 +135,22 @@ async def test_a_body_that_raises_fails_the_run_and_the_caller_sees_why() -> Non
         failure = [event async for event in run.events()][-1]
         assert failure.kind == "run.failed"
         assert "ZeroDivisionError" in failure.payload.message
+
+
+async def test_a_mismatched_input_records_invalid_input_with_its_own_message() -> None:
+    """#621: binding raises after ``run.started`` (`test_a_mismatched_input_says_what_the_body_
+    wanted`), and `InputError`'s own contract is that its message is written for the caller, so
+    the record must carry it  -  unlike the type-only record above."""
+    async with Deck(workflows=[joined]) as deck:
+        run = await deck.runs.start("joined", "just a string")
+        with pytest.raises(InputError, match="left, right"):
+            await run
+        assert await run.status() is RunStatus.FAILED
+        failure = [event async for event in run.events()][-1]
+        assert failure.kind == "run.failed"
+        assert failure.payload.error_code == "invalid_input"
+        assert "left, right" in failure.payload.message
+        assert failure.payload.retryable is False
 
 
 # --- suspension keeps the body alive ------------------------------------------------------
@@ -216,7 +269,7 @@ async def test_an_answer_outside_the_options_is_refused_and_the_run_stays_answer
         assert pending is not None
         assert pending["payload"]["options"] == [True, False]
 
-        with pytest.raises(ValueError, match="waiting for one of"):
+        with pytest.raises(InputError, match="waiting for one of"):
             await run.answer("maybe")
 
         assert await run.status() is RunStatus.WAITING_ANSWER
@@ -246,6 +299,29 @@ async def test_a_question_with_no_options_takes_whatever_it_is_given() -> None:
 
         assert await run == "noted"
         assert seen == [{"plan": "go left", "confidence": 0.4}]
+
+
+async def test_an_unrecordable_freeform_answer_leaves_the_run_answerable() -> None:
+    seen: list[Any] = []
+
+    @workflow
+    async def freeform(ctx: WorkflowCtx) -> str:
+        seen.append(await ctx.ask("what is the plan?"))
+        return "noted"
+
+    async with Deck(workflows=[freeform]) as deck:
+        run = await deck.runs.start("freeform", None)
+        await _settles(run, RunStatus.WAITING_ANSWER)
+
+        with pytest.raises(InputError, match="cannot be recorded"):
+            await run.answer(object())
+
+        assert await run.status() is RunStatus.WAITING_ANSWER
+        assert seen == []
+
+        await run.answer("go left")
+        assert await run == "noted"
+        assert seen == ["go left"]
 
 
 async def test_a_cancel_ends_the_run_rather_than_parking_it() -> None:
@@ -295,13 +371,38 @@ def test_a_workflow_may_not_ask_for_the_tool_context() -> None:
             return topic
 
 
-def test_a_native_definition_has_to_be_async() -> None:
-    """A blocking body would stall the loop every other run on this deck shares."""
+def test_a_workflow_has_to_be_async() -> None:
+    """Every orchestration primitive on ``WorkflowCtx`` is awaited, so a sync body cannot reach one."""
     with pytest.raises(ConfigError, match="not async"):
 
         @workflow
         def blocking(ctx: WorkflowCtx) -> str:  # pragma: no cover  -  never built
             return "no"
+
+
+def test_workflows_takes_no_bare_tool_with_nothing_to_invoke_it() -> None:
+    """#488's code-first counterpart: a `@tool` is not a top-level target anywhere, so
+    `workflows=[...]` naming one, with no `@workflow` in the same list that could reach it
+    through `ctx.invoke`, is refused at construction  -  the same "exports no workflow" rule
+    `PluginRegistry._scan` already enforces per bundle."""
+
+    @tool
+    def blocking() -> str:  # pragma: no cover  -  never run
+        return "no"
+
+    with pytest.raises(ConfigError, match="'blocking' is a tool, not a workflow"):
+        Deck(workflows=[blocking])
+
+
+def test_a_tool_does_not_have_to_be_async() -> None:
+    """A tool has nothing to await, and both paths that play one thread a sync body."""
+
+    @tool
+    def add(a: int, b: int) -> int:
+        """Add two numbers."""
+        return a + b
+
+    assert add.name == "add"
 
 
 async def test_an_agent_can_use_a_native_tool() -> None:
@@ -347,6 +448,38 @@ async def test_a_parked_body_this_process_lost_says_so() -> None:
         with pytest.raises(ConfigError, match="no longer holds"):
             await run.answer("yes")
         assert ran == ["ran"]
+
+
+async def test_a_concurrent_ask_is_refused_before_the_run_parks_on_anything() -> None:
+    """agentdeck #414: one run holds one answer, so a body that asks two questions at once is
+    something this model cannot represent. Only the body task may suspend the run, so the first
+    ask off the body task is refused and the run fails without ever parking  -  no branch is left
+    holding a future nothing can complete, and no answer can resume one."""
+    entered: list[str] = []
+    continued: list[str] = []
+
+    @workflow
+    async def two_questions(ctx: WorkflowCtx) -> list[str]:
+        async def branch(question: str) -> str:
+            entered.append(question)
+            answer = str(await ctx.ask(question))
+            continued.append(question)
+            return answer
+
+        return list(await asyncio.gather(branch("a?"), branch("b?")))
+
+    async with Deck(workflows=[two_questions]) as deck:
+        run = await deck.runs.start("two_questions", None)
+        await _settles(run, RunStatus.FAILED)
+
+        # Never parked: no `run.interrupted` to answer, so the refusal is the whole story.
+        assert [event.kind async for event in run.events()] == ["run.started", "run.failed"]
+        assert entered != []
+        # The finding this closes: a refused branch cannot be woken, so no sibling runs on past
+        # `run.failed` and starts child runs under a failed parent.
+        assert continued == []
+        with pytest.raises(NotFoundError, match="No pending run"):
+            await run.answer("yes")
 
 
 async def _settles(run: Any, status: RunStatus) -> None:

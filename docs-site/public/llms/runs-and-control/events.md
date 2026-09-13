@@ -1,0 +1,74 @@
+# Events
+
+Every run produces one ordered, typed log. Every managed invocation appends to it, whatever
+started the run, and a run's status is folded from it rather than stored beside it, so there is no
+second source that can disagree.
+
+## Streaming a run as it happens
+
+```python
+async for event in run.events(follow=True):
+    print(event.kind)
+```
+
+```text
+run.started
+tool.call.started
+text.delta
+message.completed
+run.completed
+```
+
+**`follow=True` is what makes this live.** Without it, `events()` returns only what the log already
+holds and stops, which for a run that has just started is a single event. That is the right default
+for reading a finished run back and the wrong one for watching a live one.
+
+The loop ends at the segment's own boundary: a terminal event (`run.completed`, `run.failed`,
+`run.cancelled`) or a suspension (`run.paused`, `run.interrupted`). Call it again after a resume
+to see what came next.
+
+## Reading one back afterwards
+
+```python
+run = await deck.runs.get(run_id)
+
+async for event in run.events():           # everything, no waiting
+    ...
+
+async for event in run.events(from_seq=120):   # only what is new to you
+    ...
+```
+
+`from_seq` resumes from a position you already have, so a consumer that crashed does not replay
+what it already processed. `seq` is assigned by the store, not the producer, and counts from 0
+within a run.
+
+## Streaming without a handle
+
+When you want the events and the result in one pass and do not need the handle:
+
+```python
+async for event in deck.stream("Jack", question):
+    if event.kind == "text.delta":
+        print(event.payload.text, end="")
+```
+
+## Switching on kind
+
+The payload is typed per kind, so a consumer branches on `event.kind` and gets the right fields:
+
+```python
+if event.kind == "tool.call.started":
+    print(event.payload.tool, event.payload.args)
+elif event.kind == "text.delta":
+    print(event.payload.text, end="")
+```
+
+An unknown kind is carried rather than rejected, so a reader written today keeps working against a
+log written by a newer release of the same schema major.
+
+## Related
+
+- [Event types](/reference/events) - all 21 kinds, their payloads, and the envelope
+- [Runs](/runs-and-control/runs) - starting a run and rehydrating its handle
+- [Lifecycle & Control](/runs-and-control/lifecycle-and-control) - which events set which status

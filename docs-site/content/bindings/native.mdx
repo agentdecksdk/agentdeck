@@ -1,0 +1,67 @@
+---
+title: Native
+description: AgentDeck's own HTTP/SSE protocol, one route per Run operation.
+---
+
+{/* docs_sources:
+  - "agentdeck/adapters/bindings/native/binding.py"
+  - "docs/design/protocols/native-wire.md"
+  - "pyproject.toml"
+*/}
+
+# Native
+
+`Native.http()` is AgentDeck's own HTTP/SSE protocol: one route per `Run` operation, nothing
+translated from another wire.
+
+## Install
+
+```bash
+pip install "agentdeck-sdk[serve]"
+```
+
+`serve` pulls in `starlette` and `uvicorn`; `Native.http()` needs nothing else.
+
+## Serve
+
+```python
+from agentdeck import Deck
+from agentdeck.bindings import Native
+
+deck = Deck.from_project()
+deck.serve(Native.http("/api"), port=8000)
+```
+
+## Routes
+
+| method | path | request | response | errors |
+|---|---|---|---|---|
+| GET | `/targets` | none | `[{name, kind, description, input_schema}]` | 500 |
+| POST | `/runs` | `{target, input, session_id?, key?}` | run summary | 422, 409, 500 |
+| GET | `/runs` | `status?`, `limit?` | `[run summary]` | 422, 500 |
+| GET | `/runs/{run_id}` | none | run summary | 404, 500 |
+| GET | `/runs/{run_id}/events` | `Last-Event-ID` or `?from_seq=` | SSE | 404, 500 |
+| POST | `/runs/{run_id}/cancel` | `{reason?}` | `{}` | 404, 409, 501, 500 |
+| POST | `/runs/{run_id}/pause` | `{reason?}` | `{}` | 404, 409, 501, 500 |
+| POST | `/runs/{run_id}/resume` | none | `{}` | 404, 409, 501, 500 |
+| GET | `/runs/{run_id}/pending` | none | an `InterruptResult` or `null` | 404, 500 |
+| POST | `/runs/{run_id}/answer` | `{value}` | `{}` | 404, 409, 422, 500 |
+
+A run summary is `{run_id, namespace, session_id, status, can}`; every non-2xx body is
+`{"detail": "<message>"}`. Full wire detail: the
+[native wire spec](https://github.com/agentdecksdk/agentdeck/blob/main/docs/design/protocols/native-wire.md).
+
+## Capabilities
+
+- `streaming`: `text.delta` events over SSE.
+- `text`: plain text and structured content blocks, in and out.
+- `hitl`: the `run.interrupted` question and `/answer` round trip.
+- `control.cancel`, `control.pause`, `control.resume`: the matching routes work rather than 501.
+
+## Limits
+
+- No built-in authentication: front it with your own middleware or gateway.
+- `namespace=` on `Native.http(namespace=...)` is tenancy routing, not authentication: it scopes
+  which runs a caller reaches, and carries no identity of its own.
+- A context type declared on the Deck never reaches a served run: see
+  [where a context does not reach](/reference/deck#where-a-context-does-not-reach).

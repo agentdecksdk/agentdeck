@@ -37,7 +37,7 @@ Execution, control, state, observability, reporting, interaction, and integratio
 
 Your code stays about the behavior and structure of your application:
 
-* **Tools do work:** Plain Python functions or `@tool` decorators. Tools declare `ToolCtx[T]` to receive strongly typed application data without exposing internal state to the model prompt.
+* **Tools do work:** A plain Python function for a context-free tool, `@tool` for one that declares `ToolCtx[T]` to receive strongly typed application data without exposing internal state to the model prompt.
 * **Agents make decisions:** Declarations configuring model instructions, tools, skills, and handoffs.
 * **Workflows manage process:** Ordinary async Python functions decorated with `@workflow`. Use `WorkflowCtx` to invoke targets (`ctx.invoke`), branch in parallel (`ctx.parallel`), or park for human input (`ctx.ask`).
 * **Decks assemble applications:** `Deck` is the single composition root. It validates dependencies, schemas, and catalogs at startup before the first turn.
@@ -92,9 +92,24 @@ Run
 | when work should stop | **Control.** Execution paused, resumed or cancelled at safe points. |
 | when a person decides | **Interaction.** Branches that wait for external input. |
 | business state | **State.** Sessions that outlive a single call. |
-| your UI and integrations | **Surfaces.** Observers, HTTP/SSE and your UI read the same run. |
+| your UI and integrations | **Bindings.** Native HTTP/SSE, the terminal, AG-UI clients such as Assistant UI, and any binding you write read the same run. |
 
 The complexity is still there. It just lives in the layer built for it.
+
+### Reachable through bindings
+
+One Deck, served over its own HTTP wire, the AG-UI protocol, and the terminal at once. Add a
+binding by adding a line; the runtime never learns which one is talking.
+
+```python
+from agentdeck import Deck
+from agentdeck.bindings import AGUI, Native, Terminal
+
+deck = Deck.from_project()
+deck.serve(Native.http("/api"), AGUI.http("/agui"), Terminal.stdio(), port=8000)
+```
+
+See [what changed in 6.0](https://agentdecksdk.com/meet-agentdeck/whats-new-6).
 
 ### Streaming and event logs
 
@@ -168,16 +183,17 @@ You do not want this if you are writing one script that calls one model. Use the
 ## Install
 
 ```bash
-pip install agentdeck-sdk              # or, with the HTTP surface: agentdeck-sdk[serve]
+pip install agentdeck-sdk
 export OPENAI_MODEL=gpt-4.1-mini OPENAI_API_KEY=sk-...
 ```
 
 The distribution is **`agentdeck-sdk`**; the import stays `agentdeck`. Agents may declare
 `openai/...`, `anthropic/...`, `gemini/...`, `ollama/...`, or `openrouter/...`; see
 [model configuration](https://agentdecksdk.com/build-your-deck/agents). `OPENAI_BASE_URL` also
-supports any OpenAI-compatible endpoint. Extras: `serve` for the
-HTTP surface, `postgres` for the Postgres event log, `redis` for Redis-backed sessions or event
-log, `observability` for Langfuse tracing.
+supports any OpenAI-compatible endpoint. Extras: the `serve` extra for `Native.http()`,
+AgentDeck's own HTTP/SSE binding; `agentdeck-sdk[agui]` for `AGUI.http()`, the AG-UI protocol
+binding Assistant UI and CopilotKit speak; `postgres` for the Postgres event log; `redis` for
+Redis-backed sessions or event log; `observability` for Langfuse tracing.
 
 Contributing to agentdeck itself is a different setup: see [CONTRIBUTING.md](CONTRIBUTING.md).
 

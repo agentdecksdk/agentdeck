@@ -1,0 +1,38 @@
+# Existing Agents
+
+An agent built on something other than AgentDeck or the OpenAI Agents SDK - a hand-rolled loop,
+LangGraph, anything with a Python entry point - runs under a Deck by calling it from a
+`@workflow`, unchanged:
+
+```python
+from agentdeck import Deck, WorkflowCtx, workflow
+
+
+class LegacyAgent:
+    async def answer(self, question: str) -> str:
+        ...  # whatever this already does
+
+
+legacy = LegacyAgent()
+
+
+@workflow
+async def support(ctx: WorkflowCtx, question: str) -> str:
+    return await legacy.answer(question)
+
+
+deck = Deck(workflows=[support])
+```
+
+`@workflow` puts a name and a context contract around ordinary Python; the body is free to call
+anything, including an agent implementation that predates AgentDeck entirely. Nothing about
+`legacy` changes - it keeps whatever model client, prompt loop or framework it already uses.
+
+Running it through `deck.runs.start("support", "where is my order?")` is what the wrap buys:
+this call gets a durable `Run` (`pause`/`resume`/`cancel`, rehydration from another process) and
+an event log, the same as an `Agent` or a native `@tool` would. `ctx.ask(...)` inside the body
+suspends the run for a human answer, if `legacy` ever needs one - see
+[Workflows](/build-your-deck/workflows) for what a workflow body can do beyond this one call.
+
+Already have an `agents.Agent` built with the OpenAI Agents SDK directly? See
+[OpenAI Agents SDK](/integrations/openai-agents-sdk) - it attaches without a `@workflow` wrapper.

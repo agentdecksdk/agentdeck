@@ -1,0 +1,52 @@
+/* The mental-model diagram: connectors in the brand blue, boxes as hairlines, and only the Deck
+   and the Run carrying a surface. No card around it: it is a figure, not a panel. */
+.agentdeck-mental-model {
+  display: block;
+  width: 100%;
+  max-width: 620px;
+  height: auto;
+  margin: 1.75rem 0 2.25rem;
+}
+
+.md-box {
+  fill: transparent;
+  stroke: var(--brand-border-light);
+  stroke-width: 1;
+}
+
+.dark .md-box {
+  stroke: var(--brand-border-dark);
+}
+
+.md-box--deck {
+  fill: color-mix(in srgb, var(--brand-blue) 8%, transparent);
+  stroke: color-mix(in srgb, var(--brand-blue) 38%, transparent);
+}
+
+.md-box--run {
+  fill: color-mix(in srgb, var(--brand-blue) 4%, transparent);
+  stroke: color-mix(in srgb, var(--brand-blue) 24%, transparent);
+}
+
+.md-line {
+  fill: none;
+  stroke: color-mix(in srgb, var(--brand-blue) 45%, transparent);
+  stroke-width: 1.25;
+}
+
+.md-head {
+  fill: color-mix(in srgb, var(--brand-blue) 60%, transparent);
+}
+
+.md-label {
+  fill: currentColor;
+  font-family: var(--font-body), sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  text-anchor: middle;
+}
+
+.md-label--strong {
+  font-size: 14px;
+  font-weight: 600;
+}

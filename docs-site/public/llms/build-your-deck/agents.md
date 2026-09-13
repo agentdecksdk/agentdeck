@@ -1,0 +1,105 @@
+# Agents
+
+An `Agent` is a declaration: a name, the instructions it runs under, the model that answers and the
+tools it may call. AgentDeck compiles it to a spec and an executor runs it.
+
+## Declare an agent
+
+```python
+from agentdeck import Agent
+
+support_agent = Agent(
+    name="support_agent",
+    instructions="You help customers troubleshoot issues.",
+    model="gpt-4o",
+)
+```
+
+## Choose a model provider
+
+`model=` takes a provider prefix. Each provider reads its own credential at the model call, so a
+missing or invalid one surfaces there rather than from `Deck.build()`.
+
+| `model=` | goes to | credential |
+|---|---|---|
+| `gpt-4o` | OpenAI | `OPENAI_API_KEY` |
+| `anthropic/claude-3-7-sonnet` | Anthropic | `ANTHROPIC_API_KEY` |
+| `gemini/gemini-2.5-flash` | Gemini | `GEMINI_API_KEY` |
+| `ollama/llama3.2` | a local Ollama | `OLLAMA_BASE_URL` |
+| `openrouter/openai/gpt-4o` | OpenRouter | `OPENROUTER_API_KEY` |
+
+```python
+reviewer = Agent(name="reviewer", model="anthropic/claude-3-7-sonnet")
+```
+
+Configure only the providers your deck uses:
+
+```dotenv
+OPENAI_MODEL=gpt-4.1-mini
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+An agent without `model=` uses `OPENAI_MODEL`. A bare model name goes to OpenAI, and a namespaced
+id with no prefix above stays available for whatever `OPENAI_BASE_URL` points at.
+
+## Send an image
+
+`deck.run()` takes a list of content blocks as well as a plain string. That is how an image reaches
+a vision model.
+
+```python no-test reason="needs an image file and a live model that accepts one"
+import base64
+
+from agentdeck import ImageBlock, TextBlock
+
+photo = base64.b64encode(open("receipt.png", "rb").read()).decode()
+result = await deck.run(
+    "Intake",
+    [
+        TextBlock(text="What is the total on this receipt?"),
+        ImageBlock(media_type="image/png", data_b64=photo),
+    ],
+)
+```
+
+The model has to accept images: `ollama/qwen3.5:9b` and `openai/gpt-4o` do, `gpt-4.1-mini` does not.
+
+Inline blocks are capped at 8 MB decoded, and anything larger needs a `ResourceBlock`, which points
+at bytes held elsewhere instead of carrying them. `AudioBlock` and `DataBlock` cover audio and
+structured JSON; the [block reference](/reference/deck) has the full table and the per-engine
+limits.
+
+An image cannot reach the model through a tool's return value, because tool results are text.
+Content blocks on the way in are the only path.
+
+Blocks come back out too: a completed run's `output` carries the artifacts it produced  -  an
+`ImageGenerationTool` image, a rich tool's image or file  -  ahead of its final text. See
+[what a completed run carries back](/reference/deck#what-a-completed-run-carries-back).
+
+## Use SDK-native options
+
+Options the OpenAI Agents SDK owns stay the SDK's. Structured output, for one, takes that SDK's own
+`AgentOutputSchema`:
+
+```python
+from agents import AgentOutputSchema
+from pydantic import BaseModel
+
+from agentdeck import Agent
+
+
+class Verdict(BaseModel):
+    approved: bool
+    reason: str
+
+
+reviewer = Agent(
+    name="reviewer",
+    instructions="Approve or reject the request.",
+    output_type=AgentOutputSchema(Verdict, strict_json_schema=False),
+)
+```
+
+AgentDeck discovers and configures the agent, then passes options like this one straight to the SDK
+runner rather than wrapping them in a second AgentDeck type.

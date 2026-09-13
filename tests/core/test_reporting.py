@@ -8,47 +8,39 @@ malformed when it happens to run under a Runtime has no way to test itself.
 
 from __future__ import annotations
 
-import logging
-from collections import deque
-from typing import TYPE_CHECKING
-
 import pytest
 from pydantic import ValidationError
 
 from agentdeck.core import Reported, Reporter, RunContext
-from agentdeck.core.reporting import MAX_PENDING_REPORTS
-
-if TYPE_CHECKING:
-    from agentdeck.core.events import KnownPayload
 
 
-def _pending() -> tuple[Reporter, deque[KnownPayload]]:
-    """A reporter wired the way the Runtime wires one, and the buffer it writes into."""
-    buffer: deque[KnownPayload] = deque()
-    return Reporter(buffer), buffer
+def _writing() -> tuple[Reporter, list[Reported]]:
+    """A reporter wired the way the Runtime wires one, and what its writer was handed."""
+    written: list[Reported] = []
+    return Reporter(written.append), written
 
 
-async def test_a_report_becomes_a_payload_in_the_order_it_was_made() -> None:
-    reporter, buffer = _pending()
-    await reporter.info("Searching GitHub")
-    await reporter.warning("Primary source unavailable", source="drive")
-    assert list(buffer) == [
+def test_a_report_becomes_a_payload_in_the_order_it_was_made() -> None:
+    reporter, written = _writing()
+    reporter.info("Searching GitHub")
+    reporter.warning("Primary source unavailable", source="drive")
+    assert written == [
         Reported(level="info", message="Searching GitHub"),
         Reported(level="warning", message="Primary source unavailable", fields={"source": "drive"}),
     ]
 
 
-async def test_the_four_methods_differ_only_in_level() -> None:
+def test_the_four_methods_differ_only_in_level() -> None:
     """One payload, four things it can be: three severities a person reads and a record a
     consumer filters. A record's name is its message, so a reader with no schema still has
     something to show."""
-    reporter, buffer = _pending()
-    await reporter.info("looking")
-    await reporter.warning("degraded")
-    await reporter.error("index lookup failed", index="customers")
-    await reporter.report("candidate_found", score=0.91)
+    reporter, written = _writing()
+    reporter.info("looking")
+    reporter.warning("degraded")
+    reporter.error("index lookup failed", index="customers")
+    reporter.report("candidate_found", score=0.91)
 
-    assert [(payload.level, payload.message) for payload in buffer] == [
+    assert [(payload.level, payload.message) for payload in written] == [
         ("info", "looking"),
         ("warning", "degraded"),
         ("error", "index lookup failed"),
@@ -56,43 +48,29 @@ async def test_the_four_methods_differ_only_in_level() -> None:
     ]
 
 
-async def test_the_default_reporter_drops_instead_of_raising() -> None:
-    """A context nothing is draining must not fail the code that reports into it."""
+def test_the_default_reporter_drops_instead_of_raising() -> None:
+    """A context with no writer must not fail the code that reports into it."""
     ctx = RunContext(namespace="acme", run_id="r-1")
-    await ctx.reporter.info("nobody is listening")
-    await ctx.reporter.report("still_nobody", n=1)
+    ctx.reporter.info("nobody is listening")
+    ctx.reporter.report("still_nobody", n=1)
 
 
-async def test_the_default_reporter_still_validates() -> None:
+def test_the_default_reporter_still_validates() -> None:
     """Dropped is not unvalidated: the same call fails the same way wired or not, so a tool's
     own tests catch an empty report without a Runtime."""
     reporter = Reporter()
     with pytest.raises(ValidationError):
-        await reporter.info("")
+        reporter.info("")
     with pytest.raises(ValidationError):
-        await reporter.report("")
+        reporter.report("")
 
 
-async def test_a_flood_is_bounded_dropping_the_newest_and_saying_so(caplog) -> None:
-    """The buffer is filled by an invocable's own code, so it is bounded. The front survives:
-    a sequence read with its beginning missing looks like a run that started at 40.
-    """
-    reporter, buffer = _pending()
-    with caplog.at_level(logging.WARNING, logger="agentdeck.core.reporting"):
-        for n in range(MAX_PENDING_REPORTS + 5):
-            await reporter.report("step", n=n)
+def test_a_flood_reaches_the_writer_whole() -> None:
+    """No cap on the way out any more (#487): what a run may write is the log's business, and a
+    store that refuses an append is the ceiling. Holding a backlog to drop from is what made the
+    64th report the last one a long call could make."""
+    reporter, written = _writing()
+    for n in range(500):
+        reporter.report("step", n=n)
 
-    assert len(buffer) == MAX_PENDING_REPORTS
-    assert [payload.fields["n"] for payload in buffer] == list(range(MAX_PENDING_REPORTS))
-    assert "dropping report" in caplog.text
-
-
-async def test_a_drained_buffer_takes_reports_again() -> None:
-    """What the Runtime does between two engine payloads, in miniature: the cap is a backlog
-    limit, not a per-run quota."""
-    reporter, buffer = _pending()
-    for n in range(MAX_PENDING_REPORTS):
-        await reporter.report("step", n=n)
-    buffer.clear()
-    await reporter.info("still reporting")
-    assert list(buffer) == [Reported(level="info", message="still reporting")]
+    assert [payload.fields["n"] for payload in written] == list(range(500))

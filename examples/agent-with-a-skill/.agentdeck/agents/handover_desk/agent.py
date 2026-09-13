@@ -1,9 +1,7 @@
 import json
 from pathlib import Path
 
-from agents import function_tool
-
-from agentdeck import Agent
+from agentdeck import Agent, tool
 
 _EXAMPLE_DIR = Path(__file__).resolve().parents[3]
 _NOTES_FILE = _EXAMPLE_DIR / "handover_notes.json"
@@ -15,13 +13,13 @@ _SHIFTS = {
 }
 
 
-@function_tool
+@tool
 def lookup_shift(date: str) -> str:
     """Look up who is on shift for one date (YYYY-MM-DD)."""
     return _SHIFTS.get(date, "no shift recorded for that date")
 
 
-@function_tool
+@tool
 def file_handover_note(date: str, text: str) -> str:
     """Record a handover note against one date (YYYY-MM-DD)."""
     notes = json.loads(_NOTES_FILE.read_text()) if _NOTES_FILE.exists() else {}

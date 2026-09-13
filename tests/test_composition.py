@@ -15,7 +15,8 @@ from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.composition import build_runtime, resolve_event_store
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
-from agentdeck.errors import DOCS_URL, NotFoundError
+from agentdeck.core.errors import DOCS_URL
+from agentdeck.errors import NotFoundError
 from agentdeck.runtime.discovery import InvocableRegistry
 from agentdeck.runtime.service import Runtime
 from agentdeck.runtime.settings import EventsSettings, reset_settings_cache

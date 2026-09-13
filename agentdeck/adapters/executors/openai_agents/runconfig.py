@@ -23,11 +23,7 @@ from agents import ModelSettings, MultiProvider, OpenAIProvider, RunConfig, defa
 from agents.models.multi_provider import MultiProviderMap
 from openai import AsyncOpenAI
 
-from agentdeck.errors import ConfigError
-
 if TYPE_CHECKING:
-    from collections.abc import Iterable
-
     from agents.handoffs import HandoffHistoryMapper
     from agents.items import TResponseInputItem
 
@@ -170,34 +166,9 @@ def _build_model_provider(settings: RunSettings) -> MultiProvider:
     )
 
 
-def validate_model_requirements(models: Iterable[tuple[str, object]], settings: RunSettings) -> None:
-    """Reject missing credentials for every string model before a Deck can open."""
-    requirements = {
-        "anthropic": (settings.anthropic_api_key, "ANTHROPIC_API_KEY"),
-        "gemini": (settings.gemini_api_key, "GEMINI_API_KEY"),
-        "ollama": (settings.ollama_base_url, "OLLAMA_BASE_URL"),
-        "openrouter": (settings.openrouter_api_key, "OPENROUTER_API_KEY"),
-    }
-    missing: list[str] = []
-    for agent_name, model in models:
-        if not isinstance(model, str):
-            continue
-        prefix = model.partition("/")[0] if "/" in model else "openai"
-        if prefix in requirements:
-            value, env_name = requirements[prefix]
-        else:
-            value = settings.api_key or settings.base_url
-            env_name = "OPENAI_API_KEY or OPENAI_BASE_URL"
-        if not value:
-            missing.append(f"agent {agent_name!r} uses model {model!r}: set {env_name}")
-    if missing:
-        raise ConfigError("model provider configuration is incomplete:\n  " + "\n  ".join(missing))
-
-
 __all__ = [
     "RunSettings",
     "build_handoff_ends_on_user_turn_mapper",
     "build_run_config",
     "tracing_enabled",
-    "validate_model_requirements",
 ]

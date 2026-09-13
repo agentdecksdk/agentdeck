@@ -12,7 +12,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from agentdeck.errors import DOCS_URL, ConfigError, NotFoundError
+from agentdeck.core.errors import DOCS_URL
+from agentdeck.errors import ConfigError, NotFoundError
 from agentdeck.skills.bundle import SKILL_MD_FILENAME, SkillBundle
 
 if TYPE_CHECKING:

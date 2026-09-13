@@ -112,12 +112,15 @@ def _log_transcript(history: Sequence[Event]) -> list[Message]:
     assistant's side on ``message.completed``. Deltas are streaming UX and tool traffic is not
     message level, so neither belongs here.
 
-    A run that was cancelled *before it got anywhere* contributes no input: the consumer walked
-    away before the engine read anything, so the session never saw that question and the user's
-    retry would arrive behind a copy of itself. Cancelled after an answer is the opposite case  -
-    the SDK persists a turn's input and its output together, so both are in the session and
-    dropping the input would misalign the two transcripts on every later turn. A *failed* run
-    also keeps its input, because a session write that died is what a failure looks like here.
+    Which ``run.started`` inputs count is the part that is not obvious:
+
+      | the run | its input | why |
+      |---|---|---|
+      | an agent turn | counts | the SDK persists a turn's input with its output, so the session holds both |
+      | cancelled before it produced anything | dropped | the engine read nothing, so the user's retry would arrive behind a copy of itself |
+      | cancelled after an answer | counts | dropping it would misalign the two transcripts on every later turn |
+      | failed | counts | a session write that died is what a failure looks like here |
+      | a workflow or tool (#490) | dropped | no model played it: sharing a conversation's ``session_id`` puts the run on that conversation's event stream, where an operator surface keyed by the session reads it, and its input is an orchestration argument nobody said |
     """
     cancelled = {event.run_id for event in history if isinstance(event.payload, RunCancelled)}
     answered = {event.run_id for event in history if isinstance(event.payload, MessageCompleted)}
@@ -125,7 +128,7 @@ def _log_transcript(history: Sequence[Event]) -> list[Message]:
     transcript: list[Message] = []
     for event in history:
         payload = event.payload
-        if isinstance(payload, RunStarted) and event.run_id in abandoned:
+        if isinstance(payload, RunStarted) and (event.run_id in abandoned or payload.kind_of_invocable != "agent"):
             continue
         if isinstance(payload, RunStarted | InputAppended):
             transcript.append(("user", _text_of(payload.input)))

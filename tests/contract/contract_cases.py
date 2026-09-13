@@ -68,7 +68,7 @@ def _stub_cases() -> list[Case]:
             spec=stub_spec(
                 "Approver",
                 TextDelta(message_id="m1", text="needs a signature"),
-                RunInterrupted(interrupt_id="i1", reason="approval", payload={"request": "tue 9am"}, thread_id="t1"),
+                RunInterrupted(interrupt_id="i1", reason="human", payload={"request": "tue 9am"}, thread_id="t1"),
                 kind=InvocableKind.WORKFLOW,
             ),
             ends="suspended",

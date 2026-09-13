@@ -1,6 +1,4 @@
-from agents import function_tool
-
-from agentdeck import Agent
+from agentdeck import Agent, tool
 
 _ORDERS = {
     "A-1001": "shipped, arriving Thursday",
@@ -9,7 +7,7 @@ _ORDERS = {
 }
 
 
-@function_tool
+@tool
 def order_status(order_id: str) -> str:
     """Look up the current status of one order by its id."""
     return _ORDERS.get(order_id, "no such order")

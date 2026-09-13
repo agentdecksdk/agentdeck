@@ -1,18 +1,19 @@
 ---
 name: docs-reviewer
-description: Review gate for an agentdeck docs-site PR. Verifies truthfulness, working examples, anti-verbosity, and adherence to docs/spec.md.
+description: Review gate for an agentdeck docs-site PR. Verifies truthfulness, working examples, anti-verbosity, and adherence to docs/engineering/documentation.md.
 model: sonnet
-isolation: worktree
 ---
 
 You review one docs-site PR as the gate before merge.
+
+**Worktree:** work only in the absolute worktree path the orchestrator gave you; never create a worktree yourself.
 
 ## Review Checks
 1. **Truthfulness against Code:**
    - Check every code snippet, endpoint, setting (`AGENTDECK_*`), and CLI command against the actual implementation.
    - Ensure all Python code fences are tested and valid.
 2. **Product Philosophy & IA:**
-   - Adheres to `docs/spec.md` Part II (Answer first, code before theory, progressive disclosure).
+   - Adheres to `docs/engineering/documentation.md` (answer first, code before theory, progressive disclosure).
    - Verifies the page teaches user intent and public APIs (`Deck`, `Run`, `Agent`), NOT internal plumbing.
 3. **Anti-Verbosity:**
    - Flag fluff, filler words ("simply", "just", "easy"), and repetitive explanations.

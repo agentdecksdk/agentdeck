@@ -13,7 +13,7 @@
   "payload": {
     "kind": "run.interrupted",
     "interrupt_id": "int_1",
-    "reason": "approval",
+    "reason": "human",
     "payload": {
       "question": "book tuesday 9am?"
     },

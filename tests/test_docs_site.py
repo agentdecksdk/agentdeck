@@ -7,6 +7,7 @@ examples needs a generalised fake provider  -  that harness is DS-1's opening de
 
 import ast
 import importlib
+import json
 import re
 from functools import cache
 from pathlib import Path
@@ -18,9 +19,9 @@ CONTENT = ROOT / "docs-site" / "content"
 FENCE = re.compile(r"^[ \t]*```(\w+)([^\n]*)\n(.*?)^[ \t]*```", re.MULTILINE | re.DOTALL)
 # Absolute markdown links only: relative hrefs, reference-style links and MDX <Cards> are invisible here.
 LINK = re.compile(r"\]\((/[^)\s]*)\)")
-# Top-level keys only (exactly one indent): a Nextra separator entry is an object, and its
-# inner `type:`/`title:` are not nav entries.
-META_KEY = re.compile(r"^  '?([\w-][\w -]*)'?:", re.MULTILINE)
+# The landing page is its own route (`docs-site/app/page.tsx`) and carries no nav chrome, so the
+# root `meta.json` deliberately leaves it out of the sidebar.
+ROOT_NAV_OMITS = {"index"}
 PYTHON = {"python", "py"}
 REASON = re.compile(r'reason="[^"]+"')
 
@@ -95,12 +96,15 @@ def test_internal_links_resolve_to_a_page(page: Path) -> None:
         )
 
 
-@pytest.mark.parametrize("meta", sorted(CONTENT.rglob("_meta.ts")), ids=lambda p: str(p.parent.name))
+@pytest.mark.parametrize("meta", sorted(CONTENT.rglob("meta.json")), ids=lambda p: str(p.parent.name))
 def test_nav_keys_match_pages_in_every_section(meta: Path) -> None:
     section = meta.parent
     entries = {p.stem for p in section.glob("*.mdx")} | {d.name for d in section.iterdir() if d.is_dir()}
-    keys = {key for key in META_KEY.findall(meta.read_text()) if not key.startswith("--")}
-    assert keys == entries, f"{meta.parent.name}/_meta.ts and its pages disagree"
+    if section == CONTENT:
+        entries -= ROOT_NAV_OMITS
+    # A separator is `---Title---`, not a page.
+    pages = {page for page in json.loads(meta.read_text())["pages"] if not page.startswith("---")}
+    assert pages == entries, f"{section.name}/meta.json and its pages disagree"
 
 
 # A backticked `Thing.attr` in prose, e.g. `App.chat` or `app.store`. Bare names are skipped:

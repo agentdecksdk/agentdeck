@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from agentdeck.authoring.injection import analyze_callable, describe_callable
 from agentdeck.core.context import ToolCtx, WorkflowCtx
-from agentdeck.core.invocable import InvocableKind
+from agentdeck.core.invocable import InvocableKind, NativeExecution
 from agentdeck.errors import ConfigError
 
 if TYPE_CHECKING:
@@ -40,6 +40,7 @@ class NativeDefinition:
     kind: InvocableKind
     call: Callable[..., Any]
     analysis: CallableAnalysis
+    execution: NativeExecution
 
     @property
     def context_parameter(self) -> str | None:
@@ -62,7 +63,7 @@ def tool(target: Callable[..., Any] | None = None, *, name: str | None = None, d
 
         @tool
         async def search(ctx: ToolCtx[Corpus], query: str) -> list[str]:
-            await ctx.reporter.info("Searching", query=query)
+            ctx.reporter.info("Searching", query=query)
             return await ctx.data.search(query)
 
     The context parameter is injected by the runtime and is absent from the schema the model is
@@ -109,12 +110,12 @@ def _build(
     name: str | None,
     description: str | None,
 ) -> NativeDefinition:
-    if not inspect.iscoroutinefunction(inspect.unwrap(target)):
+    if kind is InvocableKind.WORKFLOW and not inspect.iscoroutinefunction(inspect.unwrap(target)):
         raise ConfigError(
-            f"{describe_callable(target)} is declared @{kind.value} but is not async. A native "
-            f"{kind.value} is awaited by the runtime, and a blocking body would stall every run "
-            f"sharing its event loop  -  make it `async def`, and use asyncio.to_thread for work "
-            f"that genuinely blocks."
+            f"{describe_callable(target)} is declared @workflow but is not async. A workflow "
+            f"coordinates other executions through `await ctx.invoke()`, `await ctx.parallel()` "
+            f"and `await ctx.ask()`, none of which a sync body can reach  -  make it `async def`, "
+            f"and use asyncio.to_thread for work that genuinely blocks."
         )
     analysis = analyze_callable(target)
     if not analysis.reliable:
@@ -124,12 +125,14 @@ def _build(
             f"decorator that does not use functools.wraps is the usual cause."
         )
     _check_context(kind, required, analysis, target)
+    execution = NativeExecution.ASYNC if inspect.iscoroutinefunction(inspect.unwrap(target)) else NativeExecution.THREAD
     return NativeDefinition(
         name=name or getattr(target, "__name__", None) or describe_callable(target),
         description=description or inspect.getdoc(target) or "",
         kind=kind,
         call=target,
         analysis=analysis,
+        execution=execution,
     )
 
 

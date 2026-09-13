@@ -42,8 +42,9 @@ deck = Deck(agents=[assistant], workflows=[approve])
 ```
 
 `Deck.build()` resolves every name in that catalog before a run starts: handoffs, subagents,
-skills, MCP servers, model credentials. A missing provider key or an unresolvable name is an error
-you get at build time, not halfway through a user's turn.
+skills, MCP servers. An unresolvable name is an error you get at build time, not halfway through a
+user's turn. Model credentials are the provider's own: a missing or invalid one surfaces at the
+actual call, not from `build()`.
 
 ## Run: the thing with identity
 

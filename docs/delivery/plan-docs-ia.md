@@ -1,12 +1,12 @@
 # Plan: documentation information architecture
 
-**Baseline:** site as deployed at v4.0.2 (2026-08-19) · **Authority:** `docs/spec.md` §27-36, §69-80
+**Baseline:** site as deployed at v4.0.2 (2026-08-19) · **Authority:** `docs/docs-site-spec.md` §27-36 and §78-80, plus `docs/engineering/documentation.md`
 **Status:** audit and proposal, partly implemented on this branch.
 
 | Part | State |
 |---|---|
 | Audit, sitemap, migration plan, ownership matrix (§1-4) | Proposal only |
-| `<Contribute />` component (§5) | Built: `docs-site/app/contribute.tsx` |
+| `<Contribute />` component (§5) | Built: `docs-site/components/docs/contribute.tsx` |
 | Issue template (§6) | Built: `.github/ISSUE_TEMPLATE/docs_contribution.yml` |
 | Backlog (§7) | Proposal, except the four issues below |
 | First placements | #350 `/jack`, #351 `/meet-agentdeck/quickstart`, #352 `/resources/known-issues`, #353 `/jack/notes` |
@@ -23,7 +23,7 @@ carry real content: `known-issues`, `quickstart`, `jack`, `jack/notes`, `overvie
 page. The remaining 23 are two-sentence placeholders, three of which reach a single code block.
 Every one of the 23 states a definition and stops.
 
-An IA already exists and is binding: `docs/spec.md` §28. The shipped nav does not implement it, and
+An IA already exists and is binding: `docs/docs-site-spec.md` §28. The shipped nav does not implement it, and
 §78 forbids incrementally polishing what shipped. So deliverable 2 below is that IA, pruned by the
 spec's own rule that a nav item must represent a real supported capability, not a redesign of it.
 
@@ -113,7 +113,7 @@ page is complete enough to say which owns it.
 | # | Finding | Evidence |
 |---|---|---|
 | S1 | Six category roots serve a raw directory listing | `/meet-agentdeck/`, `/build-your-deck/`, `/runs-and-control/`, `/integrations/`, `/reference/`, `/resources/` return 200 with `<title>Files within out/...</title>`; `/examples/` and `/jack/` render because they have a page |
-| S2 | Only two groups have an index page | `index.mdx` exists in `content/` and `content/examples/` only; `jack` resolves through `jack.mdx` |
+| S2 | Four groups have an index page, with no rule for which do | `index.mdx` exists in `content/`, `content/bindings/`, `content/examples/` and `content/jack/` |
 | S3 | Reference is half generated, half hand-written, with no marker | `deck`/`cli`/`settings`/`changelog` generated; `python-api`/`run`/`events` hand-written and already wrong |
 | S4 | Conceptual material sits in Reference | `/reference/run` explains what a Run is; `/run/runs` should |
 | S5 | Reference material sits in concept pages | `/runs-and-control/lifecycle-and-control` is a state table |
@@ -134,7 +134,7 @@ run identity and idempotency keys, namespaces, error taxonomy, model configurati
 
 ## 2. Proposed final sitemap
 
-Nine groups. Eight are `docs/spec.md` §28 with dead entries pruned; **Guides** is the one addition,
+Nine groups. Eight are `docs/docs-site-spec.md` §28 with dead entries pruned; **Guides** is the one addition,
 and it exists because journey step 9 (advanced patterns) and the entire community contribution
 surface have no home in the spec's IA.
 

@@ -50,7 +50,7 @@ def _started() -> RunStarted:
 
 
 def _interrupted() -> RunInterrupted:
-    return RunInterrupted(interrupt_id="i-1", reason="approval", payload={}, thread_id="t-1")
+    return RunInterrupted(interrupt_id="i-1", reason="human", payload={}, thread_id="t-1")
 
 
 async def test_events_read_back_in_the_order_they_were_appended() -> None:

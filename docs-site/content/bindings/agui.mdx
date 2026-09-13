@@ -1,0 +1,78 @@
+---
+title: AG-UI
+description: Project a whole Deck, or one pinned target, into the AG-UI protocol.
+---
+
+{/* docs_sources:
+  - "agentdeck/adapters/bindings/agui/binding.py"
+  - "docs/design/protocols/agui.md"
+  - "pyproject.toml"
+*/}
+
+# AG-UI
+
+`AGUI.http()` projects a whole Deck, or one pinned target, into the AG-UI protocol. `threadId` is
+the session; `runId` is a binding-owned interaction id, never `Run.id`, since one AgentDeck Run
+can outlive several AG-UI interactions across suspension and resume.
+
+## Install
+
+```bash
+pip install "agentdeck-sdk[agui]"
+```
+
+`agui` pulls in the official `ag-ui-protocol` models and encoder, plus `starlette`.
+
+## Serve
+
+```python
+from agentdeck import Deck
+from agentdeck.bindings import AGUI
+
+deck = Deck.from_project()
+deck.serve(AGUI.http("/agui"), port=8000)
+```
+
+`target=None` routes per request, off `forwardedProps.agentdeck.target`. `AGUI.http("/support",
+target="Support")` pins the endpoint instead: plain AG-UI to any client, and a request naming a
+different target is rejected rather than silently overridden. A pinned name that does not exist
+in the deck is validated when you call `deck.serve()` or `deck.asgi()`, not on the first request.
+
+## What works now
+
+- Text and reasoning stream live, from any agent or workflow target.
+- Backend tools and sessions work like any other Deck run.
+- HITL: `ctx.ask()` becomes `RunFinishedInterruptOutcome`; the client resumes with a `ResumeEntry`
+  naming that `interruptId`.
+- Multimodal input: image and audio inline or by URL; document and video by URL only.
+- `control.cancel`: a client disconnect or abort cancels the run.
+
+## Gaps
+
+Each row is a stable AG-UI feature waiting on a generic AgentDeck primitive, never faked inside
+the binding. Full reasoning: the
+[AG-UI design doc](https://github.com/agentdecksdk/agentdeck/blob/main/docs/design/protocols/agui.md).
+
+| AG-UI feature | missing primitive |
+|---|---|
+| `parentRunId`, transcript edit, regeneration | session or run branching |
+| non-empty `context` | a generic run-scoped semantic context |
+| frontend tools | run-scoped tools supplied at start |
+| shared state (`STATE_SNAPSHOT`/`STATE_DELTA`) | a real shared application-state contract |
+| steering | mid-run input |
+| more than one outstanding interrupt | `run.answer(interrupt_id, value)` |
+| tool-output streaming | richer tool progress and result events |
+| inline document/video bytes | a content block for bytes held inline, not by reference |
+| `BinaryInputContent` | a generic binary content block |
+
+## External clients
+
+Assistant UI, CopilotKit, or the official `HttpAgent` point at a pinned endpoint with zero
+AgentDeck-specific code. Reaching the whole catalog instead costs one extension field,
+`forwardedProps.agentdeck.target`; either way AgentDeck never learns which client is asking.
+
+## Limits
+
+- No built-in authentication, the same posture as `Native.http()`: front it yourself.
+- `namespace=` is tenancy routing, not authentication.
+- `threadId` is session identity, never authorization.

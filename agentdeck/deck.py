@@ -47,7 +47,6 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from agentdeck.adapters.executors.native import NativeExecutor
 from agentdeck.adapters.executors.openai_agents import ExecutionStore, OpenAIAgentsExecutor, SessionFactory
-from agentdeck.adapters.executors.openai_agents.runconfig import validate_model_requirements
 from agentdeck.adapters.tools.mcp.lifecycle import MCPLifecycle
 from agentdeck.authoring.agent import Agent
 from agentdeck.authoring.compile import compile_agent, refresh_mcp_status
@@ -76,9 +75,11 @@ from agentdeck.core.events import (
 from agentdeck.core.invocable import AgentInstance, InvocableKind, InvocableSpec
 from agentdeck.core.ports import Observer
 from agentdeck.core.status import PRECONDITIONS, SUSPENDED_KINDS, Controls, Operation, RunStatus, Verdict, can_of
+from agentdeck.core.workers import SyncToolWorkers
 from agentdeck.errors import (
     AgentdeckError,
     ConfigError,
+    InputError,
     NotFoundError,
     RunStateError,
     RunSuspendedError,
@@ -97,6 +98,8 @@ if TYPE_CHECKING:
     from agents.memory.session import Session
 
     from agentdeck.authoring.interrupts import InterruptResult
+    from agentdeck.bindings.binding import Binding
+    from agentdeck.bindings.exposure import Exposure
     from agentdeck.core.content import Input
     from agentdeck.core.events import Event, Usage
     from agentdeck.core.ports import EventStorePort, Executor
@@ -244,9 +247,18 @@ async def _workflow_result(events: AsyncGenerator[Event, None]) -> tuple[Any, bo
             if isinstance(payload, RunInterrupted):
                 result, applied = interrupt_result(payload.payload, payload.thread_id or "", id=event.run_id), True
             elif isinstance(payload, RunCompleted):
-                result = next((block.data for block in payload.output if isinstance(block, DataBlock)), None)
-                applied = True
+                result, applied = _workflow_output(payload), True
     return result, applied
+
+
+def _workflow_output(payload: RunCompleted) -> Any:
+    """What a workflow body returned, read back off its ``run.completed``.
+
+    One ``DataBlock`` is the executor's wrapper around a plain value; anything else is a body
+    that returned content blocks itself, and those blocks are the result (#636).
+    """
+    blocks = payload.output
+    return blocks[0].data if len(blocks) == 1 and isinstance(blocks[0], DataBlock) else blocks
 
 
 def _content_for(root: Agent | NativeDefinition, input: Any) -> Input:
@@ -398,12 +410,21 @@ async def _aclose_store(store: EventStorePort) -> None:
         store.close()  # ty: ignore[call-non-callable]  -  same reason
 
 
-def _named_mapping(items: Sequence[Any], arg_name: str) -> Mapping[str, Any]:
+def _named_mapping(items: Sequence[Any], arg_name: str, expected: type | None = None) -> Mapping[str, Any]:
     # Mirrors PluginRegistry's own collision rule: `{a.name: a for a in agents}` would collapse
     # a duplicate to whichever came last with no error, the same silent shadow this rule refuses
     # on the discovery path.
     found: dict[str, Any] = {}
     for item in items:
+        if expected is not None and not isinstance(item, expected):
+            # Anything with a `.name` used to reach the catalog and die at `.skills` in build()
+            # (#451). Checked before the name is read, so a bare string is refused here too.
+            raise ConfigError(
+                f"Deck({arg_name}=...) takes agentdeck {expected.__name__} declarations, not the "
+                f"{type(item).__module__}.{type(item).__name__} {getattr(item, 'name', item)!r}. An "
+                f"Agents SDK agent is legitimate as a handoff target instead: "
+                f"Agent(name=..., handoffs=[...])."
+            )
         if item.name in found:
             raise ConfigError(
                 f"two entries in {arg_name}= both use the name {item.name!r}; one name is one "
@@ -538,8 +559,16 @@ class Deck:
         # the one-Deck-per-process refusal can name it.
         _project_path: Path | None = None,
     ) -> None:
-        self._agents: Mapping[str, Agent] = _named_mapping(agents, "agents")
+        self._agents: Mapping[str, Agent] = _named_mapping(agents, "agents", Agent)
         self._workflows: Mapping[str, NativeDefinition] = _named_mapping(workflows, "workflows")
+        # PluginRegistry._scan's own "at least one @workflow" rule (#488), applied once to the
+        # whole list rather than per bundle  -  a bundle-discovered tool always clears it already.
+        _tools = [d.name for d in self._workflows.values() if d.kind is not InvocableKind.WORKFLOW]
+        if _tools and not any(d.kind is InvocableKind.WORKFLOW for d in self._workflows.values()):
+            raise ConfigError(
+                f"{_tools[0]!r} is a tool, not a workflow; workflows= takes @workflow definitions. "
+                "Call it from a workflow with ctx.invoke(...)."
+            )
         self._skills_obj = _coerce_skills(skills)
         self._mcp_obj = _coerce_mcp(mcp)
         self._context_type = declared_context_type(context)
@@ -553,6 +582,9 @@ class Deck:
         self._state: _State = "NEW"
         self._invocables: Mapping[str, InvocableSpec] | None = None
         self._executor_instances: tuple[Executor, ...] | None = None
+        # Shared by build()'s compile chain and NativeExecutor (__aenter__), which is why it is
+        # constructed here, before either exists.
+        self._sync_workers = SyncToolWorkers()
         self._runtime: Runtime | None = None
         self._sessions: ExecutionStore | None = None
         # The one execution owner per run (docs/design/run-identity.md §9): keyed by run_id,
@@ -593,7 +625,12 @@ class Deck:
         )
         agents = list(agent_registry.list(refresh=True).values())
         workflow_registry = PluginRegistry(
-            package, base_class=NativeDefinition, module_name="workflow", type_dir="workflows", label="workflow"
+            package,
+            base_class=NativeDefinition,
+            module_name="workflow",
+            type_dir="workflows",
+            label="workflow",
+            kind=InvocableKind.WORKFLOW,
         )
         workflows = list(workflow_registry.list(refresh=True).values())
         project_root = Path(path).resolve()
@@ -619,7 +656,11 @@ class Deck:
 
     @property
     def workflows(self) -> Mapping[str, NativeDefinition]:
-        return self._workflows
+        """Only ``@workflow`` kind: a bundled ``@tool`` compiles into the runtime catalog too
+        (``ctx.invoke`` needs it there), but it is not a target this lists or ``run``/``stream``
+        accept by name.
+        """
+        return {name: d for name, d in self._workflows.items() if d.kind is InvocableKind.WORKFLOW}
 
     @property
     def skills(self) -> Skills | None:
@@ -634,6 +675,46 @@ class Deck:
     @property
     def settings(self) -> Settings:
         return get_settings()
+
+    @property
+    def is_open(self) -> bool:
+        """Whether this Deck is open."""
+        return self._state == "OPEN"
+
+    def expose(self, *bindings: Binding) -> Exposure:
+        """Host these bindings over this Deck. See :class:`~agentdeck.bindings.exposure.Exposure`."""
+        from agentdeck.bindings.exposure import Exposure
+
+        return Exposure(self, bindings)
+
+    def serve(self, binding: Binding, /, *bindings: Binding, host: str = "0.0.0.0", port: int = 8000) -> None:
+        """Synchronous, blocking: owns the event loop until the server exits. Ctrl-C stops the
+        server and returns. The primary entrypoint; see :meth:`serve_async` for a caller already
+        running inside asyncio."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            raise ConfigError(
+                "deck.serve() owns the event loop; inside a running loop use `await deck.serve_async(...)`."
+            )
+        # Matches uvicorn.run's own swallow: the server has already shut down cleanly by the
+        # time this unwinds. serve_async() leaves Ctrl-C to whatever owns its loop.
+        with suppress(KeyboardInterrupt):
+            asyncio.run(self.serve_async(binding, *bindings, host=host, port=port))
+
+    async def serve_async(
+        self, binding: Binding, /, *bindings: Binding, host: str = "0.0.0.0", port: int = 8000
+    ) -> None:
+        """``expose(binding, *bindings).serve(host=, port=)``. The async form of :meth:`serve`,
+        for an application that already owns an event loop."""
+        await self.expose(binding, *bindings).serve(host=host, port=port)
+
+    def asgi(self, binding: Binding, /, *bindings: Binding) -> Any:
+        """``expose(binding, *bindings).asgi()``. :meth:`expose` returns the ``Exposure`` object
+        itself, for callers who need it."""
+        return self.expose(binding, *bindings).asgi()
 
     def build(self) -> Deck:
         """Validate the whole catalog and compile every agent/workflow to an ``InvocableSpec``.
@@ -660,14 +741,6 @@ class Deck:
         if self._state != "NEW":
             return self
         _validate_observers(self._observers_arg)
-        run_settings = resolve_run_settings()
-        validate_model_requirements(
-            (
-                (agent.name, agent.model if agent.model is not None else run_settings.model)
-                for agent in self._agents.values()
-            ),
-            run_settings,
-        )
         skills_by_name = self._skills_obj.build() if self._skills_obj is not None else {}
         mcp_names = frozenset(self._mcp_obj.build()) if self._mcp_obj is not None else frozenset()
         if self._mcp_obj is not None:
@@ -684,6 +757,7 @@ class Deck:
             bundle_of=self._bundle_of,
             context_type=self._context_type,
             delegate=self._delegate,
+            workers=self._sync_workers,
         )
         self._state = "BUILT"
         return self
@@ -745,7 +819,7 @@ class Deck:
         else:
             self._executor_instances = (
                 OpenAIAgentsExecutor(self._ensure_sessions(), settings=resolve_run_settings()),
-                NativeExecutor(self._invoke, _Agents(self)),
+                NativeExecutor(self._invoke, _Agents(self), self._sync_workers),
             )
         self._owns_store = self._store_arg is None
         store = self._store_arg if self._store_arg is not None else resolve_event_store()
@@ -755,38 +829,58 @@ class Deck:
         # suppress the settings-derived one entirely  -  a Deck told which taps to open must not
         # quietly open a Langfuse client beside them.
         observers = resolve_observers() if self._observers_arg is None else tuple(self._observers_arg)
-        for observer in observers:
-            # An observer that refuses the open (Langfuse with no keys) must not leave the ones
-            # before it holding a client nobody will ever close  -  this open is not going to
-            # finish, and there is no ``__aexit__`` for a ``__aenter__`` that raised.
-            try:
+        # One try for the whole open sequence: no ``__aexit__`` runs for a raised
+        # ``__aenter__``, so a failure anywhere here must unwind everything itself (#572).
+        try:
+            for observer in observers:
                 await observer.start()
-            except BaseException:
-                for started in self._started_observers:
-                    await started.close()
-                self._started_observers = ()
-                raise
-            self._started_observers = (*self._started_observers, observer)
-        self._runtime = build_runtime(
-            executors=self._executor_instances,
-            # A view, not a copy: what ``ctx.agents`` mints after this point has to be resolvable
-            # by the Runtime that is already open, and a minted name never shadows a catalog one
-            # because it carries a mint the catalog cannot have written.
-            invocables=ChainMap(self._minted, dict(self._invocables or {})),
-            store=store,
-            sinks=observers,
-            control=resolve_control_port(),
-        )
-        await MCPLifecycle.startup(self._mcp_obj.config() if self._mcp_obj is not None else None)
-        self._started_mcp = True
-        if self._mcp_obj is not None:
-            # build() compiled every agent's mcp= against MCPLifecycle before any server had
-            # connected, so its tools/banner are stale the moment startup() above finishes  -
-            # correct the compiled agent in place before anything can run a turn against it.
-            invocables = self._invocables
-            assert invocables is not None  # build() just above guarantees this
-            agents = list(self._agents.values())
-            refresh_mcp_status({name: invocables[name].native for name in self._agents}, agents)
+                self._started_observers = (*self._started_observers, observer)
+            self._runtime = build_runtime(
+                executors=self._executor_instances,
+                # A view, not a copy: what ``ctx.agents`` mints after this point resolves
+                # against the already-open Runtime, and never shadows a catalog name.
+                invocables=ChainMap(self._minted, dict(self._invocables or {})),
+                store=store,
+                sinks=observers,
+                control=resolve_control_port(),
+            )
+            await MCPLifecycle.startup(self._mcp_obj.config() if self._mcp_obj is not None else None)
+            self._started_mcp = True
+            if self._mcp_obj is not None:
+                # build() compiled every agent's mcp= before any server connected, so its
+                # tools/banner are stale the moment startup() above finishes  -  correct it here.
+                invocables = self._invocables
+                assert invocables is not None  # build() just above guarantees this
+                agents = list(self._agents.values())
+                refresh_mcp_status({name: invocables[name].native for name in self._agents}, agents)
+        except BaseException:
+            if self._runtime is not None:
+                # Draining closes the observers, already this runtime's sinks; the store may
+                # hold its own live connection (``SqliteEventStore`` opens one at construction).
+                try:
+                    await self._runtime.drain()
+                except BaseException:
+                    logger.exception("__aenter__ rollback: draining the runtime failed")
+                if self._owns_store:
+                    try:
+                        await _aclose_store(self._runtime.store)
+                    except BaseException:
+                        logger.exception("__aenter__ rollback: closing the store failed")
+            else:
+                for started in reversed(self._started_observers):
+                    try:
+                        await started.close()
+                    except BaseException:
+                        # Best-effort, mirrors ``Exposure._lifecycle``: keep closing the rest,
+                        # never let one observer's close mask the exception this open is dying of.
+                        logger.exception("__aenter__ rollback: %r failed to close", started)
+            self._started_observers = ()
+            self._runtime = None
+            # Single-use, like a closed Deck: a retry that silently succeeded here would
+            # already have handed the process claim to whoever asked for it next (#617).
+            self._state = "CLOSED"
+            _release_process(self)
+            raise
         self._state = "OPEN"
         return self
 
@@ -906,6 +1000,26 @@ class Deck:
             f"No agent or workflow named {name!r}. Available: {sorted({*self._agents, *self._workflows})}."
         )
 
+    def _catalog_root(self, name: str) -> Agent | NativeDefinition:
+        """What ``run``/``stream``/``Runs.start`` resolve a caller-supplied name against: every
+        :meth:`_root` target minus a bundled tool, which compiles into the runtime catalog for
+        ``ctx.invoke`` (:func:`_invoked_name`) but is never addressable by name from outside one.
+        Both refusals below list only what this path actually accepts  -  :meth:`_root`'s own
+        "Available" includes a tool, which would just raise the second error in turn.
+        """
+        try:
+            root = self._root(name)
+        except NotFoundError:
+            raise NotFoundError(
+                f"No agent or workflow named {name!r}. Available: {sorted({*self._agents, *self.workflows})}."
+            ) from None
+        if isinstance(root, NativeDefinition) and root.kind is not InvocableKind.WORKFLOW:
+            raise InputError(
+                f"{name!r} is a tool, not a runnable target. Available targets: "
+                f"{sorted({*self._agents, *self.workflows})}. Call it from a workflow with ctx.invoke(...)."
+            )
+        return root
+
     async def _start(
         self,
         name: str,
@@ -1019,7 +1133,11 @@ class Deck:
             kind=InvocableKind.AGENT,
             executor=EXECUTOR_FOR_KIND[InvocableKind.AGENT],
             native=compile_agent(
-                minted, context_type=self._context_type, catalog=self._agents, delegate=self._delegate
+                minted,
+                context_type=self._context_type,
+                catalog=self._agents,
+                delegate=self._delegate,
+                workers=self._sync_workers,
             ),
             metadata={"agent": instance},
         )
@@ -1093,7 +1211,7 @@ class Deck:
         ``(namespace, key)`` pair whose run already started raises ``DuplicateKeyError`` rather
         than replaying that run, since this call always begins a new one.
         """
-        root = self._root(name)
+        root = self._catalog_root(name)
         self._require_open()
         content = _content_for(root, input)
         opening, task = await self._start(
@@ -1128,7 +1246,7 @@ class Deck:
         cancelled out from under it  -  only stops *watching*. It does not stop the run, which
         keeps executing to its own natural end regardless.
         """
-        root = self._root(name)
+        root = self._catalog_root(name)
         self._require_open()
         content = _content_for(root, input)
         opening, task = await self._start(
@@ -1215,17 +1333,6 @@ class Deck:
         here and one started over HTTP land in the same conversation."""
         return self._ensure_sessions().session_for(_new_context(session_id))
 
-    def asgi(self) -> Any:
-        """The ASGI app ``agentdeck serve`` runs: a FastAPI app whose lifespan opens this Deck
-        on startup and closes it on shutdown, so a mounted Deck needs no separate
-        ``async with``. The HTTP contract is v1's own, unchanged (``tests/golden/`` proves it
-        byte-for-byte)  -  building it lives in ``agentdeck.serve`` (the one module allowed to
-        import FastAPI), not here, so ``agentdeck.deck`` stays free of that dependency.
-        """
-        from agentdeck.serve import build_asgi_app
-
-        return build_asgi_app(self)
-
 
 _NO_CONTROL_PORT = (
     "the run could not be told to {verb}: this deck has no control backend, so nothing was "
@@ -1251,15 +1358,12 @@ def _completed_result(deck: Deck, event: Event, payload: RunCompleted) -> Any:
     reading it here is what lets :meth:`Run.__await__` work identically whether this process
     started the run or only ever looked it up.
     """
-    data = next((block.data for block in payload.output if isinstance(block, DataBlock)), None)
-    if isinstance(deck._root(event.origin), Agent):
-        output = (
-            data
-            if data is not None
-            else "".join(block.text for block in payload.output if isinstance(block, TextBlock))
-        )
-        return TurnResult(output=output, usage=payload.usage, run_id=event.run_id, session_id=event.session_id)
-    return data
+    blocks = payload.output
+    if not isinstance(deck._root(event.origin), Agent):
+        return _workflow_output(payload)
+    data = next((block.data for block in blocks if isinstance(block, DataBlock)), None)
+    output = data if data is not None else "".join(block.text for block in blocks if isinstance(block, TextBlock))
+    return TurnResult(output=output, usage=payload.usage, run_id=event.run_id, session_id=event.session_id)
 
 
 class Run:
@@ -1403,6 +1507,10 @@ class Run:
         claimed, so the run stays answerable: an answer the log cannot hold would resume the run on
         a value no replay and no other process could reproduce.
 
+        An ask that named ``options`` refuses anything outside them on the same terms; an ask that
+        named none takes whatever it is given and hands it to the body, which is the only thing
+        that can judge a free-form answer.
+
         ``value`` is resupplied against the context :meth:`Runs.start` was given, not
         recovered: the interrupted run's own copy was never written to the log, so a node that
         read it before the interrupt reads ``None`` on this replay if this handle has none
@@ -1529,7 +1637,7 @@ class Runs:
         duplicate start never replays the run that holds the key, it refuses.
         """
         deck = self._deck
-        root = deck._root(name)
+        root = deck._catalog_root(name)
         deck._require_open()
         content = _content_for(root, input)
         opening, _task = await deck._start(

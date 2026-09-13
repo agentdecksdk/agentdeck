@@ -25,7 +25,7 @@ from agentdeck.adapters.leases.memory import MemoryLeasePort
 from agentdeck.adapters.leases.sqlite import SqliteLeasePort
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
-from agentdeck.errors import DOCS_URL
+from agentdeck.core.errors import DOCS_URL
 from agentdeck.runtime.discovery import InvocableRegistry
 from agentdeck.runtime.service import Runtime
 from agentdeck.runtime.settings import (
@@ -219,6 +219,13 @@ def resolve_event_store(settings: EventsSettings | None = None) -> EventStorePor
             "several workers can share."
         )
         return MemoryEventStore()
+    if get_settings().session.url is None:
+        logger.warning(
+            "AGENTDECK_EVENTS is durable but AGENTDECK_SESSION is unset: the log survives a restart, "
+            "the conversation the model sees does not. Session memory falls back to one in-process "
+            "SQLiteSession per key  -  lost on restart, unshared between workers. Set "
+            "AGENTDECK_SESSION=redis://<url> (needs the [redis] extra) to make recall durable too."
+        )
     if scheme == "sqlite":
         if not rest:
             raise ValueError("the sqlite event store needs a file path: set AGENTDECK_EVENTS=sqlite:///<path>")

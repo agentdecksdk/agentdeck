@@ -68,7 +68,7 @@ PAYLOADS = (
     RunCancelled(reason="operator"),
     RunInterrupted(
         interrupt_id="int_1",
-        reason="approval",
+        reason="human",
         payload={"question": "book tuesday 9am?"},
         thread_id="t-1",
         expected_resume="yes|no",

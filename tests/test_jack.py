@@ -15,6 +15,7 @@ A page falling out of the top three means search stopped finding it at all.
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -27,7 +28,7 @@ from agentdeck.errors import ContextTypeError
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "jack"
 sys.path.insert(0, str(EXAMPLE))
 
-from jack.agent import jack, read_changelog, read_doc, search_docs  # noqa: E402  -  needs the path above
+from jack.agent import INSTRUCTIONS, jack, read_changelog, read_doc, search_docs  # noqa: E402  -  needs the path above
 from jack.corpus import DEFAULT_CONTENT_ROOT, EXCLUDED, DocsCorpus  # noqa: E402
 
 
@@ -58,15 +59,15 @@ def test_the_changelog_tool_answers_by_version_and_by_topic(corpus: DocsCorpus) 
     from pathlib import Path
 
     current = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text())["project"]["version"]
-    assert current in read_changelog("latest", _AsContext(corpus))
+    assert current in read_changelog.call("latest", _AsContext(corpus))
 
-    topic = read_changelog("AudioBlock", _AsContext(corpus))
+    topic = read_changelog.call("AudioBlock", _AsContext(corpus))
     assert "AudioBlock" in topic
     assert "3.0.0" in topic, "a changelog line without its release reads as current"
 
-    unknown = read_changelog("9.9.9", _AsContext(corpus))
+    unknown = read_changelog.call("9.9.9", _AsContext(corpus))
     assert "no release" in unknown and "3.0.0" in unknown, "an unknown version lists the real ones"
-    assert "no release mentions" in read_changelog("zzzznotaword", _AsContext(corpus))
+    assert "no release mentions" in read_changelog.call("zzzznotaword", _AsContext(corpus))
 
 
 def test_slugs_are_the_sites_own_slugs(corpus: DocsCorpus) -> None:
@@ -77,6 +78,21 @@ def test_slugs_are_the_sites_own_slugs(corpus: DocsCorpus) -> None:
     for slug in corpus.pages:
         page = DEFAULT_CONTENT_ROOT / f"{slug}.mdx"
         assert page.is_file() or (DEFAULT_CONTENT_ROOT / slug / "index.mdx").is_file(), f"{slug} names no page"
+
+
+_CITED_SLUG = re.compile(r"read `([\w./-]+)`")
+
+
+def test_instructions_slug_citations_exist_in_the_corpus(corpus: DocsCorpus) -> None:
+    """`INSTRUCTIONS` points Jack at specific pages by slug (`meet-agentdeck/whats-new-6`,
+    `resources/migration-guides`, `bindings`), unlike the page index in `instructions()` above it,
+    which is read fresh from the corpus and cannot go stale. These are typed into the string, so a
+    renamed page would leave a citation dangling with nothing to catch it but this test.
+    """
+    slugs = _CITED_SLUG.findall(INSTRUCTIONS)
+    assert slugs, "no `read `slug`` citations found in INSTRUCTIONS  -  did the wording change?"
+    missing = [slug for slug in slugs if slug not in corpus.pages]
+    assert not missing, f"INSTRUCTIONS cites slugs absent from the corpus: {missing}"
 
 
 # One case per question shape the docs panel will actually meet. Grown to #219's ten categories
@@ -111,7 +127,7 @@ def test_search_returns_nothing_rather_than_anything(corpus: DocsCorpus) -> None
 
 def test_an_unknown_slug_answers_with_the_page_list(corpus: DocsCorpus) -> None:
     """A wrong guess should teach the agent the right slug in the same turn, not raise."""
-    result = read_doc("build-your-deck/nonexistent", _AsContext(corpus))
+    result = read_doc.call("build-your-deck/nonexistent", _AsContext(corpus))
     assert "no page" in result
     assert "build-your-deck/agents" in result
 
@@ -128,8 +144,8 @@ def test_the_context_parameter_is_absent_from_the_schema_the_model_sees() -> Non
     be asked to invent a `DocsCorpus`, and the failure would look like a confused model rather
     than a broken tool.
     """
-    for tool in (search_docs, read_doc):
-        compiled = compile_tool(tool, context_type=DocsCorpus)
+    for definition in (search_docs, read_doc):
+        compiled = compile_tool(definition.call, context_type=DocsCorpus, declared_via_tool=True)
         assert "docs" not in compiled.params_json_schema["properties"], compiled.params_json_schema
 
 
