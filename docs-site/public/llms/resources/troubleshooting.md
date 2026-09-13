@@ -16,10 +16,19 @@ These raise from `Deck(...)` or `Deck.build()`, before anything runs.
 
 | Error | What it means | What to do |
 |---|---|---|
-| `ConfigError` | Invalid or incomplete configuration: a duplicate target name, a workflow bundle exporting no `@workflow`, a binding declaring an SPI version this release does not support, two bindings claiming one HTTP path | The message names what collided or what was missing; fix the declaration it points at |
+| `ConfigError` | Invalid or incomplete configuration: a duplicate target name, a workflow bundle exporting no `@workflow` | The message names what collided or what was missing; fix the declaration it points at |
 | `ContextTypeError` | A tool declares `ToolCtx[T]` the deck's `context=` cannot satisfy | Give the deck the context type the tool asks for, or drop the annotation |
 | `NotFoundError` | An unknown agent, workflow or skill name, such as an unresolved `@handoff` target | The message lists the available names |
 | `SkillError` | A skill failed to load or execute | Read the `SKILL.md` frontmatter it names |
+
+## When exposing a deck
+
+A `Deck` is valid on its own; a set of bindings is checked when you put them together, so these
+raise from `deck.expose(...)` or `deck.serve(...)` rather than from `Deck(...)`.
+
+| Error | What it means | What to do |
+|---|---|---|
+| `ConfigError` | Two bindings sharing a name, a binding declaring an SPI version this release does not support, a binding requiring one that is not in the exposure, two bindings claiming one HTTP path, or more than one stdio binding | The message names the collision and lists what is available |
 
 ## When starting or driving a run
 

@@ -19,6 +19,12 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ### Fixed
 
+- **Troubleshooting lists the binding errors where they actually raise** (#750). Two of the four
+  `ConfigError` causes under "At build time" raise from `deck.expose(...)` or `deck.serve(...)`, not
+  from `Deck(...)`: a deck is valid on its own, and a set of bindings is checked when they are put
+  together. They now have their own section, with the three causes the page never listed.
+- **The `agent-with-a-skill` example links to the documentation site** (#726). Both "next" links
+  pointed at a personal `github.io` mirror that is being unpublished.
 - **Sharing a docs page renders the social preview card instead of a blank one** (#733). The site
   declared `twitter:card=summary_large_image` and an Open Graph block with no image in either, so
   every crawler that honoured the declaration reserved a large card and had nothing to put in it.

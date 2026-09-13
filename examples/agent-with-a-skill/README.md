@@ -45,5 +45,5 @@ Chat-Completions-only servers also want `OPENAI_USE_RESPONSES=false`.
 - **`session_id` is what makes the second turn a follow-up.** Both `run` calls share one session, so
   the note turn already knows which shift was discussed.
 
-Next: [Skills](https://sagi5060.github.io/agentdeck/concepts/skills) ·
-[Add a Tool](https://sagi5060.github.io/agentdeck/guides/add-a-tool)
+Next: [Skills](https://agentdecksdk.com/build-your-deck/skills) ·
+[Tools](https://agentdecksdk.com/build-your-deck/tools)
