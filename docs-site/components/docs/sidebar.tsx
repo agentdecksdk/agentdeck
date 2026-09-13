@@ -13,12 +13,10 @@ import {
   SidebarSeparator as BaseSeparator,
   SidebarViewport,
   useFolder,
-  useFolderDepth,
-  useSidebar
+  useFolderDepth
 } from 'fumadocs-ui/components/sidebar/base'
 import { SidebarFooter } from '@/components/docs/sidebar-footer'
 import { SidebarItem } from '@/components/docs/sidebar-item'
-import { useSheet } from '@/lib/sheet'
 import { cn } from '@/lib/utils'
 
 // Every row is indented by its depth, so a nested page lines up under the section that holds it.
@@ -130,7 +128,6 @@ const NAV = { role: 'navigation', 'aria-label': 'Sidebar' } as const
  *  rather than reproduced: nothing in this site ever reached them.
  */
 export function DocsSidebar() {
-  const { open, mode } = useSidebar()
   // One element for both arrangements, and no scroll plumbing on it: `SidebarViewport` is already
   // `flex-1 min-h-0` over a `size-full` scroller, which resolves and scrolls the moment its
   // ancestor has a definite height. The rail gets that from the grid row, the sheet from being
@@ -140,9 +137,6 @@ export function DocsSidebar() {
       <PageTree Item={SidebarItem} />
     </SidebarViewport>
   )
-
-  // No `lockPage`: this sheet stops under the bar, and the lock would take the bar with it.
-  useSheet(mode === 'drawer' && open)
 
   return (
     <>

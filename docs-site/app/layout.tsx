@@ -33,7 +33,12 @@ export const viewport: Viewport = {
   themeColor: [
     { media: '(prefers-color-scheme: light)', color: 'rgb(250,251,254)' },
     { media: '(prefers-color-scheme: dark)', color: 'rgb(11,18,32)' }
-  ]
+  ],
+  // The software keyboard shrinks the layout viewport, so `position: fixed` and `100dvh` mean what
+  // they say while it is up. Without it a keyboard only covers the page, and a full-screen sheet
+  // has to re-derive its own box from `visualViewport` on every resize to stay above the keys.
+  // The browser already knows; this is asking it to say so.
+  interactiveWidget: 'resizes-content'
 }
 
 // Tracked in `.github/assets/`, where CI requires every binary to live

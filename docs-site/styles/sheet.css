@@ -1,28 +1,27 @@
 /* The mobile sheet: one surface, used by the docs navigation and by Ask Jack.
  *
- * A sheet fills the visible viewport from the bar to the bottom edge. It is not a floating card
- * over a live page, and that is the whole design: a definite height is what makes percentage
- * heights inside it resolve, so one child scrolls and nothing overflows. A
- * `max-height` box has an indefinite height, `height: 100%` inside it resolves to `auto`, and the
- * content grows past the box and is clipped with nothing to scroll. That is the bug this replaces.
+ * A sheet is the screen, from whatever chrome it sits under to the bottom edge. Pinning `top` and
+ * `bottom` gives it a definite height, which is what makes percentage heights inside it resolve:
+ * one child scrolls and nothing overflows. A `max-height` box has an indefinite height, `height:
+ * 100%` inside it resolves to `auto`, and the content grows past the box and is clipped with
+ * nothing to scroll.
  *
- * Filling the screen also removes what a partial sheet needs to look deliberate: no scrim, no
- * blur, no strip of article showing above it.
+ * The software keyboard is the layout viewport shrinking, not a box to compute: `interactiveWidget:
+ * resizes-content` (app/layout.tsx) is what makes that true, so `bottom: 0` is above the keys and
+ * there is no `visualViewport` arithmetic here at all.
+ *
+ * ponytail: a browser without `interactive-widget` support leaves the keyboard over the composer
+ * instead of shrinking the viewport. The upgrade is a `visualViewport` listener writing the box
+ * into custom properties, and it is only worth it if a real device shows the problem.
  */
 
 @media (max-width: 767px) {
   .ad-sheet {
     position: fixed;
+    top: var(--ad-sheet-top, 0px);
     right: 0;
+    bottom: 0;
     left: 0;
-    /* The sheet *is* the visible viewport, minus whatever chrome it sits under. `--ad-vv-top` and
-       `--ad-vv-h` come from `visualViewport` (lib/sheet.ts) and already account for the keyboard
-       and the URL bar, so there is no inset to compute and nothing to over-lift. `dvh` is the
-       fallback where the API is missing. */
-    top: calc(var(--ad-vv-top, 0px) + var(--ad-sheet-top, 0px));
-    height: calc(var(--ad-vv-h, 100dvh) - var(--ad-sheet-top, 0px));
-    /* Positioned, never transformed: a transform on a fixed box is what makes a composer drift
-       through a keyboard resize. */
     z-index: 40;
     display: flex;
     flex-direction: column;
@@ -33,10 +32,9 @@
        body opts back in below.
 
        This is the whole story for a sheet that leaves chrome visible, and deliberately so: a root
-       `overflow: hidden` removes the scrollport `position: sticky` resolves against, the bar stops
-       sticking and falls to its static offset far up the document, and the article shows where it
-       was. Measured: bar top -852 locked that way, 48 unlocked, same scroll position. A sheet that
-       covers everything has no such chrome to lose and locks as well, below. */
+       lock removes the scrollport `position: sticky` resolves against, the bar stops sticking and
+       falls to its static offset far up the document, and the article shows where it was.
+       Measured: bar top -852 locked that way, 48 unlocked, same scroll position. */
     touch-action: none;
     animation: ad-sheet-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
   }
@@ -47,36 +45,26 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    /* The one region that may pan, and it keeps the gesture: `contain` stops a flick at either
-       end from chaining out to the document. */
     touch-action: pan-y;
     overscroll-behavior: contain;
   }
 
-  /* The home-indicator inset belongs under the last row only while the keyboard is down: with it
-     up the keyboard already owns that strip, so the inset is spent against `--ad-kb` and the
-     padding clamps back rather than opening a dead band above the keys. */
+  /* Clear of the home indicator. With the keyboard up the viewport has already shrunk past it, and
+     `env()` reports 0 there, so this needs no arithmetic of its own. */
   .ad-sheet__foot {
-    padding-bottom: max(
-      var(--ad-sheet-foot-pad, 0.7rem),
-      calc(var(--ad-sheet-foot-pad, 0.7rem) + env(safe-area-inset-bottom, 0px) - var(--ad-kb, 0px))
-    );
+    padding-bottom: calc(var(--ad-sheet-foot-pad, 0.7rem) + env(safe-area-inset-bottom, 0px));
   }
 
   /* `.ad-bar` is `background: transparent` with a backdrop blur, so the article reads through it.
      That is right while reading and wrong under an open sheet, where the bar is the sheet's own
-     head and the blurred page behind it is exactly the "I can still see the content" this
-     structure exists to end. Same colour as the sheet, so the two read as one surface. */
+     head. Same colour as the sheet, so the two read as one surface. */
   html:has(.ad-sheet) .ad-bar {
     background: var(--color-fd-background);
     backdrop-filter: none;
   }
 
-  /* Only a sheet that covers the whole viewport asks for this: see lib/sheet.ts, which also takes
-     the body out of flow. `touch-action` on the sheet stops a drag reaching the page; a wheel, a
-     trackpad and the keyboard are not drags, and the document behind was still scrolling under an
-     open chat. `width: 100%` because a fixed body shrink-wraps, and the article would reflow to
-     its content width for as long as the chat is up. */
+  /* Set by useLockedPage, which also parks the body. `width: 100%` because a fixed body
+     shrink-wraps, and the article behind would reflow to its content width while the chat is up. */
   html.ad-sheet-locked,
   html.ad-sheet-locked body {
     overflow: hidden;

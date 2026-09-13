@@ -10,8 +10,8 @@
 
 import { createPortal } from 'react-dom'
 import { usePathname } from 'next/navigation'
-import { useSheet } from '@/lib/sheet'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useLockedPage } from '@/lib/sheet'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -41,6 +41,7 @@ export function JackPanel({ validSlugs }: { validSlugs: string[] }) {
   const selection = useRef('')
   const session = useRef(`reader-${Math.random().toString(36).slice(2)}`)
   const transcript = useRef<HTMLDivElement>(null)
+  const composer = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     const remember = () => {
@@ -62,20 +63,17 @@ export function JackPanel({ validSlugs }: { validSlugs: string[] }) {
     return () => document.documentElement.classList.remove('ask-open')
   }, [open])
 
-  // The transcript is the sheet's scrolling region, so it is the thing that has to survive a
-  // keyboard opening: distance from the bottom is what a reader reads as "where I am". Measured
-  // before the resize lands, restored after it does. Under 8px counts as pinned and re-pins.
-  const keepAnchor = useCallback(() => {
-    const box = transcript.current
-    if (!box) return
-    const gap = box.scrollHeight - box.scrollTop - box.clientHeight
-    requestAnimationFrame(() => {
-      box.scrollTop = gap < 8 ? box.scrollHeight : box.scrollHeight - box.clientHeight - gap
-    })
-  }, [])
+  useLockedPage(open)
 
-  // Full screen, so nothing of the page is visible to lose: it takes the real lock.
-  useSheet(open, { onResize: keepAnchor, lockPage: true })
+  // Focus only where typing is the next action anyway. On the sheet it is not: raising the keyboard
+  // on open covers the transcript and the suggestions with a question the reader has not asked yet,
+  // and it has to be dismissed before anything can be read. `pointer: fine` as well as the width,
+  // so a tablet wide enough for the docked panel but driven by touch is still left alone.
+  useEffect(() => {
+    if (!open) return
+    if (!window.matchMedia('(min-width: 768px) and (pointer: fine)').matches) return
+    composer.current?.focus()
+  }, [open])
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
@@ -201,7 +199,7 @@ export function JackPanel({ validSlugs }: { validSlugs: string[] }) {
           onChange={event => setQuestion(event.target.value)}
           placeholder={busy ? 'Reading the docs…' : 'How do I create an agent?'}
           disabled={busy}
-          autoFocus
+          ref={composer}
         />
         <button type="submit" disabled={busy || !question.trim()}>Ask</button>
         </form>
