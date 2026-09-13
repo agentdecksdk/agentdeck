@@ -8,6 +8,13 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Changed
+
+- **Ask Jack says he is away before you type, rather than after** (#224). The docs site checks the
+  assistant's `/health` on load: when it is unreachable the launcher reads "Jack is away" and takes
+  no question, instead of accepting one and failing on send. A backend that answers with an error
+  reads differently from one that is not running.
+
 ## [6.0.4] - 2026-09-13
 
 ### Changed
