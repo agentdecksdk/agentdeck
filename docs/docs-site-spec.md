@@ -1,6 +1,6 @@
 # Documentation site specification
 
-**Status:** Target information architecture and visual design for `docs-site/`. Not yet implemented; `docs/delivery/plan-docs-ia.md` audits the gap and #728 is closing it.
+**Status:** Design of record, the target information architecture for `docs-site/`, not yet implemented.
 **Scope:** What the documentation site should contain, how it should be organised, and how it should look.
 
 The binding rules for writing any single page are `docs/engineering/documentation.md`. This file is the shape of the whole, not the law for a part.

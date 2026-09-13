@@ -1,5 +1,7 @@
 # Plan  -  the v3 cutover: ports, engines, runtime, surfaces
 
+**Status:** History.
+
 **Delivered, phases 0–4** · **Date:** 2026-08-08 · Executes epic Story 2 plus the `authoring/` move it
 scopes, against the v2 architecture record's §6 target layout.
 

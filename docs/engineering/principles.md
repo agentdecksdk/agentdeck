@@ -1,6 +1,6 @@
 # AgentDeck Engineering Principles
 
-**Status:** Binding philosophy
+**Status:** Binding.
 
 ## The standard
 

@@ -1,5 +1,7 @@
 # Plan: documentation information architecture
 
+**Status:** History.
+
 **Baseline:** site as deployed at v4.0.2 (2026-08-19) · **Authority:** `docs/docs-site-spec.md` §27-36 and §78-80, plus `docs/engineering/documentation.md`
 **Status:** audit and proposal, partly implemented on this branch.
 

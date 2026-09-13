@@ -1,9 +1,11 @@
 # The event store's two conditional appends
 
+**Status:** Design of record.
+
 `claim_start` and `claim_resume`: what each one tests, why the condition and the write have to be
 one operation, and what the staleness window costs whoever operates it.
 
-Split out of the v2 architecture record §4.5 on 2026-08-14, carrying its dated
+Split out of the v2 architecture record (deleted in #740, readable in git history) §4.5 on 2026-08-14, carrying its dated
 amendments of 2026-08-05, 2026-08-06 and #83. §4.5 keeps the headline and links here; on the claims
 this file wins. Signatures are governed by `design/adr-d11-store-assigns-seq-and-time.md`.
 

@@ -1,5 +1,7 @@
 # Binding and endpoints
 
+**Status:** Design of record.
+
 One concrete protocol over one transport it actually supports.
 
 ## No generic transport composition

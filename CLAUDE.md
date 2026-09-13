@@ -10,6 +10,17 @@ AgentDeck is a declarative runtime harness for multi-agent systems and workflows
 5. Specialized standards: [`architecture.md`](docs/engineering/architecture.md), [`runtime-contracts.md`](docs/engineering/runtime-contracts.md), [`testing.md`](docs/engineering/testing.md), [`dependencies.md`](docs/engineering/dependencies.md), [`repository-policy.md`](docs/engineering/repository-policy.md), [`import-boundaries.md`](docs/engineering/import-boundaries.md).
 6. [`docs/patterns/`](docs/patterns/README.md): the project's taste as real good/bad pairs. Read the file for your concern before writing; match the good side.
 
+**Every file under `docs/` declares its status on line 3**, from four words, so law is distinguishable from archaeology without opening it:
+
+| Status | Means | Where |
+|---|---|---|
+| **Binding** | a change that violates it is wrong | all of `docs/engineering/` and `docs/patterns/`, the 16 files above |
+| **Design of record** | live rulings; amend it rather than contradicting it | `docs/design/` including `protocols/`, plus `docs/delivery/plan-context-injection.md` and `deck-capability-wrapper-pattern.md` |
+| **Reference** | true, not law | `docs/brand/README.md`, `docs/design-system.md` |
+| **History** | a state the project has left, kept because shipped code cites its reasoning | the rest of `docs/delivery/`, and `docs/prompts/` |
+
+A version in a **History** title is that document's own subject, not a stale claim about this repository.
+
 ---
 
 ## 1. Product Philosophy & North Star

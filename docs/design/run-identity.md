@@ -1,5 +1,7 @@
 # Run identity and the Run object
 
+**Status:** Design of record, proposed and not built.
+
 What addresses a run, what a caller holds, who drives execution, and why the control plane can
 address the wrong tenant today.
 

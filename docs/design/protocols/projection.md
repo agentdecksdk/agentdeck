@@ -1,5 +1,7 @@
 # Projection: mapping a protocol onto AgentDeck
 
+**Status:** Design of record.
+
 The adapter's mappings. AgentDeck is authoritative on every one.
 
 ## Sessions

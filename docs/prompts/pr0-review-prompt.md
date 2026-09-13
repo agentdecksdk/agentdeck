@@ -1,5 +1,7 @@
 # Prompt  -  Reviewing PR #0: Baseline & Guardrails
 
+**Status:** History.
+
 Copy everything below the line into Claude Code (or any coding agent) with the PR
 checked out and `main` available for comparison.
 

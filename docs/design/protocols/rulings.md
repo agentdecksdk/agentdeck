@@ -1,5 +1,7 @@
 # Rulings
 
+**Status:** Design of record.
+
 Decisions taken while attacking the design, 2026-08-29. One row per question: what was chosen, what was rejected, why.
 
 | # | question | ruling | rejected | why |

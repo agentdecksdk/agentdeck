@@ -1,5 +1,7 @@
 # Plan  -  phase 4: `Deck`, the v3 composition API
 
+**Status:** History.
+
 **Delivered** in v3.0.0 · **Date:** 2026-08-09 · Resolves #88, blocks phases 5–6, and supersedes the
 Option A recommendation in `agentdeck-internal:planning/delivery/decision-v3-entry-point.md` where they differ.
 

@@ -1,5 +1,7 @@
 # DeckGateway
 
+**Status:** Design of record.
+
 The stable interface from a protocol into a Deck: what an external integration may ask a Deck to do.
 
 ## Why not hand plugins the Deck

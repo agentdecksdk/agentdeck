@@ -1,5 +1,7 @@
 # Tests
 
+**Status:** Binding.
+
 A test asserts an observable invariant, offline and deterministic. If it passes with the behavior broken, it is not a test.
 
 Good (real, `tests/core/test_content.py`): asserts the contract, not the internals:
