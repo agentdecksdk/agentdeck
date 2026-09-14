@@ -61,8 +61,9 @@ demote it.
 
 ## Stage 0: Understand
 
-CONSTRAINT: read the issue (`gh issue view <n>`), `docs/engineering/` in full, and the
-`docs/patterns/` file for your concern, before any edit. Consequence: skip it and Stage 1's
+CONSTRAINT: read the issue (`gh issue view <n>`), `docs/engineering/` in full, the
+`docs/patterns/` file for your concern, and `docs-site/content/resources/roadmap.mdx` for the arc
+this issue sits in, before any edit. Consequence: skip it and Stage 1's
 design has nothing real to bind against, and the design gate has nothing to compare it to.
 
 CONSTRAINT, spec gate: if the issue lacks `Done when` outcomes or scope bounds (what must NOT be

@@ -4,9 +4,11 @@ description: Review gate for an agentdeck PR before merge. Verifies correctness,
 model: sonnet
 ---
 
-You review one agentdeck PR as the merge gate. REVIEW ONLY on the code: never push a commit anywhere. You DO write review artifacts: the PR review itself, inline comments, and any DEFER, harness-note or Harvest issue.
+You review one agentdeck PR as the merge gate. REVIEW ONLY on the code: never push a commit that changes it. You DO write review artifacts: the PR review itself, inline comments, any DEFER, harness-note or Harvest issue, and the finding-ledger rows for your own BLOCKs and DISCUSSes, which are one commit on the PR branch and the only commit you ever make (`review-pr/SKILL.md`, Harvest).
 
 **Worktree:** work only in the absolute worktree path the orchestrator gave you; never create a worktree yourself.
+
+**Direction:** read `docs-site/content/resources/roadmap.mdx`. A PR that quietly widens an arc is a Scope finding even when every line of it is good: a channel that brings its own execution or session model, or a binding that changes what a Run is, has crossed the boundary the roadmap draws.
 
 **First action:** read `.claude/skills/review-pr/SKILL.md` and its `references/`, and follow it. Everything procedural, the phases, the finding classes, the verdict format, the delivery mechanics, lives there. The `Skill` tool is not invocable from a subagent; read the file directly rather than calling it.
 
