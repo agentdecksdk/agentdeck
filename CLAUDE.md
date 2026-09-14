@@ -15,9 +15,9 @@ AgentDeck is a declarative runtime harness for multi-agent systems and workflows
 | Status | Means | Where |
 |---|---|---|
 | **Binding** | a change that violates it is wrong | all of `docs/engineering/` and `docs/patterns/`, the 16 files above |
-| **Design of record** | live rulings; amend it rather than contradicting it | `docs/design/` including `protocols/`, plus `docs/delivery/plan-context-injection.md` and `deck-capability-wrapper-pattern.md` |
-| **Reference** | true, not law | `docs/brand/README.md`, `docs/design-system.md` |
-| **History** | a state the project has left, kept because shipped code cites its reasoning | the rest of `docs/delivery/`, and `docs/prompts/` |
+| **Design of record** | live rulings; amend it rather than contradicting it | `docs/design/` including `protocols/`, and `docs/delivery/`, whose plans are cited by ruling number from tests and source |
+| **Reference** | true, not law | `docs/brand/README.md` |
+| **History** | a state the project has left. Usually it is deleted instead: git is the archive, and #734 deleted the eight that nothing read | nothing, currently |
 
 A version in a **History** title is that document's own subject, not a stale claim about this repository.
 

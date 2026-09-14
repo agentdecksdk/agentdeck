@@ -17,7 +17,6 @@ system and the reason the mark survives at one colour.
 | `logo-white.svg` | mono Canvas, same reason, for a dark ground |
 | `logo-black.svg` | mono Night, same reason, for a light ground |
 | `favicon.svg` | square and centred on the card  -  favicons, app icons, avatars |
-| `logo-traced-original.svg` | provenance only  -  see below |
 | `contributor-welcome.svg` | the card the bot posts on a first pull request |
 | `contributor-merged.svg` | the card it posts after a first merged one |
 
@@ -51,10 +50,9 @@ browser chrome until 2026-08-15.
 | `components/spark.svg` | the spark alone, drawn geometry, box `828.765 -64.697 257.229 257.086` |
 | `components/wordmark.svg` | `agentdeck` as nine outlines from Poppins-SemiBold |
 
-The spark is drawn geometry rather than a cleaned trace, so it is the one part of the mark that
-no longer descends from `logo-traced-original.svg`. It is drawn rather than approximated, and it
-replaced the traced spark everywhere at once, because two near-identical sparks is the worse thing
-to maintain.
+The spark is drawn geometry rather than a cleaned trace, so it is the one part of the mark that no
+longer descends from the original trace. It is drawn rather than approximated, and it replaced the
+traced spark everywhere at once, because two near-identical sparks is the worse thing to maintain.
 
 **Every part is drawn in the mark space `0 -64.70 1085.99 1209.70`, so a composition pastes the
 `<path>` with no transform at all, except `a.svg`, which is drawn pre-translate and needs the
@@ -136,8 +134,8 @@ a recipe, so treat a PNG next to these files as a build artifact that escaped.
   own, read back with `getStartPositionOfChar` so the kerning is the engine's rather than a
   reimplementation of it, at the weight and tracking the site already used. Recipe under
   *Setting type as outlines*.
-- **The original vector for the mark.** `logo-traced-original.svg` is what was handed over: a
-  **potrace trace of a PNG**, not an export. The tells are the SVG 1.0 DTD, the
+- **The original vector for the mark.** What was handed over was a **potrace trace of a PNG**, not
+  an export. It lived here as `logo-traced-original.svg` until #734 and is in git history. The tells are the SVG 1.0 DTD, the
   `translate(0,1254) scale(0.1,-0.1)` flip, and a viewBox of exactly the PNG's pixel width. The
   files here are cleaned from that trace  -  unitless, `currentColor`, titled, correctly cropped,
   each one rendered and measured in a browser rather than eyeballed. Two things a cleanup cannot
@@ -226,8 +224,7 @@ render an SVG.
 
 The mark reads `agentdeck`; prose says **AgentDeck SDK** on first mention and **AgentDeck**
 thereafter. The qualifier lives in titles, descriptions and the domain  -  not in the glyph, where it
-would read as a sub-brand of a parent product that does not exist. See
-`agentdeck-internal:planning/delivery/plan-adoption.md` §1.
+would read as a sub-brand of a parent product that does not exist.
 
 ## The typeface: Poppins, and the sheet's own label is wrong
 

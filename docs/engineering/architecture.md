@@ -16,7 +16,7 @@ Authoring / Composition / Surfaces
             Adapters
 ```
 
-`Deck` is the single composition root. The package layout may evolve; the ownership below may not.
+`Deck` is the single composition root. The package layout may evolve, and the ownership below moves with it: this table went two releases naming `adapters/bindings/` while the SPI it implements sat unnamed in `agentdeck/bindings/` (#734).
 
 ## 2. Ownership
 
@@ -26,7 +26,9 @@ Authoring / Composition / Surfaces
 | `runtime/` | lifecycle, routing, sequencing, control handling, persistence coordination, cleanup | knowledge of which concrete provider is installed |
 | `adapters/` | one external technology each: its SDK types, its lifecycle, its exceptions, and translation to and from core contracts | another adapter's implementation |
 | `authoring/` | user-facing declarations compiled to specs | run semantics |
-| `adapters/bindings/` | protocol ingress: one binding per external protocol, channel or surface, each over one transport |
+| `bindings/` | the binding SPI: `Binding`, `Gateway`, `exposure`, and the `native` / `agui` / `terminal` entry points. Reaches `Deck` through its public surface only | any run semantics, and any adapter's internals |
+| `adapters/bindings/` | protocol ingress: one binding per external protocol, channel or surface, each over one transport | the SPI it implements |
+| `skills/` | `Skills`, the capability object a `Deck` composes for skill disclosure | how a skill's prose is executed |
 
 Two tests that settle most boundary arguments:
 

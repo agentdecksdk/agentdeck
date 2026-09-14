@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1145" fill="currentColor" role="img" aria-label="AgentDeck card">
-  <title>Card</title>
-  <desc>The ace-cut card, solid: drawn in the mark space 0 -64.70 1085.99 1209.70 that AgentDeck
-  Primary Mark v1.0 defines, so a composition pastes it with no transform. The A is a separate
-  part (components/a.svg) painted over it, not a hole in this path.</desc>
-  <path d="M 135 0 H 650 L 1000 350 V 1010 A 135 135 0 0 1 865 1145 H 135 A 135 135 0 0 1 0 1010 V 135 A 135 135 0 0 1 135 0 Z"/>
-</svg>
