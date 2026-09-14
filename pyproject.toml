@@ -1,6 +1,6 @@
 [project]
 name = "agentdeck-sdk"
-version = "6.0.4"
+version = "6.0.5"
 description = "Agentic software should feel like software. Build agents, tools and workflows as normal software, and get one execution model you can observe, control and extend."
 license = "MIT"
 license-files = ["LICENSE"]
