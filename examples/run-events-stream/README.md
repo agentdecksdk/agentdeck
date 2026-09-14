@@ -4,6 +4,8 @@ Every AgentDeck execution is a `Run` with an ordered event log. This example str
 prints each event as it arrives. **No API key**: the model is scripted in-process, so the run
 reaches nothing external and the output below is the same on every machine.
 
+**The rung:** the event log. Every run writes one ordered stream, and everything else on this list is a reader of it.
+
 ```text
 run.py    # deck.stream(...) + print(event.kind, event.payload)
 ```

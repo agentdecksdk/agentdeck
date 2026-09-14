@@ -1,0 +1,61 @@
+---
+title: Roadmap
+description: "Where AgentDeck is going: reach across protocols now, programmable execution and debugging next, isolation after that."
+---
+
+{/* docs_sources:
+  - "agentdeck/bindings/__init__.py"
+  - "docs/design/protocols/roadmap.md"
+  - "SECURITY.md"
+*/}
+
+Direction, not dates. The version labels below say what comes before what; they are not a schedule,
+and nothing here is a commitment to ship on a given day.
+
+## What you have today
+
+Agents, workflows, skills and tools compose in any direction. Every run appends to one versioned
+event log, and status is folded from it. Sessions persist across turns, surfaces and restarts. Runs
+pause, resume, cancel and answer by id, from another process, across a restart. Three bindings run
+on one Deck: [Native HTTP/SSE](/bindings/native), [the terminal](/bindings/terminal) and
+[AG-UI](/bindings/agui). Cost, traces and audit are consumers of the log rather than per-engine
+instrumentation.
+
+The binding SPI is frozen at v1, so a [binding you write today](/bindings/write-your-own) keeps
+working.
+
+## Where it goes
+
+| | Arc | What it means |
+|---|---|---|
+| **Now**, 6.x | **Reach** | Run the same AgentDeck execution model through more environments. Stabilize the binding SPI and ship reference integrations for Native, Terminal, AG-UI, A2A, WhatsApp, A2UI, ACP and MCP, with durable identity, reconnect, human input and multimodal behavior where the protocol supports them |
+| **Next**, v7 | **Programmable execution** | Anything executable becomes a Run. Stronger child-run and invocation semantics, capability-based execution and control, cleaner cancellation and shutdown, sync, thread and process execution, and one consistent Reporter across them. The point is to manipulate execution, not only observe it |
+| **With v7** | **Debugging agentic software** | Step through a run, replay it, fork it to compare outcomes, change parameters and state mid-flight, and turn a production failure into a regression case. The same interface serves a human developer and a coding agent |
+| **After**, v8 | **Isolation and sandboxing** | One coherent execution capability across agents, tools and skills, rather than a sandbox bolted onto each of them separately |
+| **Beyond** | Rooms, automation, batteries, operations | Group sessions with several agents and humans; triggers as one mechanism, whether cron, webhook, log pattern or timer; a tested standard library of agents and skills; an operations console reading only the event log |
+
+Reach changes *where* AgentDeck can be used, not what a Run is. A channel translates an external
+conversation into ordinary runs; it does not bring its own execution or session model. That
+boundary is what makes the next arc a separate one.
+
+Programmable execution and the debugger are one thesis, not two features: **agentic software should
+be debuggable like software.** Pausing and resuming a run is where that starts, not where it ends.
+
+The four under **Beyond** are directions rather than a release order. Nothing about them is
+sequenced yet, and saying otherwise would claim a decision we have not made.
+
+## What that means today
+
+Nothing is sandboxed. Tools, skills and workflow bodies are ordinary Python in your process, and a
+model-chosen tool call is trusted by design, which is what the isolation arc changes and what
+[`SECURITY.md`](https://github.com/agentdecksdk/agentdeck/blob/main/SECURITY.md) says plainly. On
+debugging, inspection works now and manipulation does not: you can pause, resume, cancel and read
+the run tree and the event log, and you cannot yet step, replay or fork.
+
+## Where the detail lives
+
+Protocol work is sequenced per phase in
+[the protocol roadmap](https://github.com/agentdecksdk/agentdeck/blob/main/docs/design/protocols/roadmap.md),
+which is authoritative on anything protocol-shaped and wins over this page. What already shipped is
+in the [changelog](/resources/changelog), and what is broken right now is in
+[known issues](/resources/known-issues).

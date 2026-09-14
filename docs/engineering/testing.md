@@ -1,6 +1,6 @@
 # Testing Standards
 
-**Status:** Binding
+**Status:** Binding.
 
 Tests protect product guarantees.
 

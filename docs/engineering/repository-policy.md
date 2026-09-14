@@ -1,6 +1,6 @@
 # Repository and Change Policy
 
-**Status:** Binding process guidance
+**Status:** Binding process guidance.
 
 The purpose of process is to improve correctness and reviewability, not to create bureaucracy.
 

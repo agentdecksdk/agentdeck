@@ -1,5 +1,7 @@
 # Protocol SPI: versioning and packaging
 
+**Status:** Design of record.
+
 ## Version
 
 ```python

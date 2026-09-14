@@ -27,6 +27,31 @@ In each case the primary flow had a test and the adjacent path the same change c
 did not. Naming the gap is not lesser than closing it, but naming nothing is a failed answer:
 "none" only holds if you can point to the test that actually exercises the adjacent path.
 
+## The standard
+
+CONSTRAINT for a major feature, skip for a bugfix: the `Q1-Q7:` line you wrote into the body at
+Stage 1 is now checkable against real code. Confirm each answer still holds, or name the one that
+stopped being true and what you did about it. Q2 (can a developer who does not need it ignore it
+completely) and Q4 (are we absorbing complexity, or transferring it to the user) are the two the
+project fails most, so a feature touching the public surface answers those two whatever else it
+implicates.
+
+## The outside question
+
+CONSTRAINT for any change to a public symbol: write the smallest call a user makes, as they would
+write it, and count what they have to know to write it. A concept in that line the issue did not
+introduce is this change transferring complexity, whatever the diff looks like.
+
+Every other question here reads the diff. "Simple on the outside" is not visible from inside it,
+which is why this one is asked separately and answered with a call rather than an argument.
+
+## The second reader
+
+CONSTRAINT: whatever a human can see or drive here, a coding agent can reach the same way. A typed
+payload, a return value, an event on the log, a CLI read path: any one of them answers this. If the
+only way a program learns what happened is parsing terminal output, the capability is half-built and
+Q7 fails, which is the argument the binding SPI itself was built on.
+
 ## The shape questions
 
 CONSTRAINT: answer all ten, against `git diff dev...HEAD`, honestly.

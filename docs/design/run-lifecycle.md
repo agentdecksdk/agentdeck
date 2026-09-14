@@ -1,5 +1,7 @@
 # The run lifecycle
 
+**Status:** Design of record.
+
 Which event moves a run's state, what is true of each state, which operation is legal in one, and
 what a pending signal does when it is read.
 
@@ -116,7 +118,7 @@ Five steps, in this order.
 A `Ruling` carries what to append, **what becomes of the intent** (`consume` or `leave`), and one
 sentence of why, which doubles as the error message and the test name. `consume` needs
 `ControlPort.consume(run_id, expected) -> bool`, recorded as missing in
-the v2 architecture record §4.5; `resume_run` hand-rolls it today and documents why an
+the v2 architecture record (deleted in #740, readable in git history) §4.5; `resume_run` hand-rolls it today and documents why an
 unconditional write "would overwrite, and silently destroy, a cancel that arrived while the run was
 suspended".
 

@@ -1,5 +1,7 @@
 # The execution API
 
+**Status:** Design of record.
+
 What `ctx`, `Run`, `Reporter` and `deck.runs` are, and what teaches AgentDeck to execute an
 arbitrary target. Rules #336 (imperative `@workflow`) and #337 (one universal invocable boundary);
 constrains #211 (reporter), and #236 / #249 / #304 inherit its vocabulary.

@@ -1,5 +1,7 @@
 # Prompt  -  PR #0: Baseline & Guardrails
 
+**Status:** History.
+
 Copy everything below the line into Claude Code (or any coding agent) at the repo root.
 
 ---

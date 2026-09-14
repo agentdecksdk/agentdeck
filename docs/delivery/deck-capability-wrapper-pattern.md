@@ -1,5 +1,7 @@
 # Capability Wrapper Pattern in `Deck`
 
+**Status:** Design of record.
+
 `Deck(...)` stays small and declarative. Top-level executable components are passed directly; a
 subsystem with its own discovery, loading, lifecycle or configuration behavior gets a dedicated
 capability object that owns those options, instead of pushing them onto `Deck`.

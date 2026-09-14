@@ -1,5 +1,7 @@
 # AgentDeck Design System
 
+**Status:** Reference.
+
 A minimal, architectural design system for AgentDeck documentation, surfaces, and developer tooling.
 
 ## 1. Core Principles

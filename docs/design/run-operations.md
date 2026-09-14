@@ -1,5 +1,7 @@
 # Operating a run
 
+**Status:** Design of record, partly superseded by `run-identity.md`.
+
 The shape and naming of the surface that acts on a run which already exists. What each verb *does*
 in each state is `design/run-lifecycle.md`'s (state × intent) table; this file does not restate it.
 

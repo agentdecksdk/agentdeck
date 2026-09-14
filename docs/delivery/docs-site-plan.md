@@ -1,5 +1,7 @@
 # Plan: AgentDeck docs site
 
+**Status:** History.
+
 **Reference:** `agentdeck-internal:planning/prd.md` (personas §2, FRs §4, phasing §6, metrics §7) ·
 **Baseline:** `docs-site/` as landed in #40 · **Date:** 2026-08-04
 

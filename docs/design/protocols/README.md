@@ -1,5 +1,7 @@
 # Protocol architecture
 
+**Status:** Design of record, accepted, frozen at SPI v1 with v6.0.0.
+
 One executable Deck, exposed through many external protocols, none of which becomes part of the execution model.
 
 Status: accepted, frozen at SPI v1 with v6.0.0 (2026-09-02). Supersedes the single-file `design.md`, kept in git history one commit back.

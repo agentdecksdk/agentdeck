@@ -1,6 +1,6 @@
 # Coding Agent Rules
 
-**Status:** Binding for coding agents
+**Status:** Binding for coding agents.
 
 Coding agents follow all human engineering standards.
 

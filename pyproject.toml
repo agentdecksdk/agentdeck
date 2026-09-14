@@ -1,7 +1,7 @@
 [project]
 name = "agentdeck-sdk"
 version = "6.0.4"
-description = "Build agents, tools and workflows as normal software, and serve them through bindings: one Deck, reachable over its own HTTP wire, the terminal and AG-UI, with the same runs and controls everywhere."
+description = "Agentic software should feel like software. Build agents, tools and workflows as normal software, and get one execution model you can observe, control and extend."
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"

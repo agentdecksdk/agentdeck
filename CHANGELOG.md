@@ -8,6 +8,13 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Added
+
+- **A public roadmap** (#723). `/resources/roadmap` states where AgentDeck is going: reach across
+  protocols through 6.x, programmable execution and debugging in v7, isolation and sandboxing in
+  v8, and rooms, automation, batteries and operations as directions rather than a release order. No
+  dates. Protocol sequencing stays authoritative in the repository's protocol roadmap.
+
 ### Changed
 
 - **Ask Jack says he is away before you type, rather than after** (#224). The docs site checks the

@@ -1,5 +1,7 @@
 # AG-UI binding
 
+**Status:** Design of record.
+
 AG-UI serves a **Deck**, not an agent: `AGUI.http()` is a projection of `DeckGateway` and `Run`
 into the AG-UI protocol, and every target in the catalog is reachable through one endpoint. A
 pinned single-target endpoint is convenience, not the model.

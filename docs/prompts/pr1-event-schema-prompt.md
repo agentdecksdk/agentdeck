@@ -1,5 +1,7 @@
 # Prompt  -  PR #1: The Event Schema (`core/events.py` + `core/content.py`)
 
+**Status:** History.
+
 Prerequisite: PR #0 (golden baselines + import-linter) is merged. Copy everything below
 the line into Claude Code at the repo root.
 

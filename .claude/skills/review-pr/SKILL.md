@@ -43,7 +43,9 @@ Review progress:
 **The default is to write nothing.** Most reviews produce neither output below. `docs/patterns/` is 106 lines total across four files; that shortness is what makes it worth reading, and a reviewer appending once per PR would double it in a week. Pattern entries are not scored by volume: the measure is whether a later review cites one, never how many exist. Full bar and rationale: `references/craft.md`.
 
 - **A `docs/patterns/` entry**, only when all four of `references/craft.md`'s tests pass: it recurred, it generalizes past this module, it is a real cited good/bad pair, and it is not already covered by the four existing files. Extending an existing file beats creating one. You never commit it: open an issue containing the finished entry text and the file it belongs in, and a dev agent lands it. A reviewer that commits has reviewed nothing, and taste belongs under review like any other change.
-- **A harness note**, only when the same dev-agent *behavior* (not output) has appeared in two PRs, both cited. File it the same way as a DEFER (`finding: <gap>` issue) but name the behavior, not a proposed rule. Not a new mechanical guard: guards caught 0 of 8 v5 findings, and three of those findings were themselves guard proposals.
+- **A harness note**, only when the same dev-agent *behavior* (not output) has appeared in two PRs. Establish that with `uv run scripts/finding_tags.py`, which counts the `tag:` lines your own findings and every earlier review's findings carry, not with recall: across sessions a reviewer has no memory, and before the tags existed this bar was reachable only by luck. File the note the same way as a DEFER (`finding: <gap>` issue) but name the behavior, not a proposed rule. Not a new mechanical guard: guards caught 0 of 8 v5 findings, and three of those findings were themselves guard proposals.
+
+**Tagging is not optional, and it is the one thing Harvest always does.** Every BLOCK and DISCUSS carries a `tag:` line naming the dev-agent behavior (`references/templates.md`, Template A). Run `uv run scripts/finding_tags.py` before you write findings and reuse a tag from the histogram whenever one fits: a tag invented per finding can never reach a count, and a count is the only thing tags are for. Nothing is written to the tree; the comment you post is the record.
 
 Anything that surfaces but fails its bar is a NIT, or it is nothing. It is never a pattern.
 
@@ -58,6 +60,7 @@ BLOCK / DISCUSS / DEFER / NIT replace ERROR / WARNING / NOTE. Each is defined by
 | DEFER | real, but not this PR's job, whether or not it is actionable yet | reviewer files the issue and links it | no |
 | NIT | small, cheap, optional | nobody, unless the author wants to | no |
 
+- A major feature that leaves one of Q1-Q7 (`docs/engineering/principles.md`) unanswered is a DISCUSS, and what would settle it is the answer. Q4 is the one the project fails most: a PR that moves work to the caller and does not say so has failed it whatever the diff looks like.
 - DISCUSS resolves when the author *answers*, not when the author agrees. Disagreement after an answer goes to the user; neither side rules.
 - A DISCUSS must state what would settle it. A shrug is not a DISCUSS.
 - A public API finding classifies on what you are asserting, never on what the fix touches. A choice among several valid shapes is a DISCUSS, where a reviewer holds no more authority than the author. A demonstrated broken contract is a BLOCK even when the fix changes a signature.

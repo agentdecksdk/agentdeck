@@ -1,5 +1,7 @@
 # Plan: Jack's evaluation suite
 
+**Status:** History.
+
 **Baseline:** 40 offline tests in the gate, 50 goldens in `examples/jack/evalset.py`, one custom runner.
 **Proposal:** keep the deterministic layer, adopt DeepEval for everything it does better, and cover
 the seven aspects of Jack that nothing currently measures.

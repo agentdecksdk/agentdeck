@@ -1,6 +1,6 @@
 # ADR-D11  -  The store assigns `seq` and `ts`
 
-**Status:** accepted
+**Status:** Design of record, accepted.
 **Date:** 2026-08-08 · **Amended:** 2026-08-08 (#149), 2026-08-22 (#421), 2026-09-04 (#471) · **Relates to:** ADR-D5, design doc §4.2 ·
 §5, `core/ports/store.py`, `runtime/service.py`, coding-standards §6
 **Supersedes:**

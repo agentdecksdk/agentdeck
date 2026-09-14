@@ -1,5 +1,7 @@
 # Plan  -  execution context and context injection
 
+**Status:** Design of record.
+
 **Delivered** in v3.0.0 · **Date:** 2026-08-09 · The design and rulings of record for `Context[T]`;
 what moved when it met both engines is `agentdeck-internal:planning/delivery/plan-166-delivery.md`. Revised against
 `agentdeck-internal:planning/delivery/review-context-injection.md`, which reversed the original ruling on injection; pairs with

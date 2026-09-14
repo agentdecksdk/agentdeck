@@ -4,6 +4,8 @@ A workflow that asks the questions instead of answering them, driven from a term
 `agentdeck chat`. **No API key**: a `@workflow` is your own Python, so nothing here reaches a
 model.
 
+**The rung:** a human in the loop. `ctx.ask()` suspends the run in place and `agentdeck chat` answers it; no state machine, no resume protocol to learn.
+
 ```text
 .agentdeck/
 └── workflows/shift_handover/workflow.py    # @workflow + ctx.ask(...)

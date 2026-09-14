@@ -1,5 +1,7 @@
 # Native wire spec
 
+**Status:** Design of record, `native-wire v1`.
+
 `native-wire v1`. Independent of `PROTOCOL_SPI_VERSION`: this is the HTTP contract `Native.http()` serves, not the SPI a plugin builds against.
 
 Every route reaches a Deck through `DeckGateway` or a public `Run` method (`docs/design/protocols/gateway.md`). A test (`tests/bindings/test_native_binding.py`) diffs the route table below against the app's own routes, so a route cannot appear in one and not the other; the request shapes and status codes are held by that file's behavioural tests, not by parsing this page.

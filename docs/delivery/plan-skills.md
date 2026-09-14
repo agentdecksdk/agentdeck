@@ -1,5 +1,7 @@
 # Plan  -  skills as the `SKILL.md` directory protocol
 
+**Status:** History.
+
 **Delivered** in v3.0.0 · **Date:** 2026-08-09 · Third of three: pairs with `plan-phase4-deck.md`
 (which owns `skills=` and `build()`) and `plan-context-injection.md` (which owns `Context[T]`, and whose
 one open ruling this resolves).

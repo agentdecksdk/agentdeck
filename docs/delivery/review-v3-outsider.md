@@ -1,5 +1,7 @@
 # agentdeck v3.0.0  -  outsider review, united report
 
+**Status:** History.
+
 **Date:** 2026-08-13 (the document carried none; taken from its first commit) · **Status:** closed,
 findings filed. Independent reviewers in clean-room
 workspaces holding only what a real early adopter gets  -  the built `agentdeck-3.0.0` wheel,

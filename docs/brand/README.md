@@ -1,5 +1,7 @@
 # Brand assets
 
+**Status:** Reference.
+
 The AgentDeck mark: an ace-cut card carrying the A. The notched corner reads as both a playing
 card and a file, so "deck" lands twice without drawing a literal card  -  it is the best idea in the
 system and the reason the mark survives at one colour.

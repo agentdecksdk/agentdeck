@@ -1,5 +1,7 @@
 # Comments
 
+**Status:** Binding.
+
 A comment preserves knowledge the code cannot carry: a why, an invariant, a surprising external behavior. Never what the next line does.
 
 Good (real, `core/control.py`):

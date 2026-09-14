@@ -3,6 +3,8 @@
 An agent with two tools and one skill. The tools are what it can *do*; the skill is prose that
 shapes *how*  -  loaded only when the model decides it needs it.
 
+**The rung:** disclosure. A skill is prose the model loads only when it decides it needs it, so the instruction budget is spent on demand rather than up front.
+
 ```text
 .agentdeck/
 ├── agents/handover_desk/agent.py     # two @tools + Agent(..., skills=["shift-notes"])
