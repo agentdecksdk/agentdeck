@@ -8,6 +8,8 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+## [6.0.6] - 2026-09-14
+
 ### Fixed
 
 - **The Ask Jack launcher no longer reads as broken when Jack is fine.** Its liveness probe asked
@@ -2896,7 +2898,8 @@ documentation platform and its CI.
   `runtime/tools.py`, `PluginRegistry.pick`, `skill_runtime` LLM/batch
   helpers; deps typer, rich, prompt-toolkit.
 
-[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.5...HEAD
+[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.6...HEAD
+[6.0.6]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.5...v6.0.6
 [6.0.5]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.4...v6.0.5
 [6.0.4]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.3...v6.0.4
 [6.0.3]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.2...v6.0.3
