@@ -12,7 +12,7 @@ They are not a record of how it was built. Everything else has a home:
 |---|---|
 | User-facing documentation | `docs-site/content/` |
 | Architecture and rulings | `docs/design/` |
-| Delivery plans, milestones, retrospectives | `agentdeck-internal:planning/` |
+| Delivery plans, milestones, retrospectives | not here |
 | Active discussion | GitHub issues |
 | History | `CHANGELOG.md` and migration guides |
 

@@ -1,6 +1,6 @@
 # Plan: Jack's evaluation suite
 
-**Status:** History.
+**Status:** Design of record for Jack's evaluation split, cited by `examples/jack/evals/metrics.py`.
 
 **Baseline:** 40 offline tests in the gate, 50 goldens in `examples/jack/evalset.py`, one custom runner.
 **Proposal:** keep the deterministic layer, adopt DeepEval for everything it does better, and cover
@@ -220,4 +220,4 @@ Steps 1-3 are the useful minimum. Everything after is coverage.
 Jack is only as right as the page he reads. Every real failure found so far was a thin or wrong
 documentation page, not a reasoning error. This suite will keep reporting docs gaps as agent
 failures, correctly, and the fix will keep being P1 work from
-[the IA plan](plan-docs-ia.md) rather than anything in `examples/jack`.
+the documentation site's own plan rather than anything in `examples/jack`.

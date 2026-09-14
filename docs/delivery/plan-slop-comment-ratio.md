@@ -1,6 +1,6 @@
 # Comment/docstring density ratio gate
 
-**Status:** History.
+**Status:** Design of record for the comment-ratio gate, cited by `scripts/slopcheck.py`.
 
 ## Context
 
