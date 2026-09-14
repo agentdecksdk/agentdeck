@@ -1,6 +1,6 @@
 # Plan  -  #219, Ask AgentDeck: the reference application
 
-**Status:** History.
+**Status:** Design of record for the reference application. `tests/test_jack.py` and `tests/test_jack_server.py` assert rulings 3 and 4 by number.
 `3.0.0b1`, gate green (`1217 passed, 99 skipped`, contracts 11/11).
 
 The last thing v3 does before the stable tag. #219 is release-level validation that the surface

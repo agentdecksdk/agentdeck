@@ -1,8 +1,8 @@
 # Plan: AgentDeck docs site
 
-**Status:** History.
+**Status:** Design of record for the documentation site. `.claude/skills/release/SKILL.md` cites DS-D3, `docs-site/README.md` cites DS-D8, `tests/test_docs_examples.py` cites its §6.
 
-**Reference:** `agentdeck-internal:planning/prd.md` (personas §2, FRs §4, phasing §6, metrics §7) ·
+**Reference:** the product requirements record (personas §2, FRs §4, phasing §6, metrics §7) ·
 **Baseline:** `docs-site/` as landed in #40 · **Date:** 2026-08-04
 
 ## 1. Goal
@@ -50,7 +50,7 @@ Defects to fix before adding anything:
 | DS-D7 | Diagrams only where the mechanism is invisible in prose  -  event-log fan-out, three rings, run-control safe points. Mermaid in MDX, no image assets | Screenshots and decorative diagrams rot faster than text. |
 | DS-D8 | No analytics, no Algolia, no Orama | Pagefind indexes the static export and works. Since DS-D1 the index and its dialog are ours, not the theme's. |
 | DS-D9 | Install instructions use a git+tag pin while the repo is private; publishing to PyPI is a product decision, not a docs prerequisite | Documenting `pip install agentdeck` would be the exact fiction §2 flags. Revisit if/when the package is published. |
-| DS-D10 | The site owns the *user-facing* contract for run control (safe points, restart semantics); `docs/` owns the internal mechanism, and epic Story 3's AC points at the site page | Otherwise safe-point semantics get two homes and we recreate the precedence ambiguity `agentdeck-internal:planning/project-index.md` exists to kill. |
+| DS-D10 | The site owns the *user-facing* contract for run control (safe points, restart semantics); `docs/` owns the internal mechanism, and epic Story 3's AC points at the site page | Otherwise safe-point semantics get two homes and we recreate the precedence ambiguity the project index exists to kill. |
 
 ## 4. Information architecture
 

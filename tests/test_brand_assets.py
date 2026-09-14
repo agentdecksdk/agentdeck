@@ -22,10 +22,6 @@ PALETTE_CSS = ROOT / "docs-site" / "styles" / "base.css"
 PALETTE_TOKEN = re.compile(r"(--brand-[\w-]+)\s*:\s*(#[0-9a-fA-F]{3,8})")
 WORD = "agentdeck"
 
-# The designer's trace is history, not a consumer: freezing it against a component would mean
-# editing provenance whenever the geometry it records is revised.
-PROVENANCE = {"logo-traced-original.svg"}
-
 
 @cache
 def _compositions() -> tuple[Path, ...]:
@@ -36,7 +32,7 @@ def _compositions() -> tuple[Path, ...]:
     Next serves the favicon from `app/icon.svg` by filename convention. Both were hand-copies,
     both were still on the pre-refactor coordinates, and nothing was watching either.
     """
-    files = tuple(svg for svg in sorted(BRAND.glob("*.svg")) if svg.name not in PROVENANCE)
+    files = tuple(sorted(BRAND.glob("*.svg")))
     assert files, f"no brand SVGs under {BRAND}  -  the directory moved"
     site = (ROOT / "docs-site" / "components" / "site" / "mark.tsx", ROOT / "docs-site" / "app" / "icon.svg")
     assert all(p.is_file() for p in site), f"a docs-site brand file moved: {site}"
