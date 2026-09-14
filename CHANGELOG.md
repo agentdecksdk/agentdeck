@@ -8,6 +8,16 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Ask Jack launcher no longer reads as broken when Jack is fine.** Its liveness probe asked
+  for `/health` on the site's own origin, which the deployment routes nowhere, so it answered 404
+  whether or not the assistant was running and the launcher sat disabled saying he had errored. It
+  now probes the path that is routed.
+- **A locally run Jack accepts the local docs site.** The default origin allowlist named port 3030,
+  which nothing has served since `npm run dev` moved to 3040, so a contributor running both saw
+  "Jack is away" against a healthy backend.
+
 ## [6.0.5] - 2026-09-14
 
 ### Added
