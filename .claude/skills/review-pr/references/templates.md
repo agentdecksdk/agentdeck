@@ -14,13 +14,19 @@ ALWAYS use this exact template structure:
 
     Settled by: <DISCUSS only, one line>
 
+    tag: <BLOCK and DISCUSS only, kebab-case>
+
     ```suggestion
     <optional, only when the fix is a literal line replacement>
     ```
 
-- **40 words maximum**, excluding a suggestion block. One paragraph. No headings, no lists, no
-  second paragraph.
+- **40 words maximum**, excluding a suggestion block and the two colon lines. One paragraph. No
+  headings, no lists, no second paragraph.
 - The first token is the class in bold. Nothing precedes it.
+- `tag:` names the *dev-agent behavior*, never the defect: `assertion-cannot-fail`, not
+  `missing test`. It is what makes recurrence countable, and `uv run scripts/finding_tags.py`
+  reads it back out of GitHub. Reuse a tag from that histogram whenever one fits; a tag invented
+  per finding can never reach a count.
 - `Settled by:` appears on DISCUSS and nowhere else. It names the evidence or decision that would
   resolve it, so a DISCUSS can never be a shrug.
 

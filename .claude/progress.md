@@ -12,7 +12,7 @@ Branch `docs/723-express-the-canon`. Plan approved 2026-09-14, delivered as PR #
 - [x] 7. `docs/` status sweep, 52 files, + `CLAUDE.md` names the set
 
 Then: the harness gaps (the design gate, the outside question, the second reader, the direction),
-the finding ledger and `deck-insight` from #697, and the Codex trees deleted.
+the behavior tags and `deck-insight` from #697, and the Codex trees deleted.
 
 Rulings: refusals stay internal; headline unchanged; roadmap is a site page, no dates, no issue
 numbers; Claude is the only agent harness this repo carries.
