@@ -88,11 +88,21 @@ export async function* askJack(asked: JackQuestion, signal?: AbortSignal): Async
  */
 export type JackHealth = 'checking' | 'ok' | 'off' | 'broken'
 
+/**
+ * Probes `/ask`, the one path the tunnel routes, rather than the backend's own `/health`.
+ *
+ * In production `JACK_API` is the site's own origin and only `/ask*` reaches Jack, so `/health`
+ * answers 404 from the static site whether or not he is running: probing it would leave the
+ * launcher permanently disabled, reading "answered with an error", against a healthy backend.
+ * A 405 here is the proof we want, since `/ask` is POST-only and only the app can refuse the verb.
+ */
 export async function jackHealth(): Promise<JackHealth> {
   try {
-    const response = await fetch(`${JACK_API}/health`)
-    if (response.ok) return 'ok'
-    return response.status === 502 || response.status === 530 ? 'off' : 'broken'
+    const response = await fetch(`${JACK_API}/ask`)
+    if (response.status === 405 || response.ok) return 'ok'
+    // 404 means the request never reached Jack, which reads as away rather than broken.
+    const away = [404, 502, 530]
+    return away.includes(response.status) ? 'off' : 'broken'
   } catch {
     return 'off'
   }
