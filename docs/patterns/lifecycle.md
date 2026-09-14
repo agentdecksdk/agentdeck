@@ -1,5 +1,7 @@
 # Run Lifecycle
 
+**Status:** Binding.
+
 One concept has one home. Externally initiated lifecycle operations (cancel, pause, resume, answer) are methods on the existing handles (`Run` in `deck.py`, `Runtime.signal` in `runtime/service.py`); state transitions flow through the runtime's state machine.
 
 Good (real, `deck.py`): timeout-like behavior asks the existing handle:

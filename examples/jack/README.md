@@ -4,6 +4,8 @@ The assistant that answers questions about AgentDeck, built on AgentDeck. It is 
 application for v3 (#219): a real small program against the public surface, kept small enough to
 read in one sitting.
 
+**The rung:** all of them, in one application. Tools, a skill, a typed context, the event stream, and three bindings on one Deck.
+
 ```bash
 export OPENAI_MODEL=gpt-4.1-mini OPENAI_API_KEY=sk-...
 python run.py "how do I create an agent?"                    # one question, headless

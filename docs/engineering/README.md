@@ -1,5 +1,7 @@
 # AgentDeck Engineering
 
+**Status:** Binding, and the precedence order for everything else here.
+
 This directory contains AgentDeck's engineering law.
 
 Read these in order:

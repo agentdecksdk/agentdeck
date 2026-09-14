@@ -14,7 +14,7 @@ Issues are implementation-ready specifications. Be concise, precise, and dense w
 What is broken or missing, and why it matters. For bugs: exact traceback and minimal reproduction steps.
 
 ## Proposed shape
-The clean, user-intent API or behavior with minimal code snippets. Show the simplest path with zero leaked plumbing. Explicitly state what is out of scope.
+The clean, user-intent API or behavior with minimal code snippets. Show the simplest path with zero leaked plumbing. Explicitly state what is out of scope. For a feature, answer Q4 here (`docs/engineering/principles.md`): is this absorbing complexity, or transferring it to the user? That is the question we most often fail, and proposal time is when it is cheapest to fail it.
 
 ## Notes
 Constraints, affected modules, existing patterns to follow, related issues/PRs.

@@ -42,6 +42,22 @@
   background: #1d2b45;
 }
 
+/* Down, not broken: the pill dims and stops accepting a question instead of disappearing, so the
+   feature is still visible as a thing that exists and is not available right now. */
+.ask-launch.is-down {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.ask-launch.is-down:hover {
+  border-color: color-mix(in srgb, var(--brand-blue) 34%, transparent);
+  background: color-mix(in srgb, var(--brand-blue) 7%, #fff);
+}
+
+.dark .ask-launch.is-down:hover {
+  background: var(--brand-slate);
+}
+
 @media (max-width: 767px) {
   /* The spark alone. At this size a border and a fill read as a second card in a bar that already
      has enough edges; the 44px target stays. */

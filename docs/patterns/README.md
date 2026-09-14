@@ -1,5 +1,7 @@
 # Canonical Patterns
 
+**Status:** Binding.
+
 The project's taste, encoded as real good/bad pairs. An agent about to write code reads the pattern file for its concern and matches the good side. A new way of doing something a pattern already covers is a defect, not a style choice.
 
 | Concern | File |

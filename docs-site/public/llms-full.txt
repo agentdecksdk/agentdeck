@@ -98,7 +98,9 @@ Not shipped yet: nothing below is available in 6.0.0.
 | `A2A.http()` | [#552](https://github.com/agentdecksdk/agentdeck/issues/552) |
 | `WhatsApp.http()` | [#553](https://github.com/agentdecksdk/agentdeck/issues/553) |
 | `@agentdeck/client` | [#551](https://github.com/agentdecksdk/agentdeck/issues/551) |
-| `A2UI.http()`, `ACP.stdio()`, `MCP.stdio()`/`MCP.http()`, `WebChat.http()`, `Slack.http()`, `.agentdeck/bindings` config and CLI flags | [roadmap](https://github.com/agentdecksdk/agentdeck/blob/main/docs/design/protocols/roadmap.md) |
+| `A2UI.http()`, `ACP.stdio()`, `MCP.stdio()`/`MCP.http()`, `.agentdeck/bindings` config and CLI flags | [roadmap](https://github.com/agentdecksdk/agentdeck/blob/main/docs/design/protocols/roadmap.md) |
+
+Where the bindings sit among everything else that is coming: [the roadmap](/resources/roadmap).
 
 ## The complete setup, once it lands
 
@@ -2128,12 +2130,12 @@ Source: https://agentdecksdk.com/examples
 Four runnable examples, each one file or two and each about a single idea. Every page below links
 to its own source.
 
-| Example | What it shows | Needs a key |
-|---|---|---|
-| [Chat agent with a tool](/examples/chat-agent-with-a-tool) | A `@tool` and an `Agent` discovered from `.agentdeck/`, then `deck.run(...)`. Six lines of declaration, no JSON schema and no tool loop | yes |
-| [Agent with a skill](/examples/agent-with-a-skill) | A `SKILL.md` the model loads only when it decides it needs it, across two turns on one session | yes |
-| [Chat in the terminal](/examples/chat-in-the-terminal) | A `@workflow` that asks the questions with `ctx.ask(...)`, driven by `agentdeck chat` | no |
-| [Run events stream](/examples/run-events-stream) | A run's typed event log, printed as it arrives from `deck.stream(...)` | no |
+| Example | Rung | What it shows | Needs a key |
+|---|---|---|---|
+| [Chat agent with a tool](/examples/chat-agent-with-a-tool) | one agent, one tool | A `@tool` and an `Agent` discovered from `.agentdeck/`, then `deck.run(...)`. Six lines of declaration, no JSON schema and no tool loop | yes |
+| [Agent with a skill](/examples/agent-with-a-skill) | disclosure | A `SKILL.md` the model loads only when it decides it needs it, across two turns on one session | yes |
+| [Chat in the terminal](/examples/chat-in-the-terminal) | a human in the loop | A `@workflow` that asks the questions with `ctx.ask(...)`, driven by `agentdeck chat` | no |
+| [Run events stream](/examples/run-events-stream) | the event log | A run's typed event log, printed as it arrives from `deck.stream(...)` | no |
 
 The two without a key run the same on every machine: a `@workflow` is your own Python, and the
 events example scripts the model in-process.
@@ -2146,7 +2148,12 @@ python run.py
 ```
 
 The reference application, [Jack](/jack), is documented separately: he is the agent answering
-questions on this site, and his page records the reasoning behind each decision in him.
+questions on this site, and his page records the reasoning behind each decision in him. He is every
+rung at once, which is why he is not in the table.
+
+Two rungs have no example yet: concurrent child runs with `ctx.parallel(...)`, and one agent
+invoking another with `ctx.invoke(...)`. Both are documented in
+[Workflows](/build-your-deck/workflows).
 
 ---
 
@@ -3238,81 +3245,36 @@ Source: https://agentdecksdk.com/resources/changelog
 Rendered from the repository's own `CHANGELOG.md`, so this page cannot drift from it. Entries
 are written for someone using the package: what changed, and what to do about it.
 
-The current release is **v6.0.4**. Earlier releases are listed at the bottom.
+The current release is **v6.0.5**. Earlier releases are listed at the bottom.
 
-## v6.0.4
+## v6.0.5
 
-*Released 2026-09-13.*
-
-### Changed
-
-- **Docs navigation on a phone collapses down from the bar instead of sliding in from the side.**
-  It fills the screen under the header, the tree scrolls inside it, and the bar's control is a menu
-  closed and an X open. The page behind no longer moves while it is open.
-- **Ask Jack on a phone is a full-screen page and no longer opens the keyboard by itself.** The
-  composer takes focus only on the docked panel, where typing is the next action; on a phone the
-  keyboard used to cover the transcript and the suggestions before anything had been asked.
-
-### Fixed
-
-- **Troubleshooting lists the binding errors where they actually raise** (#750). Two of the four
-  `ConfigError` causes under "At build time" raise from `deck.expose(...)` or `deck.serve(...)`, not
-  from `Deck(...)`: a deck is valid on its own, and a set of bindings is checked when they are put
-  together. They now have their own section, with the three causes the page never listed.
-- **The `agent-with-a-skill` example links to the documentation site** (#726). Both "next" links
-  pointed at a personal `github.io` mirror that is being unpublished.
-- **Sharing a docs page renders the social preview card instead of a blank one** (#733). The site
-  declared `twitter:card=summary_large_image` and an Open Graph block with no image in either, so
-  every crawler that honoured the declaration reserved a large card and had nothing to put in it.
-  The site now serves a rendered PNG at `/brand/social-card.png`, because no crawler renders SVG
-  for a preview, and the card artwork is the light landing-page treatment in both `docs/brand/`
-  and `docs-site/public/brand/`.
-
-### Removed
-
-- **Docs no longer deploy to GitHub Pages** (#724). The real site is served from its own domain;
-  the Pages mirror hadn't worked since the Fumadocs migration. `docs-pages.yml` is deleted, and
-  `next.config.mjs` no longer branches on `GITHUB_ACTIONS` to add a `/agentdeck` prefix, so CI's
-  `Build documentation` now builds the same output prod serves.
-
-### Fixed
-
-- **`scripts/check_docs_impact.py` accepts an indented docs-impact acknowledgement** (#719). The
-  checklist line was anchored at column 0, so a Markdown list-continuation indent (identical when
-  rendered) failed silently, listing every affected page as unacknowledged. Leading whitespace is
-  now accepted, and the failure output now also names the `gh run rerun` / stale `PR_BODY` gotcha.
-- **`scripts/release_bump.py issues` finds a squash-merged release's milestone issues again**
-  (#699). It looked for `Merge pull request #N` commits, a shape this repo's squash-merge
-  workflow never produces, so it silently milestoned nothing; it now resolves each commit's
-  merged PR and reads GitHub's own `closingIssuesReferences`.
-- **A run that fails between its claim and its play now folds to `failed`, not `cancelled`**
-  (#688). An infrastructure fault there (a store write, a control-signal read) used to close the
-  run with `run.cancelled`, the same terminal kind a real cancellation gets, with the true cause
-  readable only in the reason prose. It now writes `run.failed` with `error_code="engine_error"`,
-  the same code the identical fault gets inside a run's own engine loop, so an operator's failure
-  listing or an incident metric keyed on `run.failed` sees it. A cancellation between the claim
-  and the play still folds to `cancelled`, unchanged. Any consumer that filtered on a run's folded
-  status will now see these runs move from its cancelled set to its failed set.
+*Released 2026-09-14.*
 
 ### Added
 
-- **The docs site nav states which version it documents** (#686), sourced from
-  `generated-version.ts` so it follows the release bump automatically.
+- **A public roadmap** (#723). `/resources/roadmap` states where AgentDeck is going: reach across
+  protocols through 6.x, programmable execution and debugging in v7, isolation and sandboxing in
+  v8, and rooms, automation, batteries and operations as directions rather than a release order. No
+  dates. Protocol sequencing stays authoritative in the repository's protocol roadmap.
 
 ### Changed
 
-- **The documentation site runs on Fumadocs instead of Nextra 4** (#683). Same 44 URLs, same
-  Pagefind search, same pages. Nextra's loader routed every fenced block through `twoslash`,
-  whose peer range pinned TypeScript below 7 (#664); nothing does now.
-- **`brand.css` targets Fumadocs' own DOM and tokens instead of Nextra's leftovers** (#691). The
-  sidebar and table-of-contents active states now recolor through Fumadocs' own
-  `--color-fd-primary` token; the announcement bar reads 4.88:1 white-on-blue (AA, disclosed on
-  #691); the docs-site build has zero remaining `.nextra-*` selectors.
+- **Ask Jack says he is away before you type, rather than after** (#224). The docs site checks the
+  assistant's `/health` on load: when it is unreachable the launcher reads "Jack is away" and takes
+  no question, instead of accepting one and failing on send. A backend that answers with an error
+  reads differently from one that is not running.
+- **The `observability` extra now requires Langfuse 4.x** (#748). `langfuse>=4.15.2` and
+  `openinference-instrumentation-openai-agents>=2.4.1`, up from `>=2.60` and `>=0.1`. Langfuse 4
+  is past their OpenTelemetry rewrite, so an environment pinning Langfuse 2.x will not resolve
+  `agentdeck-sdk[observability]` until it moves. AgentDeck's own observer surface is unchanged:
+  `Deck(observers=[Langfuse()])` is the same call and the same behavior.
 
 ## Earlier releases
 
 | Version | Date | Notes |
 |---|---|---|
+| [v6.0.4](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.4) | 2026-09-13 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.4) |
 | [v6.0.3](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.3) | 2026-09-04 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.3) |
 | [v6.0.2](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.2) | 2026-09-04 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.2) |
 | [v6.0.1](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.1) | 2026-09-04 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.1) |
@@ -3557,6 +3519,64 @@ nothing else.
 **What to do:** move every key a `config.yaml` held into `AGENTDECK_*` environment variables (see
 the full list on the [Settings reference](/reference/settings)), and delete the file. A
 `config.yaml` left behind is not read.
+
+---
+
+# Roadmap
+
+*"Where AgentDeck is going: reach across protocols now, programmable execution and debugging next, isolation after that."*
+Source: https://agentdecksdk.com/resources/roadmap
+
+Direction, not dates. The version labels below say what comes before what; they are not a schedule,
+and nothing here is a commitment to ship on a given day.
+
+## What you have today
+
+Agents, workflows, skills and tools compose in any direction. Every run appends to one versioned
+event log, and status is folded from it. Sessions persist across turns, surfaces and restarts. Runs
+pause, resume, cancel and answer by id, from another process, across a restart. Three bindings run
+on one Deck: [Native HTTP/SSE](/bindings/native), [the terminal](/bindings/terminal) and
+[AG-UI](/bindings/agui). Cost, traces and audit are consumers of the log rather than per-engine
+instrumentation.
+
+The binding SPI is frozen at v1, so a [binding you write today](/bindings/write-your-own) keeps
+working.
+
+## Where it goes
+
+| | Arc | What it means |
+|---|---|---|
+| **Now**, 6.x | **Reach** | Run the same AgentDeck execution model through more environments. Stabilize the binding SPI and ship reference integrations for Native, Terminal, AG-UI, A2A, WhatsApp, A2UI, ACP and MCP, with durable identity, reconnect, human input and multimodal behavior where the protocol supports them |
+| **Next**, v7 | **Programmable execution** | Anything executable becomes a Run. Stronger child-run and invocation semantics, capability-based execution and control, cleaner cancellation and shutdown, sync, thread and process execution, and one consistent Reporter across them. The point is to manipulate execution, not only observe it |
+| **With v7** | **Debugging agentic software** | Step through a run, replay it, fork it to compare outcomes, change parameters and state mid-flight, and turn a production failure into a regression case. The same interface serves a human developer and a coding agent |
+| **After**, v8 | **Isolation and sandboxing** | One coherent execution capability across agents, tools and skills, rather than a sandbox bolted onto each of them separately |
+| **Beyond** | Rooms, automation, batteries, operations | Group sessions with several agents and humans; triggers as one mechanism, whether cron, webhook, log pattern or timer; a tested standard library of agents and skills; an operations console reading only the event log |
+
+Reach changes *where* AgentDeck can be used, not what a Run is. A channel translates an external
+conversation into ordinary runs; it does not bring its own execution or session model. That
+boundary is what makes the next arc a separate one.
+
+Programmable execution and the debugger are one thesis, not two features: **agentic software should
+be debuggable like software.** Pausing and resuming a run is where that starts, not where it ends.
+
+The four under **Beyond** are directions rather than a release order. Nothing about them is
+sequenced yet, and saying otherwise would claim a decision we have not made.
+
+## What that means today
+
+Nothing is sandboxed. Tools, skills and workflow bodies are ordinary Python in your process, and a
+model-chosen tool call is trusted by design, which is what the isolation arc changes and what
+[`SECURITY.md`](https://github.com/agentdecksdk/agentdeck/blob/main/SECURITY.md) says plainly. On
+debugging, inspection works now and manipulation does not: you can pause, resume, cancel and read
+the run tree and the event log, and you cannot yet step, replay or fork.
+
+## Where the detail lives
+
+Protocol work is sequenced per phase in
+[the protocol roadmap](https://github.com/agentdecksdk/agentdeck/blob/main/docs/design/protocols/roadmap.md),
+which is authoritative on anything protocol-shaped and wins over this page. What already shipped is
+in the [changelog](/resources/changelog), and what is broken right now is in
+[known issues](/resources/known-issues).
 
 ---
 

@@ -1,8 +1,10 @@
 # Plan  -  execution context and context injection
 
+**Status:** Design of record.
+
 **Delivered** in v3.0.0 · **Date:** 2026-08-09 · The design and rulings of record for `Context[T]`;
-what moved when it met both engines is `agentdeck-internal:planning/delivery/plan-166-delivery.md`. Revised against
-`agentdeck-internal:planning/delivery/review-context-injection.md`, which reversed the original ruling on injection; pairs with
+what moved when it met both engines is the #166 delivery plan. Revised against
+the context-injection review, which reversed the original ruling on injection; pairs with
 `plan-phase4-deck.md`. The rule: **one context value enters the run once, and AgentDeck owns its
 public semantics across the whole execution graph.**
 

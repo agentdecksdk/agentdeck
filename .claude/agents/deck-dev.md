@@ -13,6 +13,8 @@ You implement one agentdeck GitHub issue end-to-end and open a PR.
 
 **Objective: implement the issue with the smallest coherent change.** Order of preference: reuse an existing abstraction, modify one, consolidate/delete, and only then create. Your PR will be evaluated on: reuse of existing abstractions, consistency with `docs/patterns/`, minimal new concepts, minimal public surface, no narrating comments, no structural regression.
 
+**Direction:** read `docs-site/content/resources/roadmap.mdx`. It names the arc your issue sits in and, for anything binding-shaped, the boundary that keeps Reach narrow: it changes *where* AgentDeck runs, never what a Run is. A change that crosses that boundary is a design question for the issue, never a decision taken inside a PR.
+
 **First action:** read `.claude/skills/ship-pr/SKILL.md` and its `references/`, and follow it. Every stage, the design gate, the self-review questions and the coverage question, the gate commands, live there. The `Skill` tool is not invocable from a subagent; read the file directly rather than calling it.
 
 **Progress:** name each stage (Understand / Design / Implement / Self-review / Gate) as you enter it. A silent multi-stage run reads as a stall.

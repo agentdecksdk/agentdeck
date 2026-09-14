@@ -76,6 +76,15 @@ const BUYS: [string, string][] = [
   ['Bindings', 'Native HTTP/SSE, the terminal, AG-UI clients such as Assistant UI, and any binding you write reach the same run.']
 ]
 
+// The ladder, in the order a project meets it. Each rung is one call, which is the claim: needing
+// concurrency, a human, another agent or a protocol never costs a redesign.
+const LADDER: [string, string, string][] = [
+  ['Concurrency', 'ctx.parallel(...)', 'Child runs whose failures and cancellation compose.'],
+  ['A human', 'ctx.ask(...)', 'The run suspends in place, durably, and resumes on the next line.'],
+  ['Another agent', 'ctx.invoke(...)', 'A child run with its own cost, cancel cascade and events.'],
+  ['A protocol', 'deck.serve(AGUI.http("/agui"))', 'One more surface onto the same runs and controls.']
+]
+
 export function Model({ children }: { children?: React.ReactNode }) {
   return (
     <section className="chapter is-wide">
@@ -101,6 +110,18 @@ export function Model({ children }: { children?: React.ReactNode }) {
             <div className="tree-buy" key={term}>
               <dt>{term}</dt>
               <dd>{detail}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="chapter-close">Needing more costs one call, not a redesign.</p>
+        <dl className="tree-buys">
+          {LADDER.map(([need, call, detail]) => (
+            <div className="tree-buy" key={need}>
+              <dt>{need}</dt>
+              <dd>
+                <code className="tree-buy__call">{call}</code>
+                {detail}
+              </dd>
             </div>
           ))}
         </dl>

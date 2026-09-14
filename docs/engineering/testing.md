@@ -1,6 +1,6 @@
 # Testing Standards
 
-**Status:** Binding
+**Status:** Binding.
 
 Tests protect product guarantees.
 
@@ -93,7 +93,7 @@ both callers were inside the critical section at the same time
 
 Test names state the guarantee:
 
-`test_terminal_event_remains_last_after_restart`
+`test_the_same_path_spelled_two_ways_is_one_claim`
 
 not:
 

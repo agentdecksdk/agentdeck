@@ -1,5 +1,7 @@
 # Protocol invariants
 
+**Status:** Design of record.
+
 ## Rules
 
 | rule | meaning |

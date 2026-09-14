@@ -38,6 +38,8 @@ Pattern entries are not scored by volume. The measure is whether a later review 
 never how many were written. Something that fails any of the four tests is a NIT, or nothing; it
 is never a pattern.
 - Product philosophy (`docs/engineering/principles.md`): does the change leak internal plumbing (stores, resolvers, internal contexts) into a public API; does it keep "one obvious path"; is it free of speculative abstraction and configuration nothing needs yet.
+- From outside: write the smallest call a user makes against the new surface and count what they must know to write it. Every other phase reads the diff, and "simple on the outside" is not visible from there. A concept in that call the issue never introduced is a Q4 finding, whatever the diff looks like.
+- The second reader: anything a human can see or drive here needs a structured path too, whether a typed payload, a return value, an event on the log or a CLI read path. Terminal output as the only way a program learns what happened is a Q7 finding, and it is the argument the binding SPI was built on.
 
 ## Reuse and duplication
 

@@ -1,7 +1,7 @@
 [project]
 name = "agentdeck-sdk"
-version = "6.0.4"
-description = "Build agents, tools and workflows as normal software, and serve them through bindings: one Deck, reachable over its own HTTP wire, the terminal and AG-UI, with the same runs and controls everywhere."
+version = "6.0.5"
+description = "Agentic software should feel like software. Build agents, tools and workflows as normal software, and get one execution model you can observe, control and extend."
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
@@ -39,8 +39,8 @@ serve = [
     "uvicorn>=0.30",
 ]
 observability = [
-    "langfuse>=2.60",
-    "openinference-instrumentation-openai-agents>=0.1",
+    "langfuse>=4.15.2",
+    "openinference-instrumentation-openai-agents>=2.4.1",
     "opentelemetry-sdk>=1.27",
 ]
 postgres = [
@@ -81,13 +81,13 @@ dev = [
     "redis>=5.0",
     # same reasoning as redis above, for the AG-UI binding's own test suite.
     "ag-ui-protocol>=0.1.22,<0.2",
-    "ruff>=0.6",
-    "ty>=0.0.1a21",
+    "ruff>=0.16.7",
+    "ty>=0.0.80",
     "pre-commit>=4.0",
     # pinned: a contract that passes today must not start failing on a linter upgrade
-    "import-linter==2.14",
+    "import-linter==2.15",
     # scripts/repomap.py only: the public-API map agents read before writing new code
-    "griffe>=1.6",
+    "griffe>=2.3.0",
 ]
 
 [tool.ruff]

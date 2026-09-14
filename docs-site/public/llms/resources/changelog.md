@@ -5,81 +5,36 @@
 Rendered from the repository's own `CHANGELOG.md`, so this page cannot drift from it. Entries
 are written for someone using the package: what changed, and what to do about it.
 
-The current release is **v6.0.4**. Earlier releases are listed at the bottom.
+The current release is **v6.0.5**. Earlier releases are listed at the bottom.
 
-## v6.0.4
+## v6.0.5
 
-*Released 2026-09-13.*
-
-### Changed
-
-- **Docs navigation on a phone collapses down from the bar instead of sliding in from the side.**
-  It fills the screen under the header, the tree scrolls inside it, and the bar's control is a menu
-  closed and an X open. The page behind no longer moves while it is open.
-- **Ask Jack on a phone is a full-screen page and no longer opens the keyboard by itself.** The
-  composer takes focus only on the docked panel, where typing is the next action; on a phone the
-  keyboard used to cover the transcript and the suggestions before anything had been asked.
-
-### Fixed
-
-- **Troubleshooting lists the binding errors where they actually raise** (#750). Two of the four
-  `ConfigError` causes under "At build time" raise from `deck.expose(...)` or `deck.serve(...)`, not
-  from `Deck(...)`: a deck is valid on its own, and a set of bindings is checked when they are put
-  together. They now have their own section, with the three causes the page never listed.
-- **The `agent-with-a-skill` example links to the documentation site** (#726). Both "next" links
-  pointed at a personal `github.io` mirror that is being unpublished.
-- **Sharing a docs page renders the social preview card instead of a blank one** (#733). The site
-  declared `twitter:card=summary_large_image` and an Open Graph block with no image in either, so
-  every crawler that honoured the declaration reserved a large card and had nothing to put in it.
-  The site now serves a rendered PNG at `/brand/social-card.png`, because no crawler renders SVG
-  for a preview, and the card artwork is the light landing-page treatment in both `docs/brand/`
-  and `docs-site/public/brand/`.
-
-### Removed
-
-- **Docs no longer deploy to GitHub Pages** (#724). The real site is served from its own domain;
-  the Pages mirror hadn't worked since the Fumadocs migration. `docs-pages.yml` is deleted, and
-  `next.config.mjs` no longer branches on `GITHUB_ACTIONS` to add a `/agentdeck` prefix, so CI's
-  `Build documentation` now builds the same output prod serves.
-
-### Fixed
-
-- **`scripts/check_docs_impact.py` accepts an indented docs-impact acknowledgement** (#719). The
-  checklist line was anchored at column 0, so a Markdown list-continuation indent (identical when
-  rendered) failed silently, listing every affected page as unacknowledged. Leading whitespace is
-  now accepted, and the failure output now also names the `gh run rerun` / stale `PR_BODY` gotcha.
-- **`scripts/release_bump.py issues` finds a squash-merged release's milestone issues again**
-  (#699). It looked for `Merge pull request #N` commits, a shape this repo's squash-merge
-  workflow never produces, so it silently milestoned nothing; it now resolves each commit's
-  merged PR and reads GitHub's own `closingIssuesReferences`.
-- **A run that fails between its claim and its play now folds to `failed`, not `cancelled`**
-  (#688). An infrastructure fault there (a store write, a control-signal read) used to close the
-  run with `run.cancelled`, the same terminal kind a real cancellation gets, with the true cause
-  readable only in the reason prose. It now writes `run.failed` with `error_code="engine_error"`,
-  the same code the identical fault gets inside a run's own engine loop, so an operator's failure
-  listing or an incident metric keyed on `run.failed` sees it. A cancellation between the claim
-  and the play still folds to `cancelled`, unchanged. Any consumer that filtered on a run's folded
-  status will now see these runs move from its cancelled set to its failed set.
+*Released 2026-09-14.*
 
 ### Added
 
-- **The docs site nav states which version it documents** (#686), sourced from
-  `generated-version.ts` so it follows the release bump automatically.
+- **A public roadmap** (#723). `/resources/roadmap` states where AgentDeck is going: reach across
+  protocols through 6.x, programmable execution and debugging in v7, isolation and sandboxing in
+  v8, and rooms, automation, batteries and operations as directions rather than a release order. No
+  dates. Protocol sequencing stays authoritative in the repository's protocol roadmap.
 
 ### Changed
 
-- **The documentation site runs on Fumadocs instead of Nextra 4** (#683). Same 44 URLs, same
-  Pagefind search, same pages. Nextra's loader routed every fenced block through `twoslash`,
-  whose peer range pinned TypeScript below 7 (#664); nothing does now.
-- **`brand.css` targets Fumadocs' own DOM and tokens instead of Nextra's leftovers** (#691). The
-  sidebar and table-of-contents active states now recolor through Fumadocs' own
-  `--color-fd-primary` token; the announcement bar reads 4.88:1 white-on-blue (AA, disclosed on
-  #691); the docs-site build has zero remaining `.nextra-*` selectors.
+- **Ask Jack says he is away before you type, rather than after** (#224). The docs site checks the
+  assistant's `/health` on load: when it is unreachable the launcher reads "Jack is away" and takes
+  no question, instead of accepting one and failing on send. A backend that answers with an error
+  reads differently from one that is not running.
+- **The `observability` extra now requires Langfuse 4.x** (#748). `langfuse>=4.15.2` and
+  `openinference-instrumentation-openai-agents>=2.4.1`, up from `>=2.60` and `>=0.1`. Langfuse 4
+  is past their OpenTelemetry rewrite, so an environment pinning Langfuse 2.x will not resolve
+  `agentdeck-sdk[observability]` until it moves. AgentDeck's own observer surface is unchanged:
+  `Deck(observers=[Langfuse()])` is the same call and the same behavior.
 
 ## Earlier releases
 
 | Version | Date | Notes |
 |---|---|---|
+| [v6.0.4](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.4) | 2026-09-13 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.4) |
 | [v6.0.3](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.3) | 2026-09-04 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.3) |
 | [v6.0.2](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.2) | 2026-09-04 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.2) |
 | [v6.0.1](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.1) | 2026-09-04 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.1) |

@@ -1,5 +1,7 @@
 # Comment/docstring density ratio gate
 
+**Status:** Design of record for the comment-ratio gate, cited by `scripts/slopcheck.py`.
+
 ## Context
 
 SLOP010/SLOP011 (#520) cap the size of one docstring or one comment block, but nothing caps a

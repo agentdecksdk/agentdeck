@@ -1,6 +1,6 @@
 # ADR-D11  -  The store assigns `seq` and `ts`
 
-**Status:** accepted
+**Status:** Design of record, accepted.
 **Date:** 2026-08-08 · **Amended:** 2026-08-08 (#149), 2026-08-22 (#421), 2026-09-04 (#471) · **Relates to:** ADR-D5, design doc §4.2 ·
 §5, `core/ports/store.py`, `runtime/service.py`, coding-standards §6
 **Supersedes:**
@@ -9,8 +9,8 @@
   `seq`, one counter per run, recovered from `max(seq)` on resume"*.
 - ADR-D5's *Explicitly unchanged* clause (`adr-d5-two-stores.md:151`)  -  *"`Runtime` still stamps and
   appends every event"*. D5's two-store rule itself is untouched.
-- `prompts/pr1-event-schema-prompt.md:34` and `:121`, which state the same rule. Prompts are frozen
-  as history rather than edited (index §6), so the supersession is recorded here and in the index.
+- the v1 event-schema bootstrap prompt, which stated the same rule. It was frozen as history rather
+  than edited, and deleted in #734; git holds it, and the supersession is recorded here.
 - The design doc's division of envelope stamping.
 
 The sentence this ADR originally named  -  *"A store never reads a clock"* in
@@ -182,7 +182,7 @@ as one test, not two.
 
 ## 7. Consequences to land with the change
 
-**All applied 2026-08-08**; the ledger is `agentdeck-internal:planning/project-index.md` §3.
+**All applied 2026-08-08**; the ledger is the project index §3.
 
 - `test_runtime_service.py:890`'s gap assertion flips `== [2]` → `== []`, and `_drain`'s
   *"not this arm's to close"* paragraph is deleted  -  it stops being true.

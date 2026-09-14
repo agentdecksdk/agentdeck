@@ -1,6 +1,6 @@
 # Dependency Standards
 
-**Status:** Binding
+**Status:** Binding.
 
 Dependencies increase maintenance, security, compatibility, install, and upgrade cost.
 

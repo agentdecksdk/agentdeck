@@ -13,8 +13,12 @@ import os
 import re
 import subprocess
 import sys
+from typing import TYPE_CHECKING
 
-DEP_LINE_RE = re.compile(r'^\+\s*"[A-Za-z0-9_.-]+[>=<!~]')
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+DEP_LINE_RE = re.compile(r'^([+-])\s*"([A-Za-z0-9_.-]+)[>=<!~][^"]*"')
 TOP_LEVEL_RE = re.compile(r"^([+-])(async def|def|class) ([A-Za-z]\w*)")
 BUDGET_RE = re.compile(r"new (classes|public symbols|modules|dependencies)\s*:\s*(\d+)", re.IGNORECASE)
 
@@ -23,21 +27,44 @@ def _git(*args: str) -> str:
     return subprocess.run(["git", *args], capture_output=True, text=True, timeout=30).stdout
 
 
+def new_dependencies(diff: Iterable[str]) -> list[str]:
+    """Dependencies `pyproject.toml` gains, which a version bump is not.
+
+    Same rule `actual_concepts` applies to symbols: a name on both sides of the diff changed, and a
+    change introduces no concept. Without it every dependabot PR demands a `## Concept budget`
+    section it has no author to write, and a gate nobody can satisfy is a gate nobody believes
+    (#760).
+    """
+    in_pyproject = False
+    added: dict[str, str] = {}
+    dropped: set[str] = set()
+    for line in diff:
+        if line.startswith("+++ "):
+            in_pyproject = line == "+++ b/pyproject.toml"
+        elif in_pyproject and (match := DEP_LINE_RE.match(line)):
+            sign, name = match.groups()
+            if sign == "+":
+                added[name] = line.lstrip("+ ").strip()
+            else:
+                dropped.add(name)
+    return [line for name, line in added.items() if name not in dropped]
+
+
 def actual_concepts(merge_base: str) -> dict[str, list[str]]:
     found: dict[str, list[str]] = {"classes": [], "public symbols": [], "modules": [], "dependencies": []}
     for line in _git("diff", "-M", "--name-status", merge_base, "HEAD").splitlines():
         status, _, path = line.partition("\t")
         if status == "A" and path.startswith("agentdeck/") and path.endswith(".py"):
             found["modules"].append(path)
-    in_lib = in_pyproject = False
+    in_lib = False
     added: dict[str, str] = {}
     removed: set[str] = set()
     # -M: a moved file must diff as a rename, or every symbol it carries would
     # count as newly created against the budget.
-    for line in _git("diff", "-M", merge_base, "HEAD").splitlines():
+    diff = _git("diff", "-M", merge_base, "HEAD").splitlines()
+    for line in diff:
         if line.startswith("+++ "):
             in_lib = line[4:].startswith("b/agentdeck/") and line.endswith(".py")
-            in_pyproject = line == "+++ b/pyproject.toml"
             continue
         if line.startswith("--- "):
             continue
@@ -47,14 +74,13 @@ def actual_concepts(merge_base: str) -> dict[str, list[str]]:
                 added[name] = kind
             else:
                 removed.add(name)
-        if in_pyproject and DEP_LINE_RE.match(line):
-            found["dependencies"].append(line.lstrip("+ ").strip())
     # A name both removed and re-added is a move or an edited signature, not a new concept.
     for name, kind in added.items():
         if name not in removed:
             found["public symbols"].append(name)
             if kind == "class":
                 found["classes"].append(name)
+    found["dependencies"] = new_dependencies(diff)
     return found
 
 

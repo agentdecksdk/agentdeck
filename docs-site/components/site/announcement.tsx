@@ -29,7 +29,7 @@ export function Announcement({
   )
 }
 
-/** The spark, from the refined master `docs/brand/refine-brand/agentdeck-spark-master.svg`, in its
+/** The spark, from the refined master the brand kit's spark master, in its
  *  Ace Red from the palette: the bar's one accent, and the only thing on it that is not blue or
  *  white. */
 function Spark() {

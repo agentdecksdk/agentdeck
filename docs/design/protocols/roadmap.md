@@ -1,5 +1,7 @@
 # Roadmap
 
+**Status:** Design of record, authoritative on protocol sequencing.
+
 ## Sequence
 
 | phase | deliverable | done when |

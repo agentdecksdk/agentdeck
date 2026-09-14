@@ -80,3 +80,20 @@ export async function* askJack(asked: JackQuestion, signal?: AbortSignal): Async
     }
   }
 }
+
+/**
+ * `off` is the routine state, not a defect: the backend runs on a laptop behind a Cloudflare
+ * Tunnel (#219), so the tunnel's 530 and the origin-gone 502 mean "nobody is home". A status
+ * from a backend that did answer is `broken` and reads differently.
+ */
+export type JackHealth = 'checking' | 'ok' | 'off' | 'broken'
+
+export async function jackHealth(): Promise<JackHealth> {
+  try {
+    const response = await fetch(`${JACK_API}/health`)
+    if (response.ok) return 'ok'
+    return response.status === 502 || response.status === 530 ? 'off' : 'broken'
+  } catch {
+    return 'off'
+  }
+}

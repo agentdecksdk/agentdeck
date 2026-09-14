@@ -8,6 +8,27 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+## [6.0.5] - 2026-09-14
+
+### Added
+
+- **A public roadmap** (#723). `/resources/roadmap` states where AgentDeck is going: reach across
+  protocols through 6.x, programmable execution and debugging in v7, isolation and sandboxing in
+  v8, and rooms, automation, batteries and operations as directions rather than a release order. No
+  dates. Protocol sequencing stays authoritative in the repository's protocol roadmap.
+
+### Changed
+
+- **Ask Jack says he is away before you type, rather than after** (#224). The docs site checks the
+  assistant's `/health` on load: when it is unreachable the launcher reads "Jack is away" and takes
+  no question, instead of accepting one and failing on send. A backend that answers with an error
+  reads differently from one that is not running.
+- **The `observability` extra now requires Langfuse 4.x** (#748). `langfuse>=4.15.2` and
+  `openinference-instrumentation-openai-agents>=2.4.1`, up from `>=2.60` and `>=0.1`. Langfuse 4
+  is past their OpenTelemetry rewrite, so an environment pinning Langfuse 2.x will not resolve
+  `agentdeck-sdk[observability]` until it moves. AgentDeck's own observer surface is unchanged:
+  `Deck(observers=[Langfuse()])` is the same call and the same behavior.
+
 ## [6.0.4] - 2026-09-13
 
 ### Changed
@@ -2865,7 +2886,8 @@ documentation platform and its CI.
   `runtime/tools.py`, `PluginRegistry.pick`, `skill_runtime` LLM/batch
   helpers; deps typer, rich, prompt-toolkit.
 
-[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.4...HEAD
+[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.5...HEAD
+[6.0.5]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.4...v6.0.5
 [6.0.4]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.3...v6.0.4
 [6.0.3]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.2...v6.0.3
 [6.0.2]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.1...v6.0.2

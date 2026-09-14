@@ -1,6 +1,6 @@
 # AgentDeck Coding Standards
 
-**Status:** Binding
+**Status:** Binding.
 **Scope:** Production code, tests, examples, and engineering changes.
 
 This is the front door. Read [`principles.md`](./principles.md) first.

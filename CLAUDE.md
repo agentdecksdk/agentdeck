@@ -3,25 +3,40 @@
 AgentDeck is a declarative runtime harness for multi-agent systems and workflows (OpenAI Agents SDK, plus AgentDeck-native `@tool`/`@workflow`).
 
 **Core standards:** `docs/engineering/`: the linked suite of binding engineering law:
-1. [`docs/engineering/principles.md`](docs/engineering/principles.md): Product philosophy & North Star.
+1. [`docs/engineering/principles.md`](docs/engineering/principles.md): Product philosophy, and the standard a feature is held to (Q1-Q7).
 2. [`docs/engineering/coding-standards.md`](docs/engineering/coding-standards.md): Binding front door for every code change.
 3. [`docs/engineering/coding-agents.md`](docs/engineering/coding-agents.md): Mandatory rules for coding agents.
 4. [`docs/engineering/documentation.md`](docs/engineering/documentation.md): Binding for every page under `docs-site/content/`.
 5. Specialized standards: [`architecture.md`](docs/engineering/architecture.md), [`runtime-contracts.md`](docs/engineering/runtime-contracts.md), [`testing.md`](docs/engineering/testing.md), [`dependencies.md`](docs/engineering/dependencies.md), [`repository-policy.md`](docs/engineering/repository-policy.md), [`import-boundaries.md`](docs/engineering/import-boundaries.md).
 6. [`docs/patterns/`](docs/patterns/README.md): the project's taste as real good/bad pairs. Read the file for your concern before writing; match the good side.
 
+**Every file under `docs/` declares its status on line 3**, from four words, so law is distinguishable from archaeology without opening it:
+
+| Status | Means | Where |
+|---|---|---|
+| **Binding** | a change that violates it is wrong | all of `docs/engineering/` and `docs/patterns/`, the 16 files above |
+| **Design of record** | live rulings; amend it rather than contradicting it | `docs/design/` including `protocols/`, and `docs/delivery/`, whose plans are cited by ruling number from tests and source |
+| **Reference** | true, not law | `docs/brand/README.md` |
+| **History** | a state the project has left. Usually it is deleted instead: git is the archive, and #734 deleted the eight that nothing read | nothing, currently |
+
+A version in a **History** title is that document's own subject, not a stale claim about this repository.
+
 ---
 
 ## 1. Product Philosophy & North Star
 
-> **Make powerful agentic systems feel obvious to build, compose, run, and operate.**
-> **Great software does the hard work so its users do not have to. Simple on the outside, elegant on the inside.**
+> **You build the software. AgentDeck handles the agentic machinery.**
+> **Simple on the outside, elegant on the inside.**
+
+Suspending a run on a human and resuming it days later on another machine is hard. So is cancelling a live run from another process, one conversation that spans turns and surfaces and restarts, and one run readable over HTTP, stdio and AG-UI at once. Our position is that we write those once, carefully, instead of every team writing them again under deadline. These subsystems are sophisticated inside and **must not make application code sophisticated**. When a design makes the inside simpler by making the outside harder, we have failed, and that is not a trade we are allowed to make quietly.
 
 * **User owns intent, AgentDeck owns machinery:** Users define agents, tools, workflows, skills, and context. AgentDeck manages run identity, execution lifecycle, persistence, event streams, cancellation, and concurrency.
+* **Complexity grows slower than capability:** Needing concurrency, a human, another agent or a protocol costs one call, not a redesign. An application is never restructured because its requirements got more serious.
 * **Abstractions must delete complexity:** An abstraction is successful only when the caller needs to know *less*. Never leak internal plumbing (stores, resolvers, internal contexts, log keys) into public user APIs.
 * **One obvious path first:** One clean, standard path for common tasks (`await deck.run(...)`). Advanced knobs remain escape hatches, never obstacles.
-* **Conciseness is mandatory:** No fluff, no sprawling prose. If one sentence suffices, write one sentence. Code, comments, docs, PR descriptions, and issue specs must be terse, precise, and dense with signal.
-* **No em dashes:** Never use the ` - ` character in any documentation, code, comments, or agent output. Use a regular hyphen `-`, colon `:`, or separate into distinct sentences.
+* **We are not exempt:** Finding that AgentDeck's own API has transferred complexity to the user is a defect, not a preference.
+
+**The standard.** Every major feature answers **Q1-Q7** in [`docs/engineering/principles.md`](docs/engineering/principles.md#the-standard), and a review cites them by key. Q2, can a developer who does not need it ignore it completely, kills most proposals. Q4, are we absorbing complexity or transferring it to the user, is the one we most often fail. A bugfix answers neither.
 
 ---
 
@@ -51,6 +66,8 @@ AgentDeck is a declarative runtime harness for multi-agent systems and workflows
 * **Comments:** Extremely rare, max 1–2 lines explaining non-obvious *why*, never restating what the code does.
   * Good (real, `core/control.py`): `# Before the raise, because the raise is what records the effect: an intent left pending behind an honored one would be honored a second time on the next resume.`
   * Bad: `# Increment the retry count` above `retry_count += 1`. A `PostToolUse` hook (`scripts/slopcheck.py`) flags this per edit.
+* **Conciseness is mandatory:** No fluff, no sprawling prose. If one sentence suffices, write one sentence. Code, comments, docs, PR descriptions, and issue specs must be terse, precise, and dense with signal.
+* **No em dashes:** Never use the ` - ` character in any documentation, code, comments, or agent output. Use a regular hyphen `-`, colon `:`, or separate into distinct sentences.
 
 ---
 

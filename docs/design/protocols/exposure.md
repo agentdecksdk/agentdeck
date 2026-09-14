@@ -1,5 +1,7 @@
 # Exposure
 
+**Status:** Design of record.
+
 The composition object that validates bindings, owns their lifecycle, and hosts them.
 
 ## API

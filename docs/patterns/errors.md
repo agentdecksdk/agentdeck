@@ -1,5 +1,7 @@
 # Errors
 
+**Status:** Binding.
+
 Every error states what happened, why, and the exact action that resolves it. The reader is a user at 2am, not the author.
 
 Good (real, `authoring/native.py`):
