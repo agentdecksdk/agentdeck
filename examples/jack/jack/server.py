@@ -52,13 +52,19 @@ if TYPE_CHECKING:
 
 AGENT = "Jack"
 
-# The docs site is a static bundle on another origin  -  GitHub Pages in production, :3030 in
+# The docs site is a static bundle on another origin  -  agentdecksdk.com in production, :3040 in
 # `npm run dev`  -  so the browser will not call this without CORS. Configurable because the
 # production origin changes when the site does, and a hardcoded host would outlive it.
 #
 # CORS is not a security control: it constrains browsers and nothing else, and a `curl` ignores
 # it entirely. The controls that matter for a publicly reachable endpoint are below.
-ALLOWED_ORIGINS = os.environ.get("JACK_ORIGINS", "http://localhost:3030,http://127.0.0.1:3030").split(",")
+ALLOWED_ORIGINS = os.environ.get(
+    # 3040 is `npm run dev` and 3031 is `npm run preview`, both from `docs-site/package.json`.
+    # The default named 3030, which nothing has served since the dev port moved, so a locally
+    # running Jack refused the local site and the panel read as away against a healthy backend.
+    "JACK_ORIGINS",
+    "http://localhost:3040,http://127.0.0.1:3040,http://localhost:3031,http://127.0.0.1:3031",
+).split(",")
 
 # Only these reach the browser. The stream is still canonical events  -  no reshaping, no
 # translation layer  -  but it is an allowlist rather than everything the run emits, because this

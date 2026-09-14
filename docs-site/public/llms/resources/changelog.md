@@ -5,35 +5,27 @@
 Rendered from the repository's own `CHANGELOG.md`, so this page cannot drift from it. Entries
 are written for someone using the package: what changed, and what to do about it.
 
-The current release is **v6.0.5**. Earlier releases are listed at the bottom.
+The current release is **v6.0.6**. Earlier releases are listed at the bottom.
 
-## v6.0.5
+## v6.0.6
 
 *Released 2026-09-14.*
 
-### Added
+### Fixed
 
-- **A public roadmap** (#723). `/resources/roadmap` states where AgentDeck is going: reach across
-  protocols through 6.x, programmable execution and debugging in v7, isolation and sandboxing in
-  v8, and rooms, automation, batteries and operations as directions rather than a release order. No
-  dates. Protocol sequencing stays authoritative in the repository's protocol roadmap.
-
-### Changed
-
-- **Ask Jack says he is away before you type, rather than after** (#224). The docs site checks the
-  assistant's `/health` on load: when it is unreachable the launcher reads "Jack is away" and takes
-  no question, instead of accepting one and failing on send. A backend that answers with an error
-  reads differently from one that is not running.
-- **The `observability` extra now requires Langfuse 4.x** (#748). `langfuse>=4.15.2` and
-  `openinference-instrumentation-openai-agents>=2.4.1`, up from `>=2.60` and `>=0.1`. Langfuse 4
-  is past their OpenTelemetry rewrite, so an environment pinning Langfuse 2.x will not resolve
-  `agentdeck-sdk[observability]` until it moves. AgentDeck's own observer surface is unchanged:
-  `Deck(observers=[Langfuse()])` is the same call and the same behavior.
+- **The Ask Jack launcher no longer reads as broken when Jack is fine.** Its liveness probe asked
+  for `/health` on the site's own origin, which the deployment routes nowhere, so it answered 404
+  whether or not the assistant was running and the launcher sat disabled saying he had errored. It
+  now probes the path that is routed.
+- **A locally run Jack accepts the local docs site.** The default origin allowlist named port 3030,
+  which nothing has served since `npm run dev` moved to 3040, so a contributor running both saw
+  "Jack is away" against a healthy backend.
 
 ## Earlier releases
 
 | Version | Date | Notes |
 |---|---|---|
+| [v6.0.5](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.5) | 2026-09-14 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.5) |
 | [v6.0.4](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.4) | 2026-09-13 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.4) |
 | [v6.0.3](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.3) | 2026-09-04 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.3) |
 | [v6.0.2](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.2) | 2026-09-04 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v6.0.2) |

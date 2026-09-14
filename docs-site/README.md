@@ -6,7 +6,7 @@ MDX-powered documentation built with Fumadocs and the Next.js App Router.
 
 ```bash
 npm --prefix docs-site ci
-npm --prefix docs-site run dev        # http://localhost:3030, hot reload, no search
+npm --prefix docs-site run dev        # http://localhost:3040, hot reload, no search
 npm --prefix docs-site run preview    # http://localhost:3031, real build, search works
 ```
 

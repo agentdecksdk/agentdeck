@@ -84,7 +84,7 @@ def client(scripted_model: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[Tes
     get_settings.cache_clear()
     # Every test but the origin one speaks as the docs site would; the route refuses anything
     # else before the model is called.
-    with TestClient(build_app(), headers={"origin": "http://localhost:3030"}) as opened:
+    with TestClient(build_app(), headers={"origin": "http://localhost:3040"}) as opened:
         yield opened
     get_settings.cache_clear()
 
